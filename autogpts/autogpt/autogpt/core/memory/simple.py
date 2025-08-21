@@ -18,6 +18,12 @@ class MessageHistory:
     def __init__(self, previous_message_history: list[str]):
         self._message_history = previous_message_history
 
+    def append(self, message: str) -> None:
+        self._message_history.append(message)
+
+    def as_list(self) -> list[str]:
+        return self._message_history
+
 
 class SimpleMemory(Memory, Configurable):
     default_settings = MemorySettings(
@@ -34,6 +40,7 @@ class SimpleMemory(Memory, Configurable):
     ):
         self._configuration = settings.configuration
         self._logger = logger
+        self._workspace = workspace
         self._message_history = self._load_message_history(workspace)
 
     @staticmethod
@@ -45,3 +52,10 @@ class SimpleMemory(Memory, Configurable):
         else:
             message_history = []
         return MessageHistory(message_history)
+
+    def add(self, message: str) -> None:
+        """Store a message in persistent memory."""
+        self._message_history.append(message)
+        path = self._workspace.get_path("message_history.json")
+        with path.open("w") as f:
+            json.dump(self._message_history.as_list(), f)
