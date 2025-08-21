@@ -61,7 +61,7 @@ class ReadFile(Ability):
                 data=None,
             )
 
-    def __call__(self, filename: str) -> AbilityResult:
+    async def __call__(self, filename: str) -> AbilityResult:
         if result := self._check_preconditions(filename):
             return result
 
@@ -129,10 +129,8 @@ class WriteFile(Ability):
     ) -> AbilityResult | None:
         message = ""
         try:
-            file_path = self._workspace.get_path(filename)
-            if file_path.exists():
-                message = f"File {filename} already exists."
-            if len(contents):
+            self._workspace.get_path(filename)
+            if not len(contents):
                 message = f"File {filename} was not given any content."
         except ValueError as e:
             message = str(e)
@@ -146,15 +144,15 @@ class WriteFile(Ability):
                 data=None,
             )
 
-    def __call__(self, filename: str, contents: str) -> AbilityResult:
+    async def __call__(self, filename: str, contents: str) -> AbilityResult:
         if result := self._check_preconditions(filename, contents):
             return result
 
         file_path = self._workspace.get_path(filename)
         try:
             directory = os.path.dirname(file_path)
-            os.makedirs(directory)
-            with open(filename, "w", encoding="utf-8") as f:
+            os.makedirs(directory, exist_ok=True)
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(contents)
             success = True
             message = f"File {file_path} written successfully."
@@ -164,7 +162,7 @@ class WriteFile(Ability):
 
         return AbilityResult(
             ability_name=self.name(),
-            ability_args={"filename": filename},
+            ability_args={"filename": filename, "contents": contents},
             success=success,
             message=message,
         )

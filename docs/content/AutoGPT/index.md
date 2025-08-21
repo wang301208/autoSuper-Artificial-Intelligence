@@ -23,6 +23,8 @@ AutoGPT is a **generalist agent**, meaning it is not designed with a specific ta
 mind. Instead, it is designed to be able to execute a wide range of tasks across many
 disciplines, as long as it can be done on a computer.
 
+Learn how agents can [self-upgrade](./self-upgrade.md) using built-in abilities.
+
 ## Coming soon
 * How does AutoGPT work?
 * What can I use AutoGPT for?

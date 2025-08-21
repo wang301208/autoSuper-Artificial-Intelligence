@@ -213,10 +213,37 @@ class SimpleAgent(Agent, Configurable):
 
     async def execute_next_ability(self, user_input: str, *args, **kwargs):
         if user_input == "y":
-            ability = self._ability_registry.get_ability(
-                self._next_ability["next_ability"]
-            )
-            ability_response = await ability(**self._next_ability["ability_arguments"])
+            ability_name = self._next_ability["next_ability"]
+            ability_args = self._next_ability["ability_arguments"]
+            ability = self._ability_registry.get_ability(ability_name)
+
+            previous_contents = None
+            filename = ability_args.get("filename") if ability_name == "write_file" else None
+            if filename:
+                file_path = self._workspace.get_path(filename)
+                if file_path.exists():
+                    previous_contents = file_path.read_text()
+
+            ability_response = await ability(**ability_args)
+
+            if ability_name == "write_file":
+                run_tests = self._ability_registry.get_ability("run_tests")
+                tests_result = await run_tests()
+                critique = await self._ability_registry.perform(
+                    "query_language_model",
+                    query=(
+                        "Given these test results, provide feedback on the change:\n" + tests_result.message
+                    ),
+                )
+                self._memory.add(
+                    f"Test run for {filename}:\n{tests_result.message}\nCritique: {critique.message}"
+                )
+                if not tests_result.success and previous_contents is not None:
+                    await ability(filename=filename, contents=previous_contents)
+                    ability_response.message += " Tests failed. Changes reverted."
+                else:
+                    ability_response.message += " Tests passed."
+
             await self._update_tasks_and_memory(ability_response)
             if self._current_task.context.status == TaskStatus.DONE:
                 self._completed_tasks.append(self._current_task)
