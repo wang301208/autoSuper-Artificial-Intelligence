@@ -73,3 +73,32 @@ async def test_create_and_execute_new_ability(tmp_path):
                 pyc.unlink()
         BUILTIN_ABILITIES.pop(ability_name, None)
         sys.modules.pop(f"autogpt.core.ability.builtins.{module_name}", None)
+
+
+@pytest.mark.asyncio
+async def test_create_new_ability_static_analysis_fail():
+    logger = logging.getLogger("test")
+    creator = CreateNewAbility(logger, CreateNewAbility.default_configuration)
+
+    ability_name = "BadAbility"
+    # Unused import should trigger a lint error
+    code = (
+        "import os\n"
+        "return AbilityResult(ability_name='BadAbility', ability_args={}, "
+        "success=True, message='hi')"
+    )
+
+    result = await creator(
+        ability_name=ability_name,
+        description="An invalid ability",
+        arguments=[],
+        required_arguments=[],
+        package_requirements=[],
+        code=code,
+    )
+
+    assert not result.success
+    assert ability_name not in BUILTIN_ABILITIES
+    builtins_dir = Path(inspect.getfile(CreateNewAbility)).resolve().parent
+    module_name = inflection.underscore(ability_name)
+    assert not (builtins_dir / f"{module_name}.py").exists()
