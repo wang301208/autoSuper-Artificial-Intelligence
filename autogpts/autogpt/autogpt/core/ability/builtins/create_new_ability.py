@@ -178,6 +178,34 @@ class {class_name}(Ability):
 
         ability_file.write_text(ability_code)
 
+        # Run static analysis on the generated ability
+        lint_cmd = ["ruff", "check", str(ability_file)]
+        try:
+            lint_proc = subprocess.run(
+                lint_cmd, capture_output=True, text=True, check=False
+            )
+        except FileNotFoundError:
+            lint_proc = subprocess.run(
+                ["flake8", str(ability_file)], capture_output=True, text=True, check=False
+            )
+        lint_output = (lint_proc.stdout + lint_proc.stderr).strip()
+
+        if lint_proc.returncode != 0:
+            if ability_file.exists():
+                ability_file.unlink()
+            return AbilityResult(
+                ability_name=ability_name,
+                ability_args={
+                    "ability_name": ability_name,
+                    "description": description,
+                    "parameters": json.dumps(
+                        {k: v.to_dict() for k, v in params_schema.items()}
+                    ),
+                },
+                success=False,
+                message=f"Static analysis failed for {ability_name}:\n{lint_output}",
+            )
+
         if package_requirements:
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", *package_requirements],
@@ -195,6 +223,9 @@ class {class_name}(Ability):
 
         BUILTIN_ABILITIES[ability_name] = ability_class
 
+        if not lint_output:
+            lint_output = "ruff: no issues found"
+
         return AbilityResult(
             ability_name=ability_name,
             ability_args={
@@ -205,5 +236,5 @@ class {class_name}(Ability):
                 ),
             },
             success=True,
-            message=f"Ability {ability_name} created.",
+            message=f"Ability {ability_name} created.\n{lint_output}",
         )
