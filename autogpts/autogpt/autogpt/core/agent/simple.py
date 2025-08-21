@@ -1,4 +1,5 @@
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -217,12 +218,13 @@ class SimpleAgent(Agent, Configurable):
             ability_args = self._next_ability["ability_arguments"]
             ability = self._ability_registry.get_ability(ability_name)
 
-            previous_contents = None
             filename = ability_args.get("filename") if ability_name == "write_file" else None
-            if filename:
-                file_path = self._workspace.get_path(filename)
-                if file_path.exists():
-                    previous_contents = file_path.read_text()
+            commit_hash = None
+            if ability_name == "write_file":
+                subprocess.run(["git", "commit", "-am", "<auto-update>"], check=False)
+                commit_hash = subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], text=True
+                ).strip()
 
             ability_response = await ability(**ability_args)
 
@@ -241,11 +243,14 @@ class SimpleAgent(Agent, Configurable):
                         "Given these test results, provide feedback on the change:\n" + tests_result.message
                     ),
                 )
+                test_status = "passed" if tests_result.success else "failed"
                 self._memory.add(
-                    f"Test run for {filename}:\n{tests_result.message}\nCritique: {critique.message}"
+                    f"Commit {commit_hash} - Test {test_status} for {filename}:\n{tests_result.message}\nCritique: {critique.message}"
                 )
-                if not tests_result.success and previous_contents is not None:
-                    await ability(filename=filename, contents=previous_contents)
+                if not tests_result.success:
+                    subprocess.run(["git", "reset", "--hard", "HEAD~1"], check=False)
+                    if hasattr(self._workspace, "refresh"):
+                        self._workspace.refresh()
                     ability_response.message += " Tests failed. Changes reverted."
                 else:
                     ability_response.message += " Tests passed."

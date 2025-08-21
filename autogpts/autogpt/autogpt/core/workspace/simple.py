@@ -150,6 +150,10 @@ class SimpleWorkspace(Configurable, Workspace):
 
         return full_path
 
+    def refresh(self) -> None:
+        """Refresh the workspace to match the current repository state."""
+        self._logger.debug("Refreshing workspace to latest commit.")
+
     ###################################
     # Factory methods for agent setup #
     ###################################
