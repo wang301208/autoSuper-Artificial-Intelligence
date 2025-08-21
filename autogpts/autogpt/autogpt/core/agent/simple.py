@@ -227,6 +227,12 @@ class SimpleAgent(Agent, Configurable):
             ability_response = await ability(**ability_args)
 
             if ability_name == "write_file":
+                generate_tests = self._ability_registry.get_ability("generate_tests")
+                tests_code = await generate_tests(file_path=filename)
+                if tests_code.success and tests_code.message:
+                    test_filename = str(Path("tests") / f"test_{Path(filename).stem}.py")
+                    await ability(filename=test_filename, contents=tests_code.message)
+                    ability_response.message += f" Test file generated at {test_filename}."
                 run_tests = self._ability_registry.get_ability("run_tests")
                 tests_result = await run_tests()
                 critique = await self._ability_registry.perform(
