@@ -28,7 +28,7 @@ Configuration is controlled through the `Config` object. You can set configurati
 - `HUGGINGFACE_IMAGE_MODEL`: HuggingFace model to use for image generation. Default: CompVis/stable-diffusion-v1-4
 - `IMAGE_PROVIDER`: Image provider. Options are `dalle`, `huggingface`, and `sdwebui`. Default: dalle
 - `IMAGE_SIZE`: Default size of image to generate. Default: 256
-- `MEMORY_BACKEND`: Memory back-end to use. Currently `json_file` is the only supported and enabled backend. Default: json_file
+- `MEMORY_BACKEND`: Memory back-end to use. Options are `json_file`, `redis`, and `no_memory`. Default: json_file
 - `MEMORY_INDEX`: Value used in the Memory backend for scoping, naming, or indexing. Default: auto-gpt
 - `OPENAI_API_KEY`: *REQUIRED*- Your [OpenAI API Key](https://platform.openai.com/account/api-keys).
 - `OPENAI_ORGANIZATION`: Organization ID in OpenAI. Optional.
