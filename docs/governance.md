@@ -41,6 +41,23 @@ for commit in pendings:
 Use `add_approval(commit, approver)` to record a new approval and
 `is_approved(commit)` to verify approval status.
 
+## HumanArchitect Agent
+
+The :class:`HumanArchitect` agent builds on ``ApprovalService`` to help a human
+reviewer manage core changes. It can list pending commits and record approvals
+without manually invoking git commands.
+
+```python
+from governance import HumanArchitect
+
+architect = HumanArchitect("Alice")
+for commit in architect.pending_commits():
+    architect.approve_commit(commit)
+```
+
+This keeps final authority in human hands while still integrating with the
+lightweight note‑based approval workflow.
+
 ## Responsibilities
 
 | Role            | Responsibilities                                      |
