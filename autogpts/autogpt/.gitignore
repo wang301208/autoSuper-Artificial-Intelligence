@@ -17,6 +17,10 @@ log-ingestion.txt
 mem.sqlite3
 venvAutoGPT
 data/*
+!data/charter/
+!data/charter/*.json
+!data/charter/*.yaml
+!data/charter/*.yml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
