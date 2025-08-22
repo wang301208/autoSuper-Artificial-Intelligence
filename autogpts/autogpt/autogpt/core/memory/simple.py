@@ -59,3 +59,15 @@ class SimpleMemory(Memory, Configurable):
         path = self._workspace.get_path("message_history.json")
         with path.open("w") as f:
             json.dump(self._message_history.as_list(), f)
+
+    def get(self, limit: int | None = None) -> list[str]:
+        """Return messages from memory.
+
+        Args:
+            limit: If provided, return only the most recent `limit` messages.
+
+        Returns:
+            List of stored messages.
+        """
+        messages = self._message_history.as_list()
+        return messages[-limit:] if limit else messages

@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,9 @@ from autogpt.core.resource.model_providers import (
     CompletionModelFunction,
     OpenAIProvider,
     OpenAISettings,
+    AssistantChatMessage,
 )
+from autogpt.core.resource.model_providers.schema import ChatModelResponse
 from autogpt.core.workspace.simple import SimpleWorkspace, WorkspaceSettings
 
 
@@ -254,6 +257,14 @@ class SimpleAgent(Agent, Configurable):
                     ability_response.message += " Tests failed. Changes reverted."
                 else:
                     ability_response.message += " Tests passed."
+                    evaluate_metrics = self._ability_registry.get_ability(
+                        "evaluate_metrics"
+                    )
+                    metrics_result = await evaluate_metrics(file_path=filename)
+                    self._memory.add(
+                        f"Metrics for {filename}: {metrics_result.message}"
+                    )
+                    ability_response.message += f" Metrics: {metrics_result.message}"
 
             await self._update_tasks_and_memory(ability_response)
             if self._current_task.context.status == TaskStatus.DONE:
@@ -287,6 +298,20 @@ class SimpleAgent(Agent, Configurable):
     ):
         """Choose the next ability to use for the task."""
         self._logger.debug(f"Choosing next ability for task {task}.")
+
+        degraded_modules = self._get_degraded_modules()
+        if degraded_modules:
+            module_path = degraded_modules[0]
+            return ChatModelResponse(
+                response=AssistantChatMessage(
+                    content="evaluate_metrics due to performance regression"
+                ),
+                parsed_result={
+                    "next_ability": "evaluate_metrics",
+                    "ability_arguments": {"file_path": module_path},
+                },
+            )
+
         if task.context.cycle_count > self._configuration.max_task_cycle_count:
             # Don't hit the LLM, just set the next action as "breakdown_task"
             #  with an appropriate reason
@@ -300,6 +325,29 @@ class SimpleAgent(Agent, Configurable):
                 task, ability_specs
             )
             return next_ability
+
+    def _get_degraded_modules(self) -> list[str]:
+        """Parse memory for performance metrics and return modules with regressions."""
+        records: dict[str, list[tuple[float, float]]] = {}
+        for msg in self._memory.get():
+            match = re.match(
+                r"Metrics for (.*): complexity=([0-9.]+), runtime=([0-9.]+)",
+                msg,
+            )
+            if match:
+                file = match.group(1)
+                complexity = float(match.group(2))
+                runtime = float(match.group(3))
+                records.setdefault(file, []).append((complexity, runtime))
+
+        degraded = []
+        for file, values in records.items():
+            if len(values) >= 2:
+                prev_c, prev_r = values[-2]
+                curr_c, curr_r = values[-1]
+                if curr_c > prev_c or curr_r > prev_r:
+                    degraded.append(file)
+        return degraded
 
     async def _update_tasks_and_memory(self, ability_result: AbilityResult):
         self._current_task.context.cycle_count += 1
