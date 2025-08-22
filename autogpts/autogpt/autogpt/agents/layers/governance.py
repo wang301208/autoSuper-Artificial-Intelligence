@@ -75,6 +75,23 @@ class GovernanceAgent(LayeredAgent, Configurable[GovernanceAgentSettings]):
 
         task_type = getattr(task, "type", getattr(task, "name", str(task)))
 
+        is_core_change = getattr(task, "core_change", False) or task_type == "core_change"
+        if is_core_change:
+            if getattr(task, "approved_by", None) != "human_architect":
+                raise PermissionError(
+                    "Core architecture changes require approval from role 'human_architect'."
+                )
+            human_arch_role = next(
+                (r for r in self.charter.roles if r.name == "human_architect"),
+                None,
+            )
+            if human_arch_role is None or not any(
+                p.name == "approve_core_change" for p in human_arch_role.permissions
+            ):
+                raise PermissionError(
+                    "Charter is missing 'human_architect' role with 'approve_core_change' permission."
+                )
+
         if charter_role.allowed_tasks and task_type not in charter_role.allowed_tasks:
             raise PermissionError(
                 f"Role '{role_name}' is not permitted to perform task '{task_type}' "

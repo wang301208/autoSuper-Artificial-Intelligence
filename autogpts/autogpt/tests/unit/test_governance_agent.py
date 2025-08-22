@@ -53,12 +53,12 @@ GovernanceAgentSettings = governance.GovernanceAgentSettings
 GovernancePolicy = governance.GovernancePolicy
 
 
-def make_agent(role: str = "assistant") -> GovernanceAgent:
+def make_agent(role: str = "assistant", charter_name: str = "example") -> GovernanceAgent:
     settings = GovernanceAgentSettings(
         name="gov",
         description="gov",
         policy=GovernancePolicy(
-            charter_name="example",
+            charter_name=charter_name,
             role=role,
             charter_path=Path(__file__).resolve().parents[2] / "data" / "charter",
         ),
@@ -89,3 +89,20 @@ def test_blocks_unknown_role() -> None:
     with pytest.raises(PermissionError) as exc:
         agent.route_task("answer questions")
     assert "not defined" in str(exc.value)
+
+
+def test_rejects_core_change_without_approval() -> None:
+    agent = make_agent(charter_name="human_architect")
+    task = types.SimpleNamespace(type="core_change", core_change=True)
+    with pytest.raises(PermissionError) as exc:
+        agent.route_task(task)
+    assert "approval" in str(exc.value)
+
+
+def test_allows_core_change_with_approval() -> None:
+    agent = make_agent(charter_name="human_architect")
+    task = types.SimpleNamespace(
+        type="core_change", core_change=True, approved_by="human_architect"
+    )
+    result = agent.route_task(task)
+    assert result is task
