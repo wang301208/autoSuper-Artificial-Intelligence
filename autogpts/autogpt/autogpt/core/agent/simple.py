@@ -3,7 +3,7 @@ import subprocess
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -12,7 +12,7 @@ from autogpt.core.ability import (
     AbilityResult,
     SimpleAbilityRegistry,
 )
-from autogpt.core.agent.base import Agent
+from autogpt.core.agent.layered import LayeredAgent
 from autogpt.core.configuration import Configurable, SystemConfiguration, SystemSettings
 from autogpt.core.memory import MemorySettings, SimpleMemory
 from autogpt.core.planning import PlannerSettings, SimplePlanner, Task, TaskStatus
@@ -68,7 +68,7 @@ class AgentSettings(BaseModel):
         self.agent.configuration.goals = agent_goals["agent_goals"]
 
 
-class SimpleAgent(Agent, Configurable):
+class SimpleAgent(LayeredAgent, Configurable):
     default_settings = AgentSystemSettings(
         name="simple_agent",
         description="A simple agent.",
@@ -122,7 +122,9 @@ class SimpleAgent(Agent, Configurable):
         openai_provider: OpenAIProvider,
         planning: SimplePlanner,
         workspace: SimpleWorkspace,
+        next_layer: Optional[LayeredAgent] = None,
     ):
+        super().__init__(next_layer=next_layer)
         self._configuration = settings.configuration
         self._logger = logger
         self._ability_registry = ability_registry
@@ -199,6 +201,12 @@ class SimpleAgent(Agent, Configurable):
         self._task_queue[-1].context.status = TaskStatus.READY
         return plan.parsed_result
 
+    def route_task(self, task: Task, *args, **kwargs):
+        self._task_queue.append(task)
+        self._task_queue.sort(key=lambda t: t.priority, reverse=True)
+        self._task_queue[-1].context.status = TaskStatus.READY
+        return task
+
     async def determine_next_ability(self, *args, **kwargs):
         if not self._task_queue:
             return {"response": "I don't have any tasks to work on right now."}
@@ -265,7 +273,8 @@ class SimpleAgent(Agent, Configurable):
                     critique = await self._ability_registry.perform(
                         "query_language_model",
                         query=(
-                            "Given these test results, provide feedback on the change:\n"
+                            "Given these test results, provide feedback on "
+                            "the change:\n"
                             + tests_result.message
                         ),
                     )
@@ -310,7 +319,8 @@ class SimpleAgent(Agent, Configurable):
                         summary = await self._ability_registry.perform(
                             "query_language_model",
                             query=(
-                                "Summarize the following changes for a commit message:\n"
+                                "Summarize the following changes for ",
+                                "a commit message:\n"
                                 + diff
                             ),
                         )
@@ -326,9 +336,9 @@ class SimpleAgent(Agent, Configurable):
                             ["git", "rev-parse", "HEAD"], text=True
                         ).strip()
                         self._memory.add(
-                            f"Commit {commit_hash} - {commit_message} - Test {test_status} "
-                            f"for {filename}:\n"
-                            f"{tests_result.message}\nCritique: {critique.message}"
+                            f"Commit {commit_hash} - {commit_message} - ",
+                            f"Test {test_status} for {filename}:\n",
+                            f"{tests_result.message}\nCritique: {critique.message}",
                         )
 
             await self._update_tasks_and_memory(ability_response)
