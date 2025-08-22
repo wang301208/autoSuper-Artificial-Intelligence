@@ -221,37 +221,53 @@ class SimpleAgent(Agent, Configurable):
             ability_args = self._next_ability["ability_arguments"]
             ability = self._ability_registry.get_ability(ability_name)
 
-            filename = ability_args.get("filename") if ability_name == "write_file" else None
-            commit_hash = None
-            if ability_name == "write_file":
-                subprocess.run(["git", "commit", "-am", "<auto-update>"], check=False)
-                commit_hash = subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"], text=True
-                ).strip()
-
+            filename = (
+                ability_args.get("filename") if ability_name == "write_file" else None
+            )
             ability_response = await ability(**ability_args)
 
             if ability_name == "write_file":
                 generate_tests = self._ability_registry.get_ability("generate_tests")
                 tests_code = await generate_tests(file_path=filename)
+                test_filename = None
                 if tests_code.success and tests_code.message:
-                    test_filename = str(Path("tests") / f"test_{Path(filename).stem}.py")
-                    await ability(filename=test_filename, contents=tests_code.message)
-                    ability_response.message += f" Test file generated at {test_filename}."
+                    test_filename = str(
+                        Path("tests") / f"test_{Path(filename).stem}.py"
+                    )
+                    await ability(
+                        filename=test_filename, contents=tests_code.message
+                    )
+                    ability_response.message += (
+                        f" Test file generated at {test_filename}."
+                    )
                 run_tests = self._ability_registry.get_ability("run_tests")
                 tests_result = await run_tests()
                 critique = await self._ability_registry.perform(
                     "query_language_model",
                     query=(
-                        "Given these test results, provide feedback on the change:\n" + tests_result.message
+                        "Given these test results, provide feedback on the change:\n"
+                        + tests_result.message
                     ),
                 )
                 test_status = "passed" if tests_result.success else "failed"
-                self._memory.add(
-                    f"Commit {commit_hash} - Test {test_status} for {filename}:\n{tests_result.message}\nCritique: {critique.message}"
-                )
                 if not tests_result.success:
-                    subprocess.run(["git", "reset", "--hard", "HEAD~1"], check=False)
+                    self._memory.add(
+                        f"Test failed for {filename}:\n{tests_result.message}\n"
+                        f"Critique: {critique.message}"
+                    )
+                    subprocess.run(
+                        ["git", "checkout", "--", filename], check=False
+                    )
+                    if test_filename:
+                        subprocess.run(
+                            ["git", "checkout", "--", test_filename], check=False
+                        )
+                        if subprocess.run(
+                            ["git", "ls-files", test_filename, "--error-unmatch"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        ).returncode:
+                            Path(test_filename).unlink(missing_ok=True)
                     if hasattr(self._workspace, "refresh"):
                         self._workspace.refresh()
                     ability_response.message += " Tests failed. Changes reverted."
@@ -265,6 +281,35 @@ class SimpleAgent(Agent, Configurable):
                         f"Metrics for {filename}: {metrics_result.message}"
                     )
                     ability_response.message += f" Metrics: {metrics_result.message}"
+                    subprocess.run(["git", "add", filename], check=False)
+                    if test_filename:
+                        subprocess.run(["git", "add", test_filename], check=False)
+                    diff = subprocess.check_output(
+                        ["git", "diff", "--cached"], text=True
+                    )
+                    summary = await self._ability_registry.perform(
+                        "query_language_model",
+                        query=(
+                            "Summarize the following changes for a commit message:\n"
+                            + diff
+                        ),
+                    )
+                    commit_message = (
+                        f"Auto-update: {summary.message}"
+                        if summary.success and summary.message
+                        else f"Auto-update: modify {filename}"
+                    )
+                    subprocess.run(
+                        ["git", "commit", "-m", commit_message], check=False
+                    )
+                    commit_hash = subprocess.check_output(
+                        ["git", "rev-parse", "HEAD"], text=True
+                    ).strip()
+                    self._memory.add(
+                        f"Commit {commit_hash} - {commit_message} - Test {test_status} "
+                        f"for {filename}:\n"
+                        f"{tests_result.message}\nCritique: {critique.message}"
+                    )
 
             await self._update_tasks_and_memory(ability_response)
             if self._current_task.context.status == TaskStatus.DONE:
