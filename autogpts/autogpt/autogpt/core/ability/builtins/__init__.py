@@ -3,6 +3,7 @@ from autogpt.core.ability.builtins.file_operations import ReadFile, WriteFile
 from autogpt.core.ability.builtins.generate_tests import GenerateTests
 from autogpt.core.ability.builtins.query_language_model import QueryLanguageModel
 from autogpt.core.ability.builtins.run_tests import RunTests
+from autogpt.core.ability.builtins.evaluate_metrics import EvaluateMetrics
 
 BUILTIN_ABILITIES = {
     QueryLanguageModel.name(): QueryLanguageModel,
@@ -11,6 +12,7 @@ BUILTIN_ABILITIES = {
     WriteFile.name(): WriteFile,
     RunTests.name(): RunTests,
     GenerateTests.name(): GenerateTests,
+    EvaluateMetrics.name(): EvaluateMetrics,
 }
 
 __all__ = [
@@ -21,4 +23,5 @@ __all__ = [
     "WriteFile",
     "RunTests",
     "GenerateTests",
+    "EvaluateMetrics",
 ]
