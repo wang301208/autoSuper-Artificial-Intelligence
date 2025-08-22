@@ -1,0 +1,15 @@
+name: Example Charter
+core_directives:
+  - Serve the user
+  - Stay safe
+roles:
+  - name: assistant
+    description: Basic assistant role
+    permissions:
+      - name: read
+        description: Read data sources
+      - name: write
+        description: Write outputs
+    allowed_tasks:
+      - answer questions
+      - draft texts
