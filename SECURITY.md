@@ -1,66 +1,66 @@
-# Security Policy
+# 安全策略
 
- - [**Using AutoGPT Securely**](#using-AutoGPT-securely)
-   - [Restrict Workspace](#restrict-workspace)
-   - [Untrusted inputs](#untrusted-inputs)
-   - [Data privacy](#data-privacy)
-   - [Untrusted environments or networks](#untrusted-environments-or-networks)
-   - [Multi-Tenant environments](#multi-tenant-environments)
- - [**Reporting a Vulnerability**](#reporting-a-vulnerability)
+ - [**安全使用 AutoGPT**](#using-autogpt-securely)
+   - [限制工作空间](#restrict-workspace)
+   - [不可信输入](#untrusted-inputs)
+   - [数据隐私](#data-privacy)
+   - [不可信环境或网络](#untrusted-environments-or-networks)
+   - [多租户环境](#multi-tenant-environments)
+ - [**报告漏洞**](#reporting-a-vulnerability)
 
-## Using AutoGPT Securely
+## 安全使用 AutoGPT
 
-### Restrict Workspace
+### 限制工作空间
 
-Since agents can read and write files, it is important to keep them restricted to a specific workspace. This happens by default *unless* RESTRICT_TO_WORKSPACE is set to False.
+由于代理可以读写文件，因此必须将其限制在特定的工作空间内。默认情况下会这样做，*除非* 将 RESTRICT_TO_WORKSPACE 设置为 False。
 
-Disabling RESTRICT_TO_WORKSPACE can increase security risks. However, if you still need to disable it, consider running AutoGPT inside a [sandbox](https://developers.google.com/code-sandboxing), to mitigate some of these risks.
+禁用 RESTRICT_TO_WORKSPACE 会增加安全风险。然而，如果确实需要关闭它，请考虑在 [沙箱](https://developers.google.com/code-sandboxing) 中运行 AutoGPT，以减轻部分风险。
 
-### Untrusted inputs
+### 不可信输入
 
-When handling untrusted inputs, it's crucial to isolate the execution and carefully pre-process inputs to mitigate script injection risks.
+处理不可信输入时，必须隔离执行并在预处理阶段仔细处理输入，以降低脚本注入风险。
 
-For maximum security when handling untrusted inputs, you may need to employ the following:
+为在处理不可信输入时达到最高安全性，你可能需要采用以下措施：
 
-* Sandboxing: Isolate the process.
-* Updates: Keep your libraries (including AutoGPT) updated with the latest security patches.
-* Input Sanitation: Before feeding data to the model, sanitize inputs rigorously. This involves techniques such as:
-    * Validation: Enforce strict rules on allowed characters and data types.
-    * Filtering: Remove potentially malicious scripts or code fragments.
-    * Encoding: Convert special characters into safe representations.
-    * Verification: Run tooling that identifies potential script injections (e.g. [models that detect prompt injection attempts](https://python.langchain.com/docs/guides/safety/hugging_face_prompt_injection)). 
+* 沙箱：隔离进程。
+* 更新：保持库（包括 AutoGPT）更新至最新的安全补丁。
+* 输入清理：在将数据送入模型前，严格清理输入。可采用以下技术：
+    * 验证：对允许的字符和数据类型实施严格规则。
+    * 过滤：移除潜在的恶意脚本或代码片段。
+    * 编码：将特殊字符转换为安全的表示。
+    * 校验：运行工具识别潜在的脚本注入（如 [检测提示注入的模型](https://python.langchain.com/docs/guides/safety/hugging_face_prompt_injection)）。
 
-### Data privacy
+### 数据隐私
 
-To protect sensitive data from potential leaks or unauthorized access, it is crucial to sandbox the agent execution. This means running it in a secure, isolated environment, which helps mitigate many attack vectors.
+为防止敏感数据泄露或被未经授权访问，必须对代理的执行进行沙箱化，即在安全、隔离的环境中运行，从而缓解多种攻击向量。
 
-### Untrusted environments or networks
+### 不可信环境或网络
 
-Since AutoGPT performs network calls to the OpenAI API, it is important to always run it with trusted environments and networks. Running it on untrusted environments can expose your API KEY to attackers.
-Additionally, running it on an untrusted network can expose your data to potential network attacks. 
+AutoGPT 会向 OpenAI API 发起网络请求，因此应始终在可信的环境和网络中运行。若在不可信环境运行，可能会将你的 API KEY 暴露给攻击者。
+此外，在不可信网络运行也可能使你的数据遭受潜在的网络攻击。
 
-However, even when running on trusted networks, it is important to always encrypt sensitive data while sending it over the network.
+即使在可信网络中运行，也应在传输敏感数据时始终对其加密。
 
-### Multi-Tenant environments
+### 多租户环境
 
-If you intend to run multiple AutoGPT brains in parallel, it is your responsibility to ensure the models do not interact or access each other's data.
+若计划并行运行多个 AutoGPT 实例，你有责任确保模型之间互不影响，也无法访问彼此的数据。
 
-The primary areas of concern are tenant isolation, resource allocation, model sharing and hardware attacks.
+主要关注点包括租户隔离、资源分配、模型共享以及硬件攻击。
 
-- Tenant Isolation: you must make sure that the tenants run separately to prevent unwanted access to the data from other tenants. Keeping model network traffic separate is also important because you not only prevent unauthorized access to data, but also prevent malicious users or tenants sending prompts to execute under another tenant’s identity.
+- 租户隔离：你必须确保各租户独立运行，防止其他租户的数据被未经授权访问。保持模型网络流量独立也很重要，因为这不仅防止未经授权的数据访问，还能阻止恶意用户或租户以他人身份执行提示。
 
-- Resource Allocation: a denial of service caused by one tenant can affect the overall system health. Implement safeguards like rate limits, access controls, and health monitoring.
+- 资源分配：某个租户导致的拒绝服务可能影响整个系统健康。请实施速率限制、访问控制和健康监控等防护措施。
 
-- Data Sharing: in a multi-tenant design with data sharing, ensure tenants and users understand the security risks and sandbox agent execution to mitigate risks.
+- 数据共享：在具有数据共享的多租户设计中，确保租户和用户了解安全风险，并通过沙箱化代理执行来减轻风险。
 
-- Hardware Attacks: the hardware (GPUs or TPUs) can also be attacked. [Research](https://scholar.google.com/scholar?q=gpu+side+channel) has shown that side channel attacks on GPUs are possible, which can make data leak from other brains or processes running on the same system at the same time.
+- 硬件攻击：硬件（GPU 或 TPU）同样可能遭受攻击。[研究](https://scholar.google.com/scholar?q=gpu+side+channel) 表明 GPU 存在侧信道攻击的可能，可能导致同一系统上其他实例或进程的数据泄露。
 
-## Reporting a Vulnerability
+## 报告漏洞
 
-Beware that none of the topics under [Using AutoGPT Securely](#using-AutoGPT-securely) are considered vulnerabilities on AutoGPT.
+请注意，[安全使用 AutoGPT](#using-autogpt-securely) 中提到的主题均不构成 AutoGPT 的漏洞。
 
-However, If you have discovered a security vulnerability in this project, please report it privately. **Do not disclose it as a public issue.** This gives us time to work with you to fix the issue before public exposure, reducing the chance that the exploit will be used before a patch is released.
+然而，如果你在本项目中发现安全漏洞，请私下报告。**不要以公共 Issue 的形式披露。** 这样我们可以在公开之前与你协作修复问题，减少漏洞在补丁发布前被利用的机会。
 
-Please disclose it as a private [security advisory](https://github.com/Significant-Gravitas/AutoGPT/security/advisories/new).
+请将其作为私人[安全公告](https://github.com/Significant-Gravitas/AutoGPT/security/advisories/new) 提交。
 
-A team of volunteers on a reasonable-effort basis maintains this project. As such, please give us at least 90 days to work on a fix before public exposure.
+本项目由志愿者基于合理努力维护。因此，请在公开前至少给予我们 90 天的时间来修复问题。

@@ -1,40 +1,40 @@
-# Code of Conduct for AutoGPT
+# AutoGPT 行为准则
 
-## 1. Purpose
+## 1. 目的
 
-The purpose of this Code of Conduct is to provide guidelines for contributors to the AutoGPT projects on GitHub. We aim to create a positive and inclusive environment where all participants can contribute and collaborate effectively. By participating in this project, you agree to abide by this Code of Conduct.
+本行为准则旨在为 GitHub 上的 AutoGPT 项目贡献者提供指导。我们希望营造一个积极、包容的环境，让所有参与者都能有效地贡献和协作。参与本项目即表示你同意遵守本行为准则。
 
-## 2. Scope
+## 2. 范围
 
-This Code of Conduct applies to all contributors, maintainers, and users of the AutoGPT project. It extends to all project spaces, including but not limited to issues, pull requests, code reviews, comments, and other forms of communication within the project.
+本行为准则适用于 AutoGPT 项目的所有贡献者、维护者和用户。其适用范围涵盖所有项目空间，包括但不限于 Issue、Pull Request、代码评审、评论以及项目内的其他交流形式。
 
-## 3. Our Standards
+## 3. 我们的标准
 
-We encourage the following behavior:
+我们鼓励以下行为：
 
-* Being respectful and considerate to others
-* Actively seeking diverse perspectives
-* Providing constructive feedback and assistance
-* Demonstrating empathy and understanding
+* 尊重并体谅他人
+* 积极寻求多元观点
+* 提供建设性的反馈和帮助
+* 展现同理心和理解
 
-We discourage the following behavior:
+我们不鼓励以下行为：
 
-* Harassment or discrimination of any kind
-* Disrespectful, offensive, or inappropriate language or content
-* Personal attacks or insults
-* Unwarranted criticism or negativity
+* 任何形式的骚扰或歧视
+* 不尊重、冒犯或不适当的语言或内容
+* 人身攻击或侮辱
+* 无根据的批评或消极态度
 
-## 4. Reporting and Enforcement
+## 4. 举报与执行
 
-If you witness or experience any violations of this Code of Conduct, please report them to the project maintainers by email or other appropriate means. The maintainers will investigate and take appropriate action, which may include warnings, temporary or permanent bans, or other measures as necessary.
+如你目睹或经历任何违反本行为准则的情况，请通过电子邮件或其他适当方式向项目维护者举报。维护者将进行调查并采取适当措施，包括警告、暂时或永久封禁等。
 
-Maintainers are responsible for ensuring compliance with this Code of Conduct and may take action to address any violations.
+维护者负责确保本行为准则得到遵守，并可采取行动处理任何违规行为。
 
-## 5. Acknowledgements
+## 5. 致谢
 
-This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org/version/2/0/code_of_conduct.html).
+本行为准则改编自 [Contributor Covenant](https://www.contributor-covenant.org/version/2/0/code_of_conduct.html)。
 
-## 6. Contact
+## 6. 联系
 
-If you have any questions or concerns, please contact the project maintainers on Discord:
+如有任何问题或疑虑，请通过 Discord 联系项目维护者：
 https://discord.gg/autogpt
