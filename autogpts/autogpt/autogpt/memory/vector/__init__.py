@@ -9,12 +9,12 @@ from .providers.no_memory import NoMemory
 # Add a backend to this list if the import attempt is successful
 supported_memory = ["json_file", "no_memory"]
 
-# try:
-#     from .providers.redis import RedisMemory
+try:
+    from .providers.redis import RedisMemory
 
-#     supported_memory.append("redis")
-# except ImportError:
-#     RedisMemory = None
+    supported_memory.append("redis")
+except ImportError:  # pragma: no cover - handled gracefully if dependency missing
+    RedisMemory = None
 
 # try:
 #     from .providers.pinecone import PineconeMemory
@@ -79,17 +79,11 @@ def get_memory(config: Config) -> VectorMemory:
             #         memory.clear()
 
         case "redis":
-            raise NotImplementedError(
-                "The Redis memory backend has been rendered incompatible by work on "
-                "the memory system, and has been removed temporarily."
-            )
-            # if not RedisMemory:
-            #     logger.warning(
-            #         "Error: Redis is not installed. Please install redis-py to"
-            #         " use Redis as a memory backend."
-            #     )
-            # else:
-            #     memory = RedisMemory(config)
+            if not RedisMemory:
+                raise ValueError(
+                    "Error: Redis is not installed. Please install redis-py to use Redis as a memory backend."
+                )
+            memory = RedisMemory(config)
 
         case "weaviate":
             raise NotImplementedError(
@@ -149,7 +143,7 @@ __all__ = [
     "JSONFileMemory",
     "NoMemory",
     "VectorMemory",
-    # "RedisMemory",
+    "RedisMemory",
     # "PineconeMemory",
     # "MilvusMemory",
     # "WeaviateMemory",
