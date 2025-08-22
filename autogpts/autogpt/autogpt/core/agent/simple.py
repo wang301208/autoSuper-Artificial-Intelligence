@@ -29,6 +29,7 @@ from autogpt.core.resource.model_providers import (
 )
 from autogpt.core.resource.model_providers.schema import ChatModelResponse
 from autogpt.core.workspace.simple import SimpleWorkspace, WorkspaceSettings
+from autogpt.config import Config
 
 
 class AgentSystems(SystemConfiguration):
@@ -274,9 +275,7 @@ class SimpleAgent(Agent, Configurable):
                             f"Test failed for {filename}:\n{tests_result.message}\n"
                             f"Critique: {critique.message}"
                         )
-                        subprocess.run(
-                            ["git", "checkout", "--", filename], check=False
-                        )
+                        subprocess.run(["git", "checkout", "--", filename], check=False)
                         if test_filename:
                             subprocess.run(
                                 ["git", "checkout", "--", test_filename], check=False
@@ -289,9 +288,7 @@ class SimpleAgent(Agent, Configurable):
                                 Path(test_filename).unlink(missing_ok=True)
                         if hasattr(self._workspace, "refresh"):
                             self._workspace.refresh()
-                        ability_response.message += (
-                            " Tests failed. Changes reverted."
-                        )
+                        ability_response.message += " Tests failed. Changes reverted."
                     else:
                         ability_response.message += " Tests passed."
                         evaluate_metrics = self._ability_registry.get_ability(
@@ -353,8 +350,24 @@ class SimpleAgent(Agent, Configurable):
             return task
         else:
             self._logger.debug(f"Evaluating task {task} and adding relevant context.")
-            # TODO: Look up relevant memories (need working memory system)
-            # TODO: Eval whether there is enough information to start the task (w/ LLM).
+            query = getattr(task, "description", task.objective)
+            k = 5
+            try:
+                config = Config()
+                relevant_memories = self._memory.get_relevant(query, k, config)
+
+                class _ContextMemory:
+                    def __init__(self, item):
+                        self._item = item
+
+                    def summary(self) -> str:
+                        return self._item.summary
+
+                for memory in relevant_memories:
+                    task.context.memories.append(_ContextMemory(memory.memory_item))
+            except Exception as e:
+                self._logger.debug(f"Failed to get relevant memories: {e}")
+
             task.context.enough_info = True
             task.context.status = TaskStatus.IN_PROGRESS
             return task
@@ -422,9 +435,7 @@ class SimpleAgent(Agent, Configurable):
         self._current_task.context.prior_actions.append(ability_result)
         if ability_result.ability_name == "evaluate_metrics":
             file_path = ability_result.ability_args.get("file_path", "")
-            self._memory.add(
-                f"Metrics for {file_path}: {ability_result.message}"
-            )
+            self._memory.add(f"Metrics for {file_path}: {ability_result.message}")
         # TODO: Summarize new knowledge
         # TODO: store knowledge and summaries in memory and in relevant tasks
         # TODO: evaluate whether the task is complete
