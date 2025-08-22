@@ -1,20 +1,20 @@
-This page is a list of issues you could encounter along with their fixes.
+此页面列出了你可能遇到的问题及其解决方法。
 
 # Forge
-**Poetry configuration invalid**
+**Poetry 配置无效**
 
-The poetry configuration is invalid: 
-- Additional properties are not allowed ('group' was unexpected)
+Poetry 配置无效：
+- 不允许额外的属性（出现了意外的 'group'）
 <img width="487" alt="Screenshot 2023-09-22 at 5 42 59 PM" src="https://github.com/Significant-Gravitas/AutoGPT/assets/9652976/dd451e6b-8114-44de-9928-075f5f06d661">
 
-**Pydantic Validation Error**
+**Pydantic 验证错误**
 
-Remove your sqlite agent.db file. it's probably because some of your data is not complying with the new spec (we will create migrations soon to avoid this problem)
+删除你的 sqlite `agent.db` 文件。这可能是因为你的部分数据不符合新规范（我们很快会创建迁移以避免此问题）。
 
 
-*Solution*
+*解决方案*
 
-Update poetry
+更新 poetry
 
 # Benchmark
 TODO

@@ -1,73 +1,72 @@
-# AutoGPT: build & use AI agents
+# AutoGPT：构建与使用 AI 代理
 
 [![Discord Follow](https://dcbadge.vercel.app/api/server/autogpt?style=flat)](https://discord.gg/autogpt) &ensp;
 [![Twitter Follow](https://img.shields.io/twitter/follow/Auto_GPT?style=social)](https://twitter.com/Auto_GPT) &ensp;
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**AutoGPT** is the vision of the power of AI accessible to everyone, to use and to build on. Our mission is to provide the tools, so that you can focus on what matters:
+**AutoGPT** 让每个人都能使用和构建 AI。我们的使命是提供工具，让你专注于真正重要的事情：
 
-- 🏗️ **Building** - Lay the foundation for something amazing.
-- 🧪 **Testing** - Fine-tune your agent to perfection.
-- 🤝 **Delegating** - Let AI work for you, and have your ideas come to life.
+- 🏗️ **构建** - 为惊人的创意打下基础。
+- 🧪 **测试** - 将你的代理调到完美。
+- 🤝 **委派** - 让 AI 为你工作，使你的想法成真。
 
-Be part of the revolution! **AutoGPT** is here to stay, at the forefront of AI innovation.
+成为革命的一部分！**AutoGPT** 将始终站在 AI 创新的前沿。
 
-**📖 [Documentation](https://docs.agpt.co)**
+**📖 [文档](https://docs.agpt.co)**
 &ensp;|&ensp;
-**🚀 [Contributing](CONTRIBUTING.md)**
+**🚀 [贡献](CONTRIBUTING.md)**
 &ensp;|&ensp;
-**🛠️ [Build your own Agent - Quickstart](QUICKSTART.md)**
+**🛠️ [构建你的代理 - 快速开始](QUICKSTART.md)**
 
-## 🥇 Current Best Agent: evo.ninja
+## 🥇 当前最佳代理：evo.ninja
 [Current Best Agent]: #-current-best-agent-evoninja
 
-The AutoGPT Arena Hackathon saw [**evo.ninja**](https://github.com/polywrap/evo.ninja) earn the top spot on our Arena Leaderboard, proving itself as the best open-source generalist agent. Try it now at https://evo.ninja!
+AutoGPT Arena 黑客松中，[**evo.ninja**](https://github.com/polywrap/evo.ninja) 在我们的 Arena 排行榜上夺得第一，证明了自己是最佳的开源通用代理。现在就到 https://evo.ninja 试试吧！
 
-📈 To challenge evo.ninja, AutoGPT, and others, submit your benchmark run to the [Leaderboard](#-leaderboard), and maybe your agent will be up here next!
+📈 想挑战 evo.ninja、AutoGPT 等代理？提交你的基准测试到[排行榜](#-leaderboard)，也许下一个上榜的就是你的代理！
 
-## 🧱 Building blocks
+## 🧱 构建模块
 
 ### 🏗️ Forge
 
-**Forge your own agent!** &ndash; Forge is a ready-to-go template for your agent application. All the boilerplate code is already handled, letting you channel all your creativity into the things that set *your* agent apart. All tutorials are located [here](https://medium.com/@aiedge/autogpt-forge-e3de53cc58ec). Components from the [`forge.sdk`](/autogpts/forge/forge/sdk) can also be used individually to speed up development and reduce boilerplate in your agent project.
+**打造你的专属代理！** – Forge 是一个即用型的代理应用模板。所有样板代码都已处理好，让你把精力集中在使*你的*代理与众不同的部分。[教程在这里](https://medium.com/@aiedge/autogpt-forge-e3de53cc58ec)。来自 [`forge.sdk`](/autogpts/forge/forge/sdk) 的组件也可单独使用，加快开发速度并减少样板代码。
 
-🚀 [**Getting Started with Forge**](https://github.com/Significant-Gravitas/AutoGPT/blob/master/autogpts/forge/tutorials/001_getting_started.md) &ndash;
-This guide will walk you through the process of creating your own agent and using the benchmark and user interface.
+🚀 [**Forge 入门**](https://github.com/Significant-Gravitas/AutoGPT/blob/master/autogpts/forge/tutorials/001_getting_started.md) – 本指南将引导你创建自己的代理，并使用基准测试和用户界面。
 
-📘 [Learn More](https://github.com/Significant-Gravitas/AutoGPT/tree/master/autogpts/forge) about Forge
+📘 [了解更多](https://github.com/Significant-Gravitas/AutoGPT/tree/master/autogpts/forge) 关于 Forge 的信息。
 
 ### 🎯 Benchmark
 
-**Measure your agent's performance!** The `agbenchmark` can be used with any agent that supports the agent protocol, and the integration with the project's [CLI] makes it even easier to use with AutoGPT and forge-based agents. The benchmark offers a stringent testing environment. Our framework allows for autonomous, objective performance evaluations, ensuring your agents are primed for real-world action.
+**衡量你的代理性能！** `agbenchmark` 可用于任何支持 agent protocol 的代理，并与项目的 [CLI] 集成，使其在 AutoGPT 和基于 Forge 的代理中更易使用。该基准测试提供严格的测试环境。我们的框架允许自主、客观的性能评估，确保你的代理为现实应用做好准备。
 
 <!-- TODO: insert visual demonstrating the benchmark -->
 
 📦 [`agbenchmark`](https://pypi.org/project/agbenchmark/) on Pypi
 &ensp;|&ensp;
-📘 [Learn More](https://github.com/Significant-Gravitas/AutoGPT/blob/master/benchmark) about the Benchmark
+📘 [了解更多](https://github.com/Significant-Gravitas/AutoGPT/blob/master/benchmark) 关于 Benchmark
 
-#### 🏆 [Leaderboard][leaderboard]
+#### 🏆 [排行榜][leaderboard]
 [leaderboard]: https://leaderboard.agpt.co
 
-Submit your benchmark run through the UI and claim your place on the AutoGPT Arena Leaderboard! The best scoring general agent earns the title of **[Current Best Agent]**, and will be adopted into our repo so people can easily run it through the [CLI].
+通过界面提交你的基准测试结果并在 AutoGPT Arena 排行榜上占据一席之地！得分最高的通用代理将获得 **[当前最佳代理]** 的称号，并被收录到我们的仓库中，方便人们通过 [CLI] 运行。
 
-[![Screenshot of the AutoGPT Arena leaderboard](https://github.com/Significant-Gravitas/AutoGPT/assets/12185583/60813392-9ddb-4cca-bb44-b477dbae225d)][leaderboard]
+![AutoGPT Arena leaderboard 的截图](https://github.com/Significant-Gravitas/AutoGPT/assets/12185583/60813392-9ddb-4cca-bb44-b477dbae225d)
 
 ### 💻 UI
 
-**Makes agents easy to use!** The `frontend` gives you a user-friendly interface to control and monitor your agents. It connects to agents through the [agent protocol](#-agent-protocol), ensuring compatibility with many agents from both inside and outside of our ecosystem.
+**让代理使用更简单！** `frontend` 为你提供了一个用户友好的界面来控制和监控代理。它通过[agent protocol](#-agent-protocol) 与代理连接，确保与生态内外的多种代理兼容。
 
 <!-- TODO: instert screenshot of front end -->
 
-The frontend works out-of-the-box with all agents in the repo. Just use the [CLI] to run your agent of choice!
+前端与仓库中的所有代理开箱即用。只需使用 [CLI] 运行你选择的代理即可！
 
-📘 [Learn More](https://github.com/Significant-Gravitas/AutoGPT/tree/master/frontend) about the Frontend
+📘 [了解更多](https://github.com/Significant-Gravitas/AutoGPT/tree/master/frontend) 关于前端的内容。
 
 ### ⌨️ CLI
 
 [CLI]: #-cli
 
-To make it as easy as possible to use all of the tools offered by the repository, a CLI is included at the root of the repo:
+为尽可能方便地使用仓库提供的所有工具，根目录中包含一个 CLI：
 
 ```shell
 $ ./run
@@ -83,21 +82,21 @@ Commands:
   setup      Installs dependencies needed for your system.
 ```
 
-Just clone the repo, install dependencies with `./run setup`, and you should be good to go!
+只需克隆仓库，使用 `./run setup` 安装依赖即可开始！
 
-## 🤔 Questions? Problems? Suggestions?
+## 🤔 有问题？遇到困难？有建议？
 
-### Get help - [Discord 💬](https://discord.gg/autogpt)
+### 获取帮助 - [Discord 💬](https://discord.gg/autogpt)
 
-[![Join us on Discord](https://invidget.switchblade.xyz/autogpt)](https://discord.gg/autogpt)
+![Join us on Discord](https://invidget.switchblade.xyz/autogpt)
 
-To report a bug or request a feature, create a [GitHub Issue](https://github.com/Significant-Gravitas/AutoGPT/issues/new/choose). Please ensure someone else hasn’t created an issue for the same topic.
+要报告错误或请求功能，请创建一个 [GitHub Issue](https://github.com/Significant-Gravitas/AutoGPT/issues/new/choose)。请确保没有其他人已经为同一主题创建 Issue。
 
-## 🤝 Sister projects
+## 姐妹项目
 
 ### 🔄 Agent Protocol
 
-To maintain a uniform standard and ensure seamless compatibility with many current and future applications, AutoGPT employs the [agent protocol](https://agentprotocol.ai/) standard by the AI Engineer Foundation. This standardizes the communication pathways from your agent to the frontend and benchmark.
+为保持统一标准并确保与众多现有和未来应用的无缝兼容，AutoGPT 采用 AI Engineer Foundation 的 [agent protocol](https://agentprotocol.ai/) 标准。该标准规范了从你的代理到前端和基准测试的通信路径。
 
 ---
 
@@ -110,5 +109,3 @@ To maintain a uniform standard and ensure seamless compatibility with many curre
   </picture>
 </a>
 </p>
-
-

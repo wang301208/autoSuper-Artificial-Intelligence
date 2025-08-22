@@ -1,16 +1,16 @@
-## CLI Documentation
+## CLI 文档
 
-This document describes how to interact with the project's CLI (Command Line Interface). It includes the types of outputs you can expect from each command. Note that the `agents stop` command will terminate any process running on port 8000.
+本文档介绍如何使用项目的 CLI（命令行界面），并展示每个命令的预期输出。请注意，`agents stop` 命令会终止运行在 8000 端口上的任何进程。
 
-### 1. Entry Point for the CLI
+### 1. CLI 入口
 
-Running the `./run` command without any parameters will display the help message, which provides a list of available commands and options. Additionally, you can append `--help` to any command to view help information specific to that command.
+直接运行 `./run` 不带任何参数会显示帮助信息，其中列出了可用的命令和选项。此外，你可以在任何命令后添加 `--help` 以查看该命令的专属帮助。
 
 ```sh
 ./run
 ```
 
-**Output**:
+**输出**：
 
 ```
 Usage: cli.py [OPTIONS] COMMAND [ARGS]...
@@ -19,43 +19,43 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  agent     Commands to create, start and stop agents
+  agent      Commands to create, start and stop agents
   benchmark  Commands to start the benchmark and list tests and categories
   setup      Installs dependencies needed for your system.
 ```
 
-If you need assistance with any command, simply add the `--help` parameter to the end of your command, like so:
+如果你需要任何命令的帮助，只需在命令末尾添加 `--help`，例如：
 
 ```sh
 ./run COMMAND --help
 ```
 
-This will display a detailed help message regarding that specific command, including a list of any additional options and arguments it accepts.
+这会显示与该命令相关的详细帮助信息，包括可用的其他选项和参数。
 
-### 2. Setup Command
+### 2. Setup 命令
 
 ```sh
 ./run setup
 ```
 
-**Output**:
+**输出**：
 
 ```
 Setup initiated
 Installation has been completed.
 ```
 
-This command initializes the setup of the project.
+此命令用于初始化项目的安装。
 
-### 3. Agents Commands
+### 3. Agent 命令
 
-**a. List All Agents**
+**a. 列出所有代理**
 
 ```sh
 ./run agent list
 ```
 
-**Output**:
+**输出**：
 
 ```
 Available agents: 🤖
@@ -63,29 +63,29 @@ Available agents: 🤖
         🐙 autogpt
 ```
 
-Lists all the available agents.
+列出所有可用代理。
 
-**b. Create a New Agent**
+**b. 创建新代理**
 
 ```sh
 ./run agent create my_agent
 ```
 
-**Output**:
+**输出**：
 
 ```
 🎉 New agent 'my_agent' created and switched to the new directory in autogpts folder.
 ```
 
-Creates a new agent named 'my_agent'.
+创建名为 'my_agent' 的新代理。
 
-**c. Start an Agent**
+**c. 启动代理**
 
 ```sh
 ./run agent start my_agent
 ```
 
-**Output**:
+**输出**：
 
 ```
 ... (ASCII Art representing the agent startup)
@@ -93,31 +93,31 @@ Creates a new agent named 'my_agent'.
 [Date and Time] [forge.sdk.agent] [INFO] 📝  Agent server starting on http://0.0.0.0:8000
 ```
 
-Starts the 'my_agent' and displays startup ASCII art and logs.
+启动 `my_agent` 并显示启动时的 ASCII 图和日志。
 
-**d. Stop an Agent**
+**d. 停止代理**
 
 ```sh
 ./run agent stop
 ```
 
-**Output**:
+**输出**：
 
 ```
 Agent stopped
 ```
 
-Stops the running agent.
+停止正在运行的代理。
 
-### 4. Benchmark Commands
+### 4. Benchmark 命令
 
-**a. List Benchmark Categories**
+**a. 列出 Benchmark 类别**
 
 ```sh
 ./run benchmark categories list
 ```
 
-**Output**:
+**输出**：
 
 ```
 Available categories: 📚
@@ -127,15 +127,15 @@ Available categories: 📚
         ... (and so on)
 ```
 
-Lists all available benchmark categories.
+列出所有可用的 Benchmark 类别。
 
-**b. List Benchmark Tests**
+**b. 列出 Benchmark 测试**
 
 ```sh
 ./run benchmark tests list
 ```
 
-**Output**:
+**输出**：
 
 ```
 Available tests: 📚
@@ -145,15 +145,15 @@ Available tests: 📚
         ... (and so on)
 ```
 
-Lists all available benchmark tests.
+列出所有可用的 Benchmark 测试。
 
-**c. Show Details of a Benchmark Test**
+**c. 显示 Benchmark 测试详情**
 
 ```sh
 ./run benchmark tests details TestWriteFile
 ```
 
-**Output**:
+**输出**：
 
 ```
 TestWriteFile
@@ -164,19 +164,19 @@ TestWriteFile
         ... (and other details)
 ```
 
-Displays the details of the 'TestWriteFile' benchmark test.
+显示 `TestWriteFile` Benchmark 测试的详细信息。
 
-**d. Start Benchmark for the Agent**
+**d. 启动代理的 Benchmark**
 
 ```sh
 ./run benchmark start my_agent
 ```
 
-**Output**:
+**输出**：
 
 ```
 (more details about the testing process shown whilst the test are running)
 ============= 13 failed, 1 passed in 0.97s ============...
 ```
 
-Displays the results of the benchmark tests on 'my_agent'.
+显示 `my_agent` 的 Benchmark 测试结果。
