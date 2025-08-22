@@ -206,6 +206,20 @@ d88P     888  "Y88888  "Y888 "Y88P"   "Y8888P88 888           888
         )
 
 
+@cli.command()
+@click.argument("goal")
+def execute(goal):
+    """Start the simple executor agent with a GOAL."""
+    from pathlib import Path
+    from capability.skill_library import SkillLibrary
+    from execution import Executor
+
+    lib = SkillLibrary(Path.cwd())
+    executor = Executor(lib)
+    results = executor.execute(goal)
+    click.echo(results)
+
+
 @cli.group()
 def agent():
     """Commands to create, start and stop agents"""
