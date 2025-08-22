@@ -397,6 +397,11 @@ class SimpleAgent(Agent, Configurable):
     async def _update_tasks_and_memory(self, ability_result: AbilityResult):
         self._current_task.context.cycle_count += 1
         self._current_task.context.prior_actions.append(ability_result)
+        if ability_result.ability_name == "evaluate_metrics":
+            file_path = ability_result.ability_args.get("file_path", "")
+            self._memory.add(
+                f"Metrics for {file_path}: {ability_result.message}"
+            )
         # TODO: Summarize new knowledge
         # TODO: store knowledge and summaries in memory and in relevant tasks
         # TODO: evaluate whether the task is complete
