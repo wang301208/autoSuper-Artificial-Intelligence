@@ -36,6 +36,28 @@ roles:
     names must be unique within a role.
   - **allowed_tasks**: Free form descriptions of tasks the role may perform.
 
+## Human Architect Approval
+
+Some tasks may be flagged as *core architecture changes*. These tasks carry
+significant risk and must be approved before execution. A charter can define a
+`human_architect` role with the `approve_core_change` permission. When a task is
+marked with a `core_change` flag (or has type `core_change`), the governance
+layer requires approval from this role before routing the task to lower-level
+agents.
+
+To grant this authority, include a role similar to:
+
+```yaml
+roles:
+  - name: human_architect
+    description: Human supervisor responsible for core architecture decisions
+    permissions:
+      - name: approve_core_change
+        description: Approve modifications to core system architecture
+```
+
+If such approval is not present, the governance agent rejects the task.
+
 ## Validation
 
 The loader validates charters using [Pydantic](https://docs.pydantic.dev).

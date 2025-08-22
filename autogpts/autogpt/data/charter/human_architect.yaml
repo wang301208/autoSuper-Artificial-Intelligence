@@ -1,0 +1,11 @@
+name: Human Architecture Charter
+core_directives:
+  - Safeguard the core architecture
+roles:
+  - name: assistant
+    description: Standard assistant role
+  - name: human_architect
+    description: Human supervisor responsible for core architecture decisions
+    permissions:
+      - name: approve_core_change
+        description: Approve modifications to core system architecture
