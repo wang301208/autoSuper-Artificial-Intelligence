@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Optional
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from pydantic import Field, validator
+from events.client import EventClient
 
 if TYPE_CHECKING:
     from autogpt.config import Config
@@ -170,6 +172,8 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         self.directives = settings.directives
         self.event_history = settings.history
 
+        self.event_client = EventClient()
+
         self.legacy_config = legacy_config
         """LEGACY: Monolithic application configuration."""
 
@@ -202,39 +206,68 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
     async def propose_action(self) -> ThoughtProcessOutput:
         """Proposes the next action to execute, based on the task and current state.
 
+        Emits start, end and error events around the thinking cycle, including simple
+        timing metrics.
+
         Returns:
             The command name and arguments, if any, and the agent's thoughts.
         """
 
-        # Scratchpad as surrogate PromptGenerator for plugin hooks
-        self._prompt_scratchpad = PromptScratchpad()
+        cycle = self.config.cycle_count + 1
+        self.event_client.publish(
+            "agent.cycle.start", {"agent": self.state.agent_id, "cycle": cycle}
+        )
+        start_time = perf_counter()
+        try:
+            # Scratchpad as surrogate PromptGenerator for plugin hooks
+            self._prompt_scratchpad = PromptScratchpad()
 
-        prompt: ChatPrompt = self.build_prompt(scratchpad=self._prompt_scratchpad)
-        prompt = self.on_before_think(prompt, scratchpad=self._prompt_scratchpad)
+            prompt: ChatPrompt = self.build_prompt(scratchpad=self._prompt_scratchpad)
+            prompt = self.on_before_think(prompt, scratchpad=self._prompt_scratchpad)
 
-        logger.debug(f"Executing prompt:\n{dump_prompt(prompt)}")
-        response = await self.llm_provider.create_chat_completion(
-            prompt.messages,
-            functions=get_openai_command_specs(
-                self.command_registry.list_available_commands(self)
+            logger.debug(f"Executing prompt:\n{dump_prompt(prompt)}")
+            response = await self.llm_provider.create_chat_completion(
+                prompt.messages,
+                functions=get_openai_command_specs(
+                    self.command_registry.list_available_commands(self)
+                )
+                + list(self._prompt_scratchpad.commands.values())
+                if self.config.use_functions_api
+                else [],
+                model_name=self.llm.name,
+                completion_parser=lambda r: self.parse_and_process_response(
+                    r,
+                    prompt,
+                    scratchpad=self._prompt_scratchpad,
+                ),
             )
-            + list(self._prompt_scratchpad.commands.values())
-            if self.config.use_functions_api
-            else [],
-            model_name=self.llm.name,
-            completion_parser=lambda r: self.parse_and_process_response(
-                r,
-                prompt,
-                scratchpad=self._prompt_scratchpad,
-            ),
-        )
-        self.config.cycle_count += 1
+            self.config.cycle_count += 1
 
-        return self.on_response(
-            llm_response=response,
-            prompt=prompt,
-            scratchpad=self._prompt_scratchpad,
-        )
+            result = self.on_response(
+                llm_response=response,
+                prompt=prompt,
+                scratchpad=self._prompt_scratchpad,
+            )
+
+            self.event_client.publish(
+                "agent.cycle.end",
+                {
+                    "agent": self.state.agent_id,
+                    "cycle": self.config.cycle_count,
+                    "metrics": {"duration": perf_counter() - start_time},
+                },
+            )
+            return result
+        except Exception as e:
+            self.event_client.publish(
+                "agent.cycle.error",
+                {
+                    "agent": self.state.agent_id,
+                    "cycle": cycle,
+                    "error": str(e),
+                },
+            )
+            raise
 
     @abstractmethod
     async def execute(
