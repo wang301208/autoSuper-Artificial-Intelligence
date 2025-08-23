@@ -220,6 +220,25 @@ def execute(goal):
     click.echo(results)
 
 
+@cli.command(name="meta-tickets")
+def list_meta_tickets():
+    """List pending meta-upgrade tickets."""
+    from pathlib import Path
+
+    tickets_dir = Path("evolution/meta_tickets")
+    if not tickets_dir.exists():
+        click.echo(click.style("No meta tickets found 😞", fg="red"))
+        return
+
+    tickets = sorted(tickets_dir.glob("*.md"))
+    if tickets:
+        click.echo(click.style("Pending meta-tickets: 🤖", fg="green"))
+        for ticket in tickets:
+            click.echo(click.style(f"\t📄 {ticket.name}", fg="blue"))
+    else:
+        click.echo(click.style("No meta tickets found 😞", fg="red"))
+
+
 @cli.group()
 def agent():
     """Commands to create, start and stop agents"""

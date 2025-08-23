@@ -88,6 +88,22 @@ class Strategist(Agent):
         timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
         metrics_path = self.metrics_dir / f"{timestamp}.json"
         metrics_path.write_text(json.dumps(data, indent=2))
+
+        # Determine if performance has stagnated and a meta-upgrade is needed
+        if existing and (
+            success_rate_change <= 0 or principle_derivation_velocity <= 0
+        ):
+            reasons: List[str] = []
+            if success_rate_change <= 0:
+                reasons.append(
+                    f"Success rate stagnated at {success_rate:.2%}"
+                )
+            if principle_derivation_velocity <= 0:
+                reasons.append(
+                    "No new strategic principles were derived"
+                )
+            self.request_meta_upgrade("; ".join(reasons))
+
         return metrics_path
 
     def schedule_reflection(
@@ -103,6 +119,22 @@ class Strategist(Agent):
         timer.daemon = True
         timer.start()
         return timer
+
+    def request_meta_upgrade(self, reason: str) -> Path:
+        """Create a meta-upgrade ticket summarizing current limitations."""
+        tickets_dir = Path("evolution/meta_tickets")
+        tickets_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ticket_path = tickets_dir / f"{timestamp}.md"
+        content = (
+            f"# Meta Ticket\n\n"
+            f"- Created: {timestamp}\n\n"
+            f"## Limitation\n{reason}\n\n"
+            "## Desired Improvements\n\n"
+            "- [ ] Detail proposed improvement\n"
+        )
+        ticket_path.write_text(content)
+        return ticket_path
 
     def _extract_principles(self, lines: List[str]) -> List[str]:
         unique: List[str] = []
