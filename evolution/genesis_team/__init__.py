@@ -4,5 +4,12 @@ from .sentinel import Sentinel
 from .archaeologist import Archaeologist
 from .tdd_dev import TDDDeveloper
 from .qa import QA
+from .manager import GenesisTeamManager
 
-__all__ = ["Sentinel", "Archaeologist", "TDDDeveloper", "QA"]
+__all__ = [
+    "Sentinel",
+    "Archaeologist",
+    "TDDDeveloper",
+    "QA",
+    "GenesisTeamManager",
+]

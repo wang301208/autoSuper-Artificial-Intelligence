@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover - optional dependency
     psutil = None
 
 from . import Agent
+from .genesis_team import GenesisTeamManager
 
 
 class Founder(Agent):
@@ -41,3 +42,11 @@ class Founder(Agent):
         if not suggestions:
             suggestions.append("System resources stable; maintain current structure.")
         return suggestions
+
+    def plan_tool_updates(self) -> str:
+        """Run the Genesis team and aggregate their reports."""
+
+        manager = GenesisTeamManager()
+        logs = manager.run()
+        # Combine logs in execution order for a human-readable summary
+        return "\n".join(f"{agent}: {output}" for agent, output in logs.items())
