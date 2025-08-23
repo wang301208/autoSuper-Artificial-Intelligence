@@ -92,6 +92,10 @@ Commands:
 
 要报告错误或请求功能，请创建一个 [GitHub Issue](https://github.com/Significant-Gravitas/AutoGPT/issues/new/choose)。请确保没有其他人已经为同一主题创建 Issue。
 
+## 🛡️ Meta-skill 治理
+
+Meta-skill 的变更需由 System Architect 审核。使用 `governance/meta_ticket.py` 创建 meta-ticket；它会被自动标记为 `awaiting-system-architect-approval` 并通过现有沟通渠道通知。更多细节见 [governance/architect_review.md](governance/architect_review.md)。
+
 ## 姐妹项目
 
 ### 🔄 Agent Protocol

@@ -19,6 +19,8 @@ class SkillLibrary:
         skill_file = self.storage_dir / f"{name}.py"
         meta_file = self.storage_dir / f"{name}.json"
         skill_file.write_text(code, encoding="utf-8")
+        if name.startswith("MetaSkill_") and "active" not in metadata:
+            metadata["active"] = False
         meta_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         subprocess.run(["git", "add", str(skill_file), str(meta_file)], cwd=self.repo_path, check=True)
         subprocess.run(["git", "commit", "-m", f"Add skill {name}"], cwd=self.repo_path, check=True)
@@ -29,7 +31,22 @@ class SkillLibrary:
         meta_file = self.storage_dir / f"{name}.json"
         code = skill_file.read_text(encoding="utf-8")
         metadata = json.loads(meta_file.read_text(encoding="utf-8"))
+        if name.startswith("MetaSkill_") and not metadata.get("active"):
+            raise PermissionError("Meta-skill version not activated by System Architect")
         return code, metadata
+
+    def activate_meta_skill(self, name: str) -> None:
+        """Mark a meta-skill as active and commit the change to Git."""
+        meta_file = self.storage_dir / f"{name}.json"
+        metadata = json.loads(meta_file.read_text(encoding="utf-8"))
+        metadata["active"] = True
+        meta_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        subprocess.run(["git", "add", str(meta_file)], cwd=self.repo_path, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"Activate meta-skill {name}"],
+            cwd=self.repo_path,
+            check=True,
+        )
 
     def list_skills(self) -> List[str]:
         """List all available skills."""
