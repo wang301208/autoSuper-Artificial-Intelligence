@@ -8,6 +8,9 @@ from datetime import datetime
 from threading import Timer
 import json
 
+from capability.meta_skill import META_SKILL_STRATEGY_EVOLUTION
+from capability.skill_library import SkillLibrary
+
 from . import Agent
 
 
@@ -18,14 +21,19 @@ class Strategist(Agent):
         self,
         charter_dir: Path | str = Path("governance/charter"),
         metrics_dir: Path | str = Path("governance/metrics/strategist"),
+        skill_repo: Path | str = Path("."),
     ) -> None:
         self.charter_dir = Path(charter_dir)
         self.charter_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_dir = Path(metrics_dir)
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
+        # Local library of meta-skills consulted during analysis
+        self.library = SkillLibrary(skill_repo)
 
     def perform(self, logs: Iterable[Path] | None = None) -> Path:
-        lines: List[str] = []
+        # Load strategist reasoning template to guide log analysis
+        template, _meta = self.library.get_skill(META_SKILL_STRATEGY_EVOLUTION)
+        lines: List[str] = template.splitlines()
         for log in logs or []:
             path = Path(log)
             if path.exists():
