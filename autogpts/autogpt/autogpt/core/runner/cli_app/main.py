@@ -13,7 +13,7 @@ from autogpt.core.runner.client_lib.parser import (
 )
 
 
-async def run_auto_gpt(user_configuration: dict):
+async def run_auto_gpt(user_configuration: dict, optimize_abilities: bool = False):
     """Run the AutoGPT CLI client."""
 
     configure_root_logger()
@@ -57,6 +57,7 @@ async def run_auto_gpt(user_configuration: dict):
     agent = SimpleAgent.from_workspace(
         agent_workspace,
         client_logger,
+        optimize_abilities=optimize_abilities,
     )
     client_logger.info("Agent is loaded")
 

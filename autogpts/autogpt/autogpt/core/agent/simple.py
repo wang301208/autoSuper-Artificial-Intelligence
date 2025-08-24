@@ -148,6 +148,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         planning: SimplePlanner,
         workspace: SimpleWorkspace,
         next_layer: Optional[LayeredAgent] = None,
+        optimize_abilities: bool = False,
     ):
         super().__init__(next_layer=next_layer)
         self._configuration = settings.configuration
@@ -164,12 +165,15 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._current_task = None
         self._next_ability = None
         self._performance_evaluator = PerformanceEvaluator()
+        self._optimize_abilities = optimize_abilities
+        self._ability_metrics: dict[str, list[float]] = {}
 
     @classmethod
     def from_workspace(
         cls,
         workspace_path: Path,
         logger: logging.Logger,
+        optimize_abilities: bool = False,
     ) -> "SimpleAgent":
         agent_settings = SimpleWorkspace.load_agent_settings(workspace_path)
         agent_args = {}
@@ -208,7 +212,7 @@ class SimpleAgent(LayeredAgent, Configurable):
             model_providers={"openai": agent_args["openai_provider"]},
         )
 
-        return cls(**agent_args)
+        return cls(**agent_args, optimize_abilities=optimize_abilities)
 
     async def build_initial_plan(self) -> dict:
         plan = await self._planning.make_initial_plan(
@@ -263,6 +267,16 @@ class SimpleAgent(LayeredAgent, Configurable):
             ability_response = await ability(**ability_args)
             duration = time.perf_counter() - start_time
             cost = float(ability_response.ability_args.get("cost", 0))
+            self._ability_metrics.setdefault(ability_name, []).append(duration)
+            hint = getattr(getattr(ability, "_configuration", None), "performance_hint", None)
+            if (
+                self._optimize_abilities
+                and hint is not None
+                and duration > hint
+            ):
+                self._ability_registry.optimize_ability(
+                    ability_name, {"duration": duration}
+                )
 
             if ability_name == "write_file" and ability_response.success:
                 lint_ability = self._ability_registry.get_ability("lint_code")
