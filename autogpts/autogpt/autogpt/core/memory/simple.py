@@ -4,6 +4,11 @@ import math
 from collections import Counter
 
 from autogpt.core.configuration import Configurable, SystemConfiguration, SystemSettings
+from autogpt.core.knowledge_graph import (
+    EntityType,
+    RelationType,
+    get_graph_store,
+)
 from autogpt.core.memory.base import Memory
 from autogpt.core.workspace import Workspace
 
@@ -43,6 +48,7 @@ class SimpleMemory(Memory, Configurable):
         self._configuration = settings.configuration
         self._logger = logger
         self._workspace = workspace
+        self._graph = get_graph_store()
         self._message_history = self._load_message_history(workspace)
         self._summary_archive = self._load_summary_archive(workspace)
         self._ability_scores = self._load_scores(workspace)
@@ -170,6 +176,9 @@ class SimpleMemory(Memory, Configurable):
         with path.open("w") as f:
             json.dump(self._ability_scores, f)
 
+        # Store task and ability relation in the knowledge graph
+        self.store_task(task_id, task_description, ability, score)
+
     def get_scores_for_task(self, task_description: str, ability: str) -> list[float]:
         entries = [e for e in self._ability_scores if e.get("ability") == ability]
         if not entries:
@@ -184,3 +193,19 @@ class SimpleMemory(Memory, Configurable):
                 scored.append((sim, e["score"]))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [score for _, score in scored]
+
+    # -- Knowledge graph helpers ---------------------------------------------
+    def store_task(
+        self, task_id: str, description: str, ability: str, score: float | None = None
+    ) -> None:
+        """Persist task/skill info into the knowledge graph."""
+
+        self._graph.add_node(task_id, EntityType.TASK, description=description)
+        self._graph.add_node(ability, EntityType.SKILL)
+        properties = {"score": score} if score is not None else {}
+        self._graph.add_edge(task_id, ability, RelationType.REQUIRES, **properties)
+
+    def query_graph(self, **kwargs):
+        """Proxy to the underlying graph store's query method."""
+
+        return self._graph.query(**kwargs)
