@@ -64,6 +64,8 @@ Options:
   -c, --continuous                Enable Continuous Mode
   -y, --skip-reprompt             Skips the re-prompting messages at the
                                   beginning of the script
+  --autonomous                    Run without requiring user confirmation for
+                                  each action
   -C, --ai-settings FILE          Specifies which ai_settings.yaml file to
                                   use, relative to the AutoGPT root directory.
                                   Will also automatically skip the re-prompt.
@@ -102,6 +104,15 @@ Options:
 ```
 </details>
 
+To enable a fully automated run without any confirmation prompts, start the
+agent with the `--autonomous` flag:
+
+```shell
+$ ./autogpt.sh run --autonomous
+```
+
+This mode will execute commands continuously. Use it cautiously and monitor the
+agent's activity to avoid unintended actions.
 
 <details>
 <summary>
