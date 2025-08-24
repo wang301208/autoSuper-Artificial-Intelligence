@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING, Optional
 import sentry_sdk
 from pydantic import Field
 
-from autogpt.core.configuration import Configurable
+from autogpt.core.configuration import Configurable, LearningConfiguration
 from autogpt.core.prompting import ChatPrompt
 from autogpt.core.resource.model_providers import (
     AssistantChatMessage,
     ChatMessage,
     ChatModelProvider,
 )
+from autogpt.core.learning import ExperienceLearner
 from autogpt.file_storage.base import FileStorage
 from autogpt.logs.log_cycle import (
     CURRENT_CONTEXT_FILE_NAME,
@@ -58,7 +59,12 @@ logger = logging.getLogger(__name__)
 
 
 class AgentConfiguration(BaseAgentConfiguration):
-    pass
+    """Configuration for the primary Agent."""
+
+    learning: LearningConfiguration = Field(
+        default_factory=LearningConfiguration,
+        description="Experience learning settings",
+    )
 
 
 class AgentSettings(BaseAgentSettings):
@@ -105,6 +111,11 @@ class Agent(
             command_registry=command_registry,
             file_storage=file_storage,
             legacy_config=legacy_config,
+        )
+        self._experience_learner = ExperienceLearner(
+            memory=self.event_history,
+            config=self.config.learning,
+            logger=logger,
         )
 
         self.created_at = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -265,6 +276,9 @@ class Agent(
         await self.event_history.handle_compression(
             self.llm_provider, self.legacy_config
         )
+
+        # Allow the agent to learn from its recent experience
+        self._experience_learner.learn_from_experience()
 
         return result
 

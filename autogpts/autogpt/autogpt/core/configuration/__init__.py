@@ -5,10 +5,13 @@ from autogpt.core.configuration.schema import (
     SystemSettings,
     UserConfigurable,
 )
+from .learning import LearningConfiguration, LearningSettings
 
 __all__ = [
     "Configurable",
     "SystemConfiguration",
     "SystemSettings",
     "UserConfigurable",
+    "LearningConfiguration",
+    "LearningSettings",
 ]
