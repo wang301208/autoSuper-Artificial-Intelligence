@@ -12,10 +12,14 @@ except Exception:  # pragma: no cover - optional dependency
 
 from . import Agent
 from .genesis_team import GenesisTeamManager
+from .ml_model import ResourceModel
 
 
 class Founder(Agent):
     """Agent that reads system performance metrics and outputs suggestions."""
+
+    def __init__(self) -> None:
+        self.model = ResourceModel()
 
     def perform(self) -> str:
         metrics = self._collect_metrics()
@@ -33,8 +37,9 @@ class Founder(Agent):
 
     def _generate_suggestions(self, metrics: Dict[str, Any]) -> list[str]:
         suggestions: list[str] = []
-        cpu = metrics.get("cpu_percent")
-        mem = metrics.get("memory_percent")
+        predictions = self.model.predict_next()
+        cpu = predictions.get("cpu_percent") or metrics.get("cpu_percent")
+        mem = predictions.get("memory_percent") or metrics.get("memory_percent")
         if cpu is not None and cpu > 80:
             suggestions.append("CPU usage high; consider distributing tasks.")
         if mem is not None and mem > 80:
