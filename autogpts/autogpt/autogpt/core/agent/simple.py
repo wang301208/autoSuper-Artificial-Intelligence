@@ -49,6 +49,7 @@ class AgentConfiguration(SystemConfiguration):
     role: str
     goals: list[str]
     systems: AgentSystems
+    self_assess_frequency: int = 5
 
 
 class AgentSystemSettings(SystemSettings):
@@ -133,6 +134,7 @@ class SimpleAgent(LayeredAgent, Configurable):
                     storage_route="autogpt.core.workspace.SimpleWorkspace",
                 ),
             ),
+            self_assess_frequency=5,
         ),
     )
 
@@ -380,6 +382,14 @@ class SimpleAgent(LayeredAgent, Configurable):
                 ability=ability_name,
                 score=score,
             )
+            if (
+                self._configuration.cycle_count % self._configuration.self_assess_frequency
+                == 0
+            ):
+                assessment = await self._ability_registry.perform(
+                    "self_assess", limit=5
+                )
+                self._memory.add(f"Self-assessment: {assessment.message}")
             if self._current_task.context.status == TaskStatus.DONE:
                 self._completed_tasks.append(self._current_task)
             else:

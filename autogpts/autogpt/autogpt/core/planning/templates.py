@@ -82,3 +82,12 @@ PLAN_PROMPT_MAIN = (
 ###########################
 # Parameterized templates #
 ###########################
+
+#############################
+# Reasoning critique prompt #
+#############################
+
+CRITIQUE_REASONING_PROMPT = (
+    "Review the reasoning steps for logical consistency, "
+    "highlighting any contradictions or gaps and suggesting improvements."
+)
