@@ -1,17 +1,91 @@
 import logging
+from typing import ClassVar
 
 from autogpt.core.ability.base import Ability, AbilityConfiguration, AbilityRegistry
 from autogpt.core.ability.builtins import BUILTIN_ABILITIES
 from autogpt.core.ability.schema import AbilityResult
 from autogpt.core.configuration import Configurable, SystemConfiguration, SystemSettings
 from autogpt.core.memory.base import Memory
+from autogpt.core.plugin.base import PluginLocation, PluginStorageFormat
 from autogpt.core.plugin.simple import SimplePluginService
 from autogpt.core.resource.model_providers import (
     ChatModelProvider,
     CompletionModelFunction,
     ModelProviderName,
 )
+from autogpt.core.utils.json_schema import JSONSchema
 from autogpt.core.workspace.base import Workspace
+
+
+class SelfAssess(Ability):
+    """Ability that checks recent memory entries for logical consistency."""
+
+    default_configuration = AbilityConfiguration(
+        location=PluginLocation(
+            storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
+            storage_route="autogpt.core.ability.simple.SelfAssess",
+        ),
+        memory_provider_required=True,
+    )
+
+    def __init__(
+        self,
+        logger: logging.Logger,
+        configuration: AbilityConfiguration,
+        memory: Memory,
+    ):
+        self._logger = logger
+        self._configuration = configuration
+        self._memory = memory
+
+    description: ClassVar[str] = (
+        "Review the last N memory entries for logical consistency."
+    )
+
+    parameters: ClassVar[dict[str, JSONSchema]] = {
+        "limit": JSONSchema(
+            type=JSONSchema.Type.INTEGER,
+            description=(
+                "Number of recent memory entries to review for contradictions."
+            ),
+        )
+    }
+
+    async def __call__(self, limit: int = 5) -> AbilityResult:
+        entries = self._memory.get(limit=limit)
+        positive: dict[str, str] = {}
+        negative: dict[str, str] = {}
+        inconsistencies: list[tuple[str, str]] = []
+
+        for entry in entries:
+            normalized = entry.strip().lower()
+            if normalized.startswith("not "):
+                core = normalized[4:].strip()
+                negative[core] = entry
+                if core in positive:
+                    inconsistencies.append((entry, positive[core]))
+            else:
+                core = normalized
+                positive[core] = entry
+                if core in negative:
+                    inconsistencies.append((entry, negative[core]))
+
+        if inconsistencies:
+            details = "; ".join([f"'{a}' vs '{b}'" for a, b in inconsistencies])
+            message = f"Potential inconsistencies found: {details}"
+        else:
+            message = f"No obvious inconsistencies found in last {limit} entries."
+
+        return AbilityResult(
+            ability_name=self.name(),
+            ability_args={"limit": limit},
+            success=True,
+            message=message,
+        )
+
+
+# Register ability so it's available by default
+BUILTIN_ABILITIES[SelfAssess.name()] = SelfAssess
 
 
 class AbilityRegistryConfiguration(SystemConfiguration):
