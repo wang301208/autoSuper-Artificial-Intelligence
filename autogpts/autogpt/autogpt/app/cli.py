@@ -28,6 +28,11 @@ def cli(ctx: click.Context):
     type=int,
     help="Defines the number of times to run in continuous mode",
 )
+@click.option(
+    "--autonomous",
+    is_flag=True,
+    help="Run without requiring user authorization for each action",
+)
 @click.option("--speak", is_flag=True, help="Enable Speak Mode")
 @click.option("--gpt3only", is_flag=True, help="Enable GPT3.5 Only Mode")
 @click.option("--gpt4only", is_flag=True, help="Enable GPT4 Only Mode")
@@ -149,6 +154,7 @@ def cli(ctx: click.Context):
 def run(
     continuous: bool,
     continuous_limit: Optional[int],
+    autonomous: bool,
     speak: bool,
     gpt3only: bool,
     gpt4only: bool,
@@ -176,33 +182,60 @@ def run(
     existing agent.
     """
     # Put imports inside function to avoid importing everything when starting the CLI
-    from autogpt.app.main import run_auto_gpt
+    if autonomous:
+        from autogpt.runner.auto_loop import run_auto_loop
 
-    run_auto_gpt(
-        continuous=continuous,
-        continuous_limit=continuous_limit,
-        ai_settings=ai_settings,
-        prompt_settings=prompt_settings,
-        skip_reprompt=skip_reprompt,
-        speak=speak,
-        debug=debug,
-        log_level=log_level,
-        log_format=log_format,
-        log_file_format=log_file_format,
-        gpt3only=gpt3only,
-        gpt4only=gpt4only,
-        browser_name=browser_name,
-        allow_downloads=allow_downloads,
-        skip_news=skip_news,
-        workspace_directory=workspace_directory,
-        install_plugin_deps=install_plugin_deps,
-        override_ai_name=ai_name,
-        override_ai_role=ai_role,
-        resources=list(resource),
-        constraints=list(constraint),
-        best_practices=list(best_practice),
-        override_directives=override_directives,
-    )
+        run_auto_loop(
+            continuous_limit=continuous_limit,
+            ai_settings=ai_settings,
+            prompt_settings=prompt_settings,
+            speak=speak,
+            debug=debug,
+            log_level=log_level,
+            log_format=log_format,
+            log_file_format=log_file_format,
+            gpt3only=gpt3only,
+            gpt4only=gpt4only,
+            browser_name=browser_name,
+            allow_downloads=allow_downloads,
+            skip_news=skip_news,
+            workspace_directory=workspace_directory,
+            install_plugin_deps=install_plugin_deps,
+            override_ai_name=ai_name,
+            override_ai_role=ai_role,
+            resources=list(resource),
+            constraints=list(constraint),
+            best_practices=list(best_practice),
+            override_directives=override_directives,
+        )
+    else:
+        from autogpt.app.main import run_auto_gpt
+
+        run_auto_gpt(
+            continuous=continuous,
+            continuous_limit=continuous_limit,
+            ai_settings=ai_settings,
+            prompt_settings=prompt_settings,
+            skip_reprompt=skip_reprompt,
+            speak=speak,
+            debug=debug,
+            log_level=log_level,
+            log_format=log_format,
+            log_file_format=log_file_format,
+            gpt3only=gpt3only,
+            gpt4only=gpt4only,
+            browser_name=browser_name,
+            allow_downloads=allow_downloads,
+            skip_news=skip_news,
+            workspace_directory=workspace_directory,
+            install_plugin_deps=install_plugin_deps,
+            override_ai_name=ai_name,
+            override_ai_role=ai_role,
+            resources=list(resource),
+            constraints=list(constraint),
+            best_practices=list(best_practice),
+            override_directives=override_directives,
+        )
 
 
 @cli.command()
