@@ -21,6 +21,7 @@ data/*
 !data/charter/*.json
 !data/charter/*.yaml
 !data/charter/*.yml
+!data/q_table.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
