@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 from datetime import datetime
 from threading import Timer
+from heapq import heappop, heappush
 import json
 
 from capability.meta_skill import META_SKILL_STRATEGY_EVOLUTION
@@ -43,9 +44,14 @@ class Strategist(Agent):
         charter_path = self.charter_dir / "strategic_principles.md"
         charter_path.write_text("\n".join(principles) + "\n")
 
+        # Determine an executable action sequence using A* planning
+        actions = self._plan_actions(principles)
+        plan_path = self.charter_dir / "strategic_plan.md"
+        plan_path.write_text("\n".join(f"- {step}" for step in actions) + "\n")
+
         # Reflect on recent performance metrics
         self.reflect(logs=logs, principles=principles)
-        return charter_path
+        return plan_path
 
     def reflect(
         self,
@@ -145,3 +151,30 @@ class Strategist(Agent):
         if not unique:
             unique.append("- No actionable principles found.")
         return unique
+
+    def _plan_actions(self, principles: List[str]) -> List[str]:
+        """Generate an ordered action plan from principles using A* search."""
+
+        def heuristic(idx: int) -> int:
+            # Remaining principles act as a simple distance heuristic
+            return len(principles) - idx
+
+        frontier: List[Tuple[int, int, List[str]]] = []
+        heappush(frontier, (heuristic(0), 0, []))
+        visited = set()
+
+        while frontier:
+            _score, idx, path = heappop(frontier)
+            if idx == len(principles):
+                return path
+            if idx in visited:
+                continue
+            visited.add(idx)
+
+            principle_text = principles[idx].lstrip("- ").strip()
+            step = f"Act on: {principle_text}"
+            new_path = path + [step]
+            cost = len(new_path)
+            heappush(frontier, (cost + heuristic(idx + 1), idx + 1, new_path))
+
+        return []
