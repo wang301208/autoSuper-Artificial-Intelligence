@@ -277,8 +277,13 @@ class Agent(
             self.llm_provider, self.legacy_config
         )
 
-        # Allow the agent to learn from its recent experience
-        self._experience_learner.learn_from_experience()
+        # Allow the agent to learn from its recent experience and adjust
+        # command availability based on the learned success rates
+        updated_weights = self._experience_learner.learn_from_experience()
+        for name, weight in updated_weights.items():
+            if cmd := self.command_registry.get_command(name):
+                # Simple heuristic: disable commands with low success rate
+                cmd.available = weight >= 0.5
 
         return result
 
