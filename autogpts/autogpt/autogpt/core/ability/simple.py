@@ -1,6 +1,8 @@
 import logging
 from typing import ClassVar
 
+import inflection
+
 from autogpt.core.ability.base import Ability, AbilityConfiguration, AbilityRegistry
 from autogpt.core.ability.builtins import BUILTIN_ABILITIES
 from autogpt.core.ability.schema import AbilityResult
@@ -169,3 +171,29 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
     async def perform(self, ability_name: str, **kwargs) -> AbilityResult:
         ability = self.get_ability(ability_name)
         return await ability(**kwargs)
+
+    def optimize_ability(self, ability_name: str, metrics: dict[str, float]) -> None:
+        current_config = self._configuration.abilities.get(ability_name)
+        if not current_config:
+            return
+        optimized_route = (
+            f"skills.{ability_name}_optimized.{inflection.camelize(ability_name)}"
+        )
+        location = PluginLocation(
+            storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
+            storage_route=optimized_route,
+        )
+        try:
+            SimplePluginService.get_plugin(location)
+        except Exception:
+            self._logger.debug(
+                "No optimized ability found for %s", ability_name
+            )
+            return
+        new_config = current_config.copy(update={"location": location})
+        self._abilities = [ab for ab in self._abilities if ab.name() != ability_name]
+        self._configuration.abilities[ability_name] = new_config
+        self.register_ability(ability_name, new_config)
+        self._logger.info(
+            "Replaced ability '%s' with optimized variant", ability_name
+        )

@@ -22,6 +22,9 @@ class AbilityConfiguration(SystemConfiguration):
     language_model_required: LanguageModelConfiguration = None
     memory_provider_required: bool = False
     workspace_required: bool = False
+    performance_hint: float | None = Field(
+        default=None, description="Expected latency in seconds"
+    )
 
 
 class Ability(abc.ABC):

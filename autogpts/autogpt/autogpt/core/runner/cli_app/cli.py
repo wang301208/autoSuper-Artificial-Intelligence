@@ -31,8 +31,13 @@ autogpt.add_command(make_settings)
     is_flag=True,
     help="Drop into a debugger if an error is raised.",
 )
+@click.option(
+    "--optimize-abilities",
+    is_flag=True,
+    help="Enable ability optimization based on profiling data.",
+)
 @coroutine
-async def run(settings_file: str, pdb: bool) -> None:
+async def run(settings_file: str, pdb: bool, optimize_abilities: bool) -> None:
     """Run the AutoGPT agent."""
     click.echo("Running AutoGPT agent...")
     settings_file: Path = Path(settings_file)
@@ -40,7 +45,7 @@ async def run(settings_file: str, pdb: bool) -> None:
     if settings_file.exists():
         settings = yaml.safe_load(settings_file.read_text())
     main = handle_exceptions(run_auto_gpt, with_debugger=pdb)
-    await main(settings)
+    await main(settings, optimize_abilities=optimize_abilities)
 
 
 if __name__ == "__main__":
