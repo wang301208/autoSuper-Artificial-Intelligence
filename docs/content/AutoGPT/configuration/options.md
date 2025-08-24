@@ -17,6 +17,9 @@ Configuration is controlled through the `Config` object. You can set configurati
 - `EMBEDDING_MODEL`: LLM Model to use for embedding tasks. Default: `text-embedding-3-small`
 - `EXECUTE_LOCAL_COMMANDS`: If shell commands should be executed locally. Default: False
 - `EXIT_KEY`: Exit key accepted to exit. Default: n
+- `EVOLUTION_FITNESS_FUNCTION`: Fitness function used for the EvolutionAgent's policy updates. Default: reward
+- `EVOLUTION_GENERATIONS`: Number of generations before policy mutation occurs in EvolutionAgent. Default: 10
+- `EVOLUTION_LEARNING_RATE`: Learning rate for EvolutionAgent's policy gradient updates. Default: 0.1
 - `FAST_LLM`: LLM Model to use for most tasks. Default: `gpt-3.5-turbo-0125`
 - `GITHUB_API_KEY`: [Github API Key](https://github.com/settings/tokens). Optional.
 - `GITHUB_USERNAME`: GitHub Username. Optional.
