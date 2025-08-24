@@ -2,6 +2,7 @@ import logging
 import subprocess
 import re
 import time
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -31,6 +32,8 @@ from autogpt.core.resource.model_providers import (
 from autogpt.core.resource.model_providers.schema import ChatModelResponse
 from autogpt.core.workspace.simple import SimpleWorkspace, WorkspaceSettings
 from autogpt.config import Config
+from autogpt.core.knowledge_extractor import extract
+from autogpt.core.knowledge_conflict import resolve_conflicts
 
 
 class AgentSystems(SystemConfiguration):
@@ -539,11 +542,33 @@ class SimpleAgent(LayeredAgent, Configurable):
     async def _update_tasks_and_memory(self, ability_result: AbilityResult):
         self._current_task.context.cycle_count += 1
         self._current_task.context.prior_actions.append(ability_result)
+
         if ability_result.ability_name == "evaluate_metrics":
             file_path = ability_result.ability_args.get("file_path", "")
             self._memory.add(f"Metrics for {file_path}: {ability_result.message}")
-        # TODO: Summarize new knowledge
-        # TODO: store knowledge and summaries in memory and in relevant tasks
+
+        # --- Summarize and extract knowledge ---
+        summary, knowledge_items = extract(ability_result.message or "")
+
+        if summary:
+            # store in global memory and task specific memories
+            self._memory.add(summary)
+            self._current_task.context.memories.append(summary)
+
+        if knowledge_items:
+            # attach structured knowledge to the current task for later reference
+            self._current_task.context.supplementary_info.append(knowledge_items)
+
+            kb_path = self._workspace.get_path("knowledge_base.json")
+            if kb_path.exists():
+                with kb_path.open("r") as f:
+                    existing = json.load(f)
+            else:
+                existing = []
+            updated = resolve_conflicts(existing, knowledge_items)
+            with kb_path.open("w") as f:
+                json.dump(updated, f, indent=2)
+
         # TODO: evaluate whether the task is complete
 
     def __repr__(self):
