@@ -38,6 +38,7 @@ class AgentSystems(SystemConfiguration):
     memory: PluginLocation
     openai_provider: PluginLocation
     planning: PluginLocation
+    creative_planning: PluginLocation
     workspace: PluginLocation
 
 
@@ -62,6 +63,7 @@ class AgentSettings(BaseModel):
     memory: MemorySettings
     openai_provider: OpenAISettings
     planning: PlannerSettings
+    creative_planning: PlannerSettings
     workspace: WorkspaceSettings
 
     def update_agent_name_and_goals(self, agent_goals: dict) -> None:
@@ -129,6 +131,10 @@ class SimpleAgent(LayeredAgent, Configurable):
                     storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
                     storage_route="autogpt.core.planning.SimplePlanner",
                 ),
+                creative_planning=PluginLocation(
+                    storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
+                    storage_route="autogpt.core.planning.CreativePlanner",
+                ),
                 workspace=PluginLocation(
                     storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
                     storage_route="autogpt.core.workspace.SimpleWorkspace",
@@ -147,6 +153,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         openai_provider: OpenAIProvider,
         planning: SimplePlanner,
         workspace: SimpleWorkspace,
+        creative_planning: SimplePlanner | None = None,
         next_layer: Optional[LayeredAgent] = None,
         optimize_abilities: bool = False,
     ):
@@ -159,6 +166,8 @@ class SimpleAgent(LayeredAgent, Configurable):
         #  Getting the construction of the config to work is a bit tricky
         self._openai_provider = openai_provider
         self._planning = planning
+        self._default_planning = planning
+        self._creative_planning = creative_planning
         self._workspace = workspace
         self._task_queue = []
         self._completed_tasks = []
@@ -196,6 +205,12 @@ class SimpleAgent(LayeredAgent, Configurable):
             logger,
             model_providers={"openai": agent_args["openai_provider"]},
         )
+        agent_args["creative_planning"] = cls._get_system_instance(
+            "creative_planning",
+            agent_settings,
+            logger,
+            model_providers={"openai": agent_args["openai_provider"]},
+        )
         agent_args["memory"] = cls._get_system_instance(
             "memory",
             agent_settings,
@@ -214,6 +229,13 @@ class SimpleAgent(LayeredAgent, Configurable):
 
         return cls(**agent_args, optimize_abilities=optimize_abilities)
 
+    def use_creative_planner(self, use_creative: bool = True) -> None:
+        """Switch between the default planner and the creative planner."""
+        if use_creative and self._creative_planning is not None:
+            self._planning = self._creative_planning
+        else:
+            self._planning = self._default_planning
+
     async def build_initial_plan(self) -> dict:
         plan = await self._planning.make_initial_plan(
             agent_name=self._configuration.name,
@@ -221,7 +243,10 @@ class SimpleAgent(LayeredAgent, Configurable):
             agent_goals=self._configuration.goals,
             abilities=self._ability_registry.list_abilities(),
         )
-        tasks = [Task.parse_obj(task) for task in plan.parsed_result["task_list"]]
+        plan_dict = plan.parsed_result
+        if "plan_options" in plan_dict:
+            plan_dict = plan_dict["plan_options"][0]
+        tasks = [Task.parse_obj(task) for task in plan_dict["task_list"]]
 
         # TODO: Should probably do a step to evaluate the quality of the generated tasks
         #  and ensure that they have actionable ready and acceptance criteria
@@ -229,7 +254,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._task_queue.extend(tasks)
         self._task_queue.sort(key=lambda t: t.priority, reverse=True)
         self._task_queue[-1].context.status = TaskStatus.READY
-        return plan.parsed_result
+        return plan_dict
 
     def route_task(self, task: Task, *args, **kwargs):
         self._task_queue.append(task)
