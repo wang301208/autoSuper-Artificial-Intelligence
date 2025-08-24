@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List
+from typing import Dict, Iterable, List
 from datetime import datetime
 from threading import Timer
 import json
@@ -27,6 +27,9 @@ class Strategist(Agent):
         self.charter_dir.mkdir(parents=True, exist_ok=True)
         self.metrics_dir = Path(metrics_dir)
         self.metrics_dir.mkdir(parents=True, exist_ok=True)
+        # Persistence for a lightweight online model
+        self.model_path = self.metrics_dir / "model.json"
+        self.history_path = self.metrics_dir / "history.jsonl"
         # Local library of meta-skills consulted during analysis
         self.library = SkillLibrary(skill_repo)
 
@@ -89,6 +92,22 @@ class Strategist(Agent):
         metrics_path = self.metrics_dir / f"{timestamp}.json"
         metrics_path.write_text(json.dumps(data, indent=2))
 
+        # Persist history of principles and outcomes
+        clean_principles = [
+            p[2:].strip() if p.startswith("- ") else p
+            for p in principles or []
+        ]
+        history_entry = {
+            "timestamp": timestamp,
+            "principles": clean_principles,
+            "success_rate": success_rate,
+        }
+        with self.history_path.open("a") as f:
+            f.write(json.dumps(history_entry) + "\n")
+
+        # Train/update a simple online model
+        self._update_model(clean_principles, success_rate)
+
         # Determine if performance has stagnated and a meta-upgrade is needed
         if existing and (
             success_rate_change <= 0 or principle_derivation_velocity <= 0
@@ -137,11 +156,41 @@ class Strategist(Agent):
         return ticket_path
 
     def _extract_principles(self, lines: List[str]) -> List[str]:
+        """Derive principles, prioritising those with higher learned weights."""
         unique: List[str] = []
         for line in lines:
             line = line.strip()
             if line and line not in unique:
-                unique.append(f"- {line}")
+                unique.append(line)
         if not unique:
-            unique.append("- No actionable principles found.")
-        return unique
+            unique.append("No actionable principles found.")
+        model = self._load_model()
+        unique.sort(key=lambda p: model.get(p, 0.0), reverse=True)
+        return [f"- {p}" for p in unique]
+
+    # --- Simple online learning helpers ---
+    def _load_model(self) -> Dict[str, float]:
+        if self.model_path.exists():
+            try:
+                return json.loads(self.model_path.read_text())
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def _save_model(self, model: Dict[str, float]) -> None:
+        self.model_path.write_text(json.dumps(model, indent=2))
+
+    def _predict(self, principles: List[str], model: Dict[str, float]) -> float:
+        if not principles:
+            return 0.0
+        return sum(model.get(p, 0.0) for p in principles) / len(principles)
+
+    def _update_model(
+        self, principles: List[str], success_rate: float, lr: float = 0.1
+    ) -> None:
+        model = self._load_model()
+        prediction = self._predict(principles, model)
+        error = success_rate - prediction
+        for p in principles:
+            model[p] = model.get(p, 0.0) + lr * error
+        self._save_model(model)
