@@ -33,6 +33,7 @@ class Command:
         disabled_reason: Optional[str] = None,
         aliases: list[str] = [],
         available: bool | Callable[[BaseAgent], bool] = True,
+        priority: float = 0.0,
     ):
         self.name = name
         self.description = description
@@ -42,6 +43,7 @@ class Command:
         self.disabled_reason = disabled_reason
         self.aliases = aliases
         self.available = available
+        self.priority = priority
 
     @property
     def is_async(self) -> bool:

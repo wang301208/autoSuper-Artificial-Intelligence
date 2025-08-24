@@ -278,7 +278,10 @@ class Agent(
         )
 
         # Allow the agent to learn from its recent experience
-        self._experience_learner.learn_from_experience()
+        weights = self._experience_learner.learn_from_experience()
+        for name, weight in weights.items():
+            if command := self.command_registry.get_command(name):
+                command.priority = weight
 
         return result
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Iterable, Dict
 
 from autogpt.core.configuration.learning import LearningConfiguration
 
@@ -20,14 +20,19 @@ class ExperienceLearner:
         self._config = config
         self._logger = logger or logging.getLogger(__name__)
 
-    def learn_from_experience(self) -> None:
-        """Read past interactions from memory and update the model."""
+    def learn_from_experience(self) -> Dict[str, float]:
+        """Read past interactions from memory and update the model.
+
+        Returns:
+            A mapping of command names to updated priority weights. Commands with
+            more successful executions receive higher weights.
+        """
         if not self._config.enabled:
-            return
+            return {}
 
         records = list(self._memory) if self._memory is not None else []
         if not records:
-            return
+            return {}
 
         self._logger.debug(
             "Learning from %d records (lr=%s, batch_size=%s)",
@@ -35,4 +40,23 @@ class ExperienceLearner:
             self._config.learning_rate,
             self._config.batch_size,
         )
-        # Placeholder for actual learning logic that would update model parameters
+
+        stats: dict[str, dict[str, int]] = {}
+        for episode in records:
+            if not getattr(episode, "result", None):
+                continue
+            cmd_name = episode.action.name
+            stats.setdefault(cmd_name, {"success": 0, "total": 0})
+            stats[cmd_name]["total"] += 1
+            if getattr(episode.result, "status", None) == "success":
+                stats[cmd_name]["success"] += 1
+
+        weights = {
+            name: (values["success"] / values["total"])
+            if values["total"]
+            else 0
+            for name, values in stats.items()
+        }
+
+        self._logger.debug("Learned command weights: %s", weights)
+        return weights

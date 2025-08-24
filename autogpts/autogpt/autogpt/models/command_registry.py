@@ -108,7 +108,9 @@ class CommandRegistry:
             Command: The next available command.
         """
 
-        for cmd in self.commands.values():
+        for cmd in sorted(
+            self.commands.values(), key=lambda c: getattr(c, "priority", 0), reverse=True
+        ):
             available = cmd.available
             if callable(cmd.available):
                 available = cmd.available(agent)
