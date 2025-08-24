@@ -371,38 +371,49 @@ def extract_subgraph_based_on_category(graph, category):
 
 
 def is_circular(graph):
-    def dfs(node, visited, stack, parent_map):
+    """Detect a cycle in a directed graph.
+
+    The previous implementation scanned the entire edge list for every node
+    expansion, leading to ``O(V*E)`` complexity. By first building an adjacency
+    map of outgoing edges, we reduce the runtime to ``O(V+E)``.
+    """
+
+    # Build adjacency list once to avoid repeatedly scanning all edges
+    adjacency: dict[str, list[str]] = {}
+    for edge in graph["edges"]:
+        adjacency.setdefault(edge["from"], []).append(edge["to"])
+
+    def dfs(node: str, visited: set[str], stack: set[str], parent_map: dict[str, str]):
         visited.add(node)
         stack.add(node)
-        for edge in graph["edges"]:
-            if edge["from"] == node:
-                if edge["to"] in stack:
-                    # Detected a cycle
-                    cycle_path = []
-                    current = node
-                    while current != edge["to"]:
-                        cycle_path.append(current)
-                        current = parent_map.get(current)
-                    cycle_path.append(edge["to"])
-                    cycle_path.append(node)
-                    return cycle_path[::-1]
-                elif edge["to"] not in visited:
-                    parent_map[edge["to"]] = node
-                    cycle_path = dfs(edge["to"], visited, stack, parent_map)
-                    if cycle_path:
-                        return cycle_path
+        for neighbor in adjacency.get(node, []):
+            if neighbor in stack:
+                # Detected a cycle; reconstruct the path
+                cycle_path = [neighbor]
+                current = node
+                while current != neighbor:
+                    cycle_path.append(current)
+                    current = parent_map[current]
+                cycle_path.append(neighbor)
+                cycle_path.reverse()
+                return cycle_path
+            if neighbor not in visited:
+                parent_map[neighbor] = node
+                cycle = dfs(neighbor, visited, stack, parent_map)
+                if cycle:
+                    return cycle
         stack.remove(node)
         return None
 
-    visited = set()
-    stack = set()
-    parent_map = {}
+    visited: set[str] = set()
+    stack: set[str] = set()
+    parent_map: dict[str, str] = {}
     for node in graph["nodes"]:
         node_id = node["id"]
         if node_id not in visited:
-            cycle_path = dfs(node_id, visited, stack, parent_map)
-            if cycle_path:
-                return cycle_path
+            cycle = dfs(node_id, visited, stack, parent_map)
+            if cycle:
+                return cycle
     return None
 
 

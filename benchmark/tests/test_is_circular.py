@@ -1,3 +1,5 @@
+import time
+
 from agbenchmark.utils.dependencies.graphs import is_circular
 
 
@@ -45,3 +47,18 @@ def test_is_not_circular():
     }
 
     assert is_circular(acyclic_graph) is None, "Detected a cycle in an acyclic graph"
+
+
+def test_is_circular_performance():
+    """Ensure cycle detection scales sub-quadratically for larger graphs."""
+    n = 2000
+    nodes = [{"id": str(i), "data": {"category": []}} for i in range(n)]
+    edges = [{"from": str(i), "to": str(i + 1)} for i in range(n - 1)]
+    edges.append({"from": str(n - 1), "to": "0"})
+    graph = {"nodes": nodes, "edges": edges}
+
+    start = time.perf_counter()
+    assert is_circular(graph) is not None
+    elapsed = time.perf_counter() - start
+    # The previous implementation took ~0.09s for n=2000
+    assert elapsed < 0.05
