@@ -17,10 +17,32 @@ class VectorIndex:
         if chromadb is None:
             raise ImportError("chromadb is required for VectorIndex")
         self.client = chromadb.Client(Settings(persist_directory=persist_directory))
-        self.collection = self.client.get_or_create_collection("skills")
+        self.collections: Dict[str, Any] = {}
 
-    def add(self, skill_id: str, embedding: List[float], metadata: Dict[str, Any] | None = None) -> None:
-        self.collection.add(ids=[skill_id], embeddings=[embedding], metadatas=[metadata or {}])
+    def _get_collection(self, vector_type: str) -> Any:
+        """Get or create a collection for the given vector type."""
+        if vector_type not in self.collections:
+            self.collections[vector_type] = self.client.get_or_create_collection(vector_type)
+        return self.collections[vector_type]
 
-    def query(self, embedding: List[float], n_results: int = 1) -> Dict[str, Any]:
-        return self.collection.query(query_embeddings=[embedding], n_results=n_results)
+    def add(
+        self,
+        doc_id: str,
+        embedding: List[float],
+        metadata: Dict[str, Any] | None = None,
+        vector_type: str = "text",
+    ) -> None:
+        collection = self._get_collection(vector_type)
+        collection.add(ids=[doc_id], embeddings=[embedding], metadatas=[metadata or {}])
+
+    def add_image_embedding(
+        self, doc_id: str, embedding: List[float], metadata: Dict[str, Any] | None = None
+    ) -> None:
+        """Convenience method to store an image embedding."""
+        self.add(doc_id, embedding, metadata, vector_type="image")
+
+    def query(
+        self, embedding: List[float], n_results: int = 1, vector_type: str = "text"
+    ) -> Dict[str, Any]:
+        collection = self._get_collection(vector_type)
+        return collection.query(query_embeddings=[embedding], n_results=n_results)
