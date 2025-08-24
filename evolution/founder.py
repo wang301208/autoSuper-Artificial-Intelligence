@@ -13,6 +13,7 @@ except Exception:  # pragma: no cover - optional dependency
 from . import Agent
 from .genesis_team import GenesisTeamManager
 from .ml_model import ResourceModel
+from .self_improvement import SelfImprovement
 
 
 class Founder(Agent):
@@ -49,9 +50,19 @@ class Founder(Agent):
         return suggestions
 
     def plan_tool_updates(self) -> str:
-        """Run the Genesis team and aggregate their reports."""
+        """Run the Genesis team and self-improvement routine."""
 
         manager = GenesisTeamManager()
         logs = manager.run()
-        # Combine logs in execution order for a human-readable summary
-        return "\n".join(f"{agent}: {output}" for agent, output in logs.items())
+
+        improver = SelfImprovement()
+        results = improver.run()
+
+        summary = [f"{agent}: {output}" for agent, output in logs.items()]
+        if results["suggestions"]:
+            summary.append("Self-Improvement Suggestions:")
+            summary.extend(results["suggestions"])
+        if results["actions"]:
+            summary.append("Triggered Actions:")
+            summary.extend(results["actions"])
+        return "\n".join(summary)
