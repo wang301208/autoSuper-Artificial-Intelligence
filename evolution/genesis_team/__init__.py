@@ -5,6 +5,7 @@ from .archaeologist import Archaeologist
 from .tdd_dev import TDDDeveloper
 from .qa import QA
 from .manager import GenesisTeamManager
+from .conflict import ConflictResolver
 
 __all__ = [
     "Sentinel",
@@ -12,4 +13,5 @@ __all__ = [
     "TDDDeveloper",
     "QA",
     "GenesisTeamManager",
+    "ConflictResolver",
 ]
