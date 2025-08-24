@@ -3,13 +3,15 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from autogpt.agents.agent import AgentSettings
 from autogpt.file_storage.base import FileStorage
+from autogpt.core.planning.reasoner import PlanResult, ReasoningPlanner
+from autogpt.core.planning.schema import Task
 
 
 class AgentManager:
-    def __init__(self, file_storage: FileStorage):
+    def __init__(self, file_storage: FileStorage, planner: ReasoningPlanner | None = None):
         self.file_manager = file_storage.clone_with_subroot("agents")
+        self._planner = planner or ReasoningPlanner()
 
     @staticmethod
     def generate_id(agent_name: str) -> str:
@@ -37,9 +39,18 @@ class AgentManager:
 
     def load_agent_state(self, agent_id: str) -> AgentSettings:
         """Load the state of the agent with the given ID."""
+        from autogpt.agents.agent import AgentSettings
+
         state_file_path = Path(agent_id) / "state.json"
         if not self.file_manager.exists(state_file_path):
             raise FileNotFoundError(f"Agent with ID '{agent_id}' has no state.json")
 
         state = self.file_manager.read_file(state_file_path)
         return AgentSettings.parse_raw(state)
+
+    # --- Planning -----------------------------------------------------------------
+
+    def plan_next_step(self, task: Task) -> PlanResult:
+        """Use :class:`ReasoningPlanner` to generate the next step for ``task``."""
+
+        return self._planner.plan(task)
