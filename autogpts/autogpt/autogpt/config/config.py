@@ -67,6 +67,20 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
         default=FileStorageBackendName.LOCAL, from_env="FILE_STORAGE_BACKEND"
     )
 
+    # Event system
+    event_bus_backend: str = UserConfigurable(
+        default="inmemory", from_env="EVENT_BUS_BACKEND"
+    )
+    event_bus_redis_host: str = UserConfigurable(
+        default="localhost", from_env="EVENT_BUS_REDIS_HOST"
+    )
+    event_bus_redis_port: int = UserConfigurable(
+        default=6379, from_env="EVENT_BUS_REDIS_PORT"
+    )
+    event_bus_redis_password: str = UserConfigurable(
+        default="", from_env="EVENT_BUS_REDIS_PASSWORD"
+    )
+
     ##########################
     # Agent Control Settings #
     ##########################

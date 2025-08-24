@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from pydantic import Field, validator
+from events import create_event_bus, set_event_bus
 from events.client import EventClient
 
 if TYPE_CHECKING:
@@ -172,7 +173,14 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         self.directives = settings.directives
         self.event_history = settings.history
 
-        self.event_client = EventClient()
+        bus = create_event_bus(
+            legacy_config.event_bus_backend,
+            host=legacy_config.event_bus_redis_host,
+            port=legacy_config.event_bus_redis_port,
+            password=legacy_config.event_bus_redis_password or None,
+        )
+        set_event_bus(bus)
+        self.event_client = EventClient(bus)
 
         self.legacy_config = legacy_config
         """LEGACY: Monolithic application configuration."""
