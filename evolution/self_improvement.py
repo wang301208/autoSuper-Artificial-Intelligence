@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 import csv
 import subprocess
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Callable
+
+from .ga_config import GAConfig
+from .parallel_ga import ParallelGA
 
 
 class SelfImprovement:
@@ -15,9 +18,11 @@ class SelfImprovement:
         self,
         tickets_dir: Path | str = Path("evolution/meta_tickets"),
         metrics_path: Path | str = Path("evolution/metrics_history.csv"),
+        ga_metrics_path: Path | str = Path("evolution/ga_metrics_history.csv"),
     ) -> None:
         self.tickets_dir = Path(tickets_dir)
         self.metrics_path = Path(metrics_path)
+        self.ga_metrics_path = Path(ga_metrics_path)
 
     def _load_metrics(self) -> List[Dict[str, float]]:
         data: List[Dict[str, float]] = []
@@ -82,13 +87,46 @@ class SelfImprovement:
                         actions.append(f"Script not found: {script_path}")
         return actions
 
+    # Genetic algorithm -------------------------------------------------
+    def optimize_with_ga(
+        self,
+        fitness_fn: Callable[[List[float]], float] | None = None,
+        config: GAConfig | None = None,
+    ) -> Dict[str, float | List[float]]:
+        """Run the parallel GA and record generation/time metrics."""
+
+        if fitness_fn is None:
+            fitness_fn = lambda x: -sum((v - 0.5) ** 2 for v in x)
+        cfg = config or GAConfig.from_env()
+        ga = ParallelGA(fitness_fn, cfg)
+        best, best_fit, history = ga.run()
+
+        self._record_ga_history(history)
+        return {"best_individual": best, "best_fitness": best_fit}
+
+    def _record_ga_history(self, history: List[Dict[str, float]]) -> None:
+        """Append GA generation/time metrics to CSV."""
+
+        self.ga_metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not self.ga_metrics_path.exists()
+        with open(self.ga_metrics_path, "a", newline="") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["generation", "elapsed_time", "best_fitness"]
+            )
+            if write_header:
+                writer.writeheader()
+            for row in history:
+                writer.writerow(row)
+
     def run(self) -> Dict[str, List[str]]:
         tickets = self.read_meta_tickets()
         bottlenecks = self.identify_bottlenecks()
         suggestions = self.generate_suggestions(bottlenecks, tickets)
         actions = self.trigger_actions(tickets)
+        ga_result = self.optimize_with_ga()
         return {
             "bottlenecks": bottlenecks,
             "suggestions": suggestions,
             "actions": actions,
+            "ga_result": ga_result,
         }
