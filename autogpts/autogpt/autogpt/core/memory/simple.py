@@ -45,6 +45,7 @@ class SimpleMemory(Memory, Configurable):
         self._workspace = workspace
         self._message_history = self._load_message_history(workspace)
         self._summary_archive = self._load_summary_archive(workspace)
+        self._ability_scores = self._load_scores(workspace)
 
     @staticmethod
     def _load_message_history(workspace: Workspace):
@@ -61,6 +62,14 @@ class SimpleMemory(Memory, Configurable):
         archive_path = workspace.get_path("long_term_memory.json")
         if archive_path.exists():
             with archive_path.open("r") as f:
+                return json.load(f)
+        return []
+
+    @staticmethod
+    def _load_scores(workspace: Workspace) -> list[dict]:
+        path = workspace.get_path("ability_scores.json")
+        if path.exists():
+            with path.open("r") as f:
                 return json.load(f)
         return []
 
@@ -145,3 +154,33 @@ class SimpleMemory(Memory, Configurable):
 
         messages = self._message_history.as_list()
         return messages[-limit:] if limit else messages
+
+    # --- Ability score helpers ---
+    def log_score(
+        self, task_id: str, task_description: str, ability: str, score: float
+    ) -> None:
+        entry = {
+            "task_id": task_id,
+            "task_description": task_description,
+            "ability": ability,
+            "score": score,
+        }
+        self._ability_scores.append(entry)
+        path = self._workspace.get_path("ability_scores.json")
+        with path.open("w") as f:
+            json.dump(self._ability_scores, f)
+
+    def get_scores_for_task(self, task_description: str, ability: str) -> list[float]:
+        entries = [e for e in self._ability_scores if e.get("ability") == ability]
+        if not entries:
+            return []
+        query_vec = self._vectorize(task_description)
+        scored = []
+        for e in entries:
+            sim = self._cosine_similarity(
+                query_vec, self._vectorize(e.get("task_description", ""))
+            )
+            if sim > 0:
+                scored.append((sim, e["score"]))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [score for _, score in scored]

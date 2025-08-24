@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -66,6 +67,28 @@ class AgentSettings(BaseModel):
         self.agent.configuration.name = agent_goals["agent_name"]
         self.agent.configuration.role = agent_goals["agent_role"]
         self.agent.configuration.goals = agent_goals["agent_goals"]
+
+
+class PerformanceEvaluator:
+    """Score ability results based on success, cost, and duration."""
+
+    def __init__(
+        self,
+        success_weight: float = 1.0,
+        cost_weight: float = 0.1,
+        duration_weight: float = 0.1,
+    ) -> None:
+        self._success_weight = success_weight
+        self._cost_weight = cost_weight
+        self._duration_weight = duration_weight
+
+    def score(self, result: AbilityResult, cost: float, duration: float) -> float:
+        success_score = 1.0 if result.success else 0.0
+        return (
+            self._success_weight * success_score
+            - self._cost_weight * cost
+            - self._duration_weight * duration
+        )
 
 
 class SimpleAgent(LayeredAgent, Configurable):
@@ -138,6 +161,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._completed_tasks = []
         self._current_task = None
         self._next_ability = None
+        self._performance_evaluator = PerformanceEvaluator()
 
     @classmethod
     def from_workspace(
@@ -233,7 +257,10 @@ class SimpleAgent(LayeredAgent, Configurable):
             filename = (
                 ability_args.get("filename") if ability_name == "write_file" else None
             )
+            start_time = time.perf_counter()
             ability_response = await ability(**ability_args)
+            duration = time.perf_counter() - start_time
+            cost = float(ability_response.ability_args.get("cost", 0))
 
             if ability_name == "write_file" and ability_response.success:
                 lint_ability = self._ability_registry.get_ability("lint_code")
@@ -342,6 +369,17 @@ class SimpleAgent(LayeredAgent, Configurable):
                         )
 
             await self._update_tasks_and_memory(ability_response)
+            task_desc = getattr(self._current_task, "description", self._current_task.objective)
+            task_id = str(getattr(self._current_task, "id", id(self._current_task)))
+            score = self._performance_evaluator.score(
+                ability_response, cost=cost, duration=duration
+            )
+            self._memory.log_score(
+                task_id=task_id,
+                task_description=task_desc,
+                ability=ability_name,
+                score=score,
+            )
             if self._current_task.context.status == TaskStatus.DONE:
                 self._completed_tasks.append(self._current_task)
             else:
@@ -412,10 +450,19 @@ class SimpleAgent(LayeredAgent, Configurable):
             #  with an appropriate reason
             raise NotImplementedError
         else:
+            task_desc = getattr(task, "description", task.objective)
+            ability_specs.sort(
+                key=lambda spec: self._average_score(task_desc, spec.name),
+                reverse=True,
+            )
             next_ability = await self._planning.determine_next_ability(
                 task, ability_specs
             )
             return next_ability
+
+    def _average_score(self, task_desc: str, ability_name: str) -> float:
+        scores = self._memory.get_scores_for_task(task_desc, ability_name)
+        return sum(scores) / len(scores) if scores else 0.0
 
     def _get_degraded_modules(self) -> list[str]:
         """Parse memory for performance metrics and return modules with regressions."""
