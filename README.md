@@ -84,6 +84,17 @@ Commands:
 
 只需克隆仓库，使用 `./run setup` 安装依赖即可开始！
 
+### 🤖 自动代码生成
+
+AutoGPT 包含 `generate_code` 指令，可根据你的提示生成代码并将结果写入代理的工作区。
+
+```json
+{"command": {"name": "generate_code", "args": {"prompt": "编写一个打印 \"Hello, world!\" 的 Python 程序"}}}
+```
+
+生成的代码会保存为工作区中的新文件（文件名包含时间戳）。
+**限制**：该代码由 LLM 自动生成，未经过审查或执行，可能包含错误或安全隐患，运行前请务必检查。
+
 ## 🤔 有问题？遇到困难？有建议？
 
 ### 获取帮助 - [Discord 💬](https://discord.gg/autogpt)
