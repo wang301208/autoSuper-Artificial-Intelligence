@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import random
+from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from ...core.agent.simple import PerformanceEvaluator
 from autogpt.core.agent.layered import LayeredAgent
 from autogpt.core.memory import Memory
 from autogpt.core.planning import SimplePlanner
@@ -25,6 +29,58 @@ class EvolutionAgent(LayeredAgent):
         super().__init__(next_layer=next_layer)
         self._memory = memory
         self._planning = planning
+
+        data_dir = Path(__file__).resolve().parents[3] / "data"
+        data_dir.mkdir(exist_ok=True)
+        self._q_table_path = data_dir / "q_table.json"
+        self._q_table: dict[str, dict[str, float]] = {}
+        self._learning_rate = 0.1
+        self._discount_factor = 0.9
+        self._exploration_rate = 0.1
+        self._performance = PerformanceEvaluator()
+        self._last_state_action: Optional[tuple[str, str]] = None
+
+        self._load_q_table()
+
+    def _load_q_table(self) -> None:
+        if self._q_table_path.exists():
+            try:
+                self._q_table = json.loads(self._q_table_path.read_text())
+            except Exception:
+                self._q_table = {}
+
+    def _save_q_table(self) -> None:
+        try:
+            self._q_table_path.write_text(json.dumps(self._q_table))
+        except Exception:
+            pass
+
+    def _select_ability(self, state: str, abilities: list[Any]) -> Any:
+        abilities_names = [getattr(a, "name", str(a)) for a in abilities]
+        if random.random() < self._exploration_rate:
+            idx = random.randrange(len(abilities))
+            return abilities[idx]
+        state_values = self._q_table.get(state, {})
+        best_ability = max(
+            abilities_names,
+            key=lambda a: state_values.get(a, 0.0),
+            default=abilities_names[0] if abilities_names else None,
+        )
+        for ability in abilities:
+            if getattr(ability, "name", str(ability)) == best_ability:
+                return ability
+        return abilities[0]
+
+    def record_feedback(self, ability_name: str, result: Any) -> None:
+        if self._last_state_action is None:
+            return
+        state, action = self._last_state_action
+        reward = self._performance.score(result, cost=0.0, duration=0.0)
+        state_values = self._q_table.setdefault(state, {})
+        old_value = state_values.get(action, 0.0)
+        new_value = old_value + self._learning_rate * (reward - old_value)
+        state_values[action] = new_value
+        self._save_q_table()
 
     async def determine_next_ability(
         self,
@@ -69,6 +125,15 @@ class EvolutionAgent(LayeredAgent):
         filtered_abilities = [
             a for a in ability_list if not ability_failed(getattr(a, "name", str(a)))
         ]
+
+        chosen_task = filtered_tasks[0] if filtered_tasks else None
+        if chosen_task and filtered_abilities:
+            state = getattr(chosen_task, "id", getattr(chosen_task, "name", str(chosen_task)))
+            ability = self._select_ability(state, filtered_abilities)
+            ability_name = getattr(ability, "name", str(ability))
+            self._last_state_action = (state, ability_name)
+            filtered_tasks = [chosen_task]
+            filtered_abilities = [ability]
 
         if self._planning is not None and hasattr(self._planning, "update_tasks"):
             try:
