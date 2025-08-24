@@ -24,14 +24,20 @@ class ExperienceLearner:
         self._model_path = Path(__file__).with_name("experience_model.json")
         self._model, self._trained_records = self._load_model()
 
-    def learn_from_experience(self) -> None:
-        """Read past interactions from memory and update the model."""
+    def learn_from_experience(self) -> dict[str, float]:
+        """Read past interactions from memory and update the model.
+
+        Returns:
+            dict[str, float]: Mapping of command names to their learned
+                success weights. Returns the current model state even when no
+                update is performed so callers can always rely on the result.
+        """
         if not self._config.enabled:
-            return
+            return self._model
 
         records = list(self._memory) if self._memory is not None else []
         if not records or len(records) <= self._trained_records:
-            return
+            return self._model
 
         new_records = records[self._trained_records :]
 
@@ -60,6 +66,8 @@ class ExperienceLearner:
 
         self._trained_records = len(records)
         self._save_model()
+
+        return self._model
 
     def _load_model(self) -> tuple[dict[str, float], int]:
         if self._model_path.exists():
