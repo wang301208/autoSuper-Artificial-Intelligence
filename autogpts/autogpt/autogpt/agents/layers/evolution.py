@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import os
 import random
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -32,55 +34,95 @@ class EvolutionAgent(LayeredAgent):
 
         data_dir = Path(__file__).resolve().parents[3] / "data"
         data_dir.mkdir(exist_ok=True)
-        self._q_table_path = data_dir / "q_table.json"
-        self._q_table: dict[str, dict[str, float]] = {}
-        self._learning_rate = 0.1
-        self._discount_factor = 0.9
-        self._exploration_rate = 0.1
+        skills_dir = Path(__file__).resolve().parents[3] / "skills" / "MetaSkill_StrategyEvolution"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        self._policy_path = skills_dir / "policy.json"
+        self._log_path = skills_dir / "training_log.json"
+        self._policy: dict[str, dict[str, float]] = {}
+        self._learning_rate = float(os.getenv("EVOLUTION_LEARNING_RATE", 0.1))
+        self._generations = int(os.getenv("EVOLUTION_GENERATIONS", 10))
+        self._fitness_fn = os.getenv("EVOLUTION_FITNESS_FUNCTION", "reward")
         self._performance = PerformanceEvaluator()
-        self._last_state_action: Optional[tuple[str, str]] = None
+        self._last_state: Optional[str] = None
+        self._last_action: Optional[str] = None
+        self._last_prob: dict[str, float] | None = None
+        self._generation_count = 0
 
-        self._load_q_table()
+        self._load_policy()
 
-    def _load_q_table(self) -> None:
-        if self._q_table_path.exists():
+    # ------------------------------------------------------------------
+    # Policy management helpers
+    # ------------------------------------------------------------------
+    def _load_policy(self) -> None:
+        if self._policy_path.exists():
             try:
-                self._q_table = json.loads(self._q_table_path.read_text())
+                self._policy = json.loads(self._policy_path.read_text())
             except Exception:
-                self._q_table = {}
+                self._policy = {}
 
-    def _save_q_table(self) -> None:
+    def _save_policy(self) -> None:
         try:
-            self._q_table_path.write_text(json.dumps(self._q_table))
+            self._policy_path.write_text(json.dumps(self._policy, indent=2))
         except Exception:
             pass
 
+    def _log_training(self, state: str, action: str, reward: float) -> None:
+        log: list[Any] = []
+        if self._log_path.exists():
+            try:
+                log = json.loads(self._log_path.read_text())
+            except Exception:
+                log = []
+        log.append({"state": state, "action": action, "reward": reward})
+        try:
+            self._log_path.write_text(json.dumps(log, indent=2))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Policy gradient ability selection
+    # ------------------------------------------------------------------
+    def _softmax(self, values: list[float]) -> list[float]:
+        max_v = max(values) if values else 0.0
+        exps = [math.exp(v - max_v) for v in values]
+        total = sum(exps) or 1.0
+        return [e / total for e in exps]
+
     def _select_ability(self, state: str, abilities: list[Any]) -> Any:
-        abilities_names = [getattr(a, "name", str(a)) for a in abilities]
-        if random.random() < self._exploration_rate:
-            idx = random.randrange(len(abilities))
-            return abilities[idx]
-        state_values = self._q_table.get(state, {})
-        best_ability = max(
-            abilities_names,
-            key=lambda a: state_values.get(a, 0.0),
-            default=abilities_names[0] if abilities_names else None,
-        )
+        ability_names = [getattr(a, "name", str(a)) for a in abilities]
+        prefs = self._policy.setdefault(state, {})
+        for name in ability_names:
+            prefs.setdefault(name, 0.0)
+        probs_list = self._softmax([prefs[n] for n in ability_names])
+        chosen_name = random.choices(ability_names, weights=probs_list, k=1)[0]
         for ability in abilities:
-            if getattr(ability, "name", str(ability)) == best_ability:
+            if getattr(ability, "name", str(ability)) == chosen_name:
+                self._last_state = state
+                self._last_action = chosen_name
+                self._last_prob = {n: p for n, p in zip(ability_names, probs_list)}
                 return ability
         return abilities[0]
 
     def record_feedback(self, ability_name: str, result: Any) -> None:
-        if self._last_state_action is None:
+        if self._last_state is None or self._last_action is None:
             return
-        state, action = self._last_state_action
         reward = self._performance.score(result, cost=0.0, duration=0.0)
-        state_values = self._q_table.setdefault(state, {})
-        old_value = state_values.get(action, 0.0)
-        new_value = old_value + self._learning_rate * (reward - old_value)
-        state_values[action] = new_value
-        self._save_q_table()
+        probs = self._last_prob or {}
+        prefs = self._policy.setdefault(self._last_state, {})
+        for name, prob in probs.items():
+            indicator = 1.0 if name == self._last_action else 0.0
+            prefs[name] = prefs.get(name, 0.0) + self._learning_rate * reward * (
+                indicator - prob
+            )
+
+        self._log_training(self._last_state, self._last_action, reward)
+        self._generation_count += 1
+        if self._generation_count >= self._generations:
+            for state_prefs in self._policy.values():
+                for ab in state_prefs:
+                    state_prefs[ab] += random.uniform(-0.1, 0.1)
+            self._generation_count = 0
+        self._save_policy()
 
     async def determine_next_ability(
         self,
@@ -130,8 +172,6 @@ class EvolutionAgent(LayeredAgent):
         if chosen_task and filtered_abilities:
             state = getattr(chosen_task, "id", getattr(chosen_task, "name", str(chosen_task)))
             ability = self._select_ability(state, filtered_abilities)
-            ability_name = getattr(ability, "name", str(ability))
-            self._last_state_action = (state, ability_name)
             filtered_tasks = [chosen_task]
             filtered_abilities = [ability]
 
