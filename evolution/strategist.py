@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Tuple, Optional
 from datetime import datetime
 from threading import Timer
 from heapq import heappop, heappush
@@ -95,6 +95,15 @@ class Strategist(Agent):
         metrics_path = self.metrics_dir / f"{timestamp}.json"
         metrics_path.write_text(json.dumps(data, indent=2))
 
+        history_path = self.metrics_dir / "history.csv"
+        is_new = not history_path.exists()
+        with history_path.open("a") as f:
+            if is_new:
+                f.write("timestamp,principles_count,success_rate\n")
+            f.write(f"{timestamp},{principles_count},{success_rate}\n")
+
+        self._update_model(principles_count, success_rate)
+
         # Determine if performance has stagnated and a meta-upgrade is needed
         if existing and (
             success_rate_change <= 0 or principle_derivation_velocity <= 0
@@ -150,7 +159,43 @@ class Strategist(Agent):
                 unique.append(f"- {line}")
         if not unique:
             unique.append("- No actionable principles found.")
-        return unique
+            return unique
+
+        model = self._load_model()
+        if model is None:
+            return unique
+        w, b = model
+        best_idx = len(unique)
+        best_pred = float("-inf")
+        for n in range(1, len(unique) + 1):
+            pred = w * n + b
+            if pred > best_pred:
+                best_pred = pred
+                best_idx = n
+        return unique[:best_idx]
+
+    def _load_model(self) -> Optional[Tuple[float, float]]:
+        model_path = self.metrics_dir / "model.json"
+        if model_path.exists():
+            data = json.loads(model_path.read_text())
+            return data.get("w", 0.0), data.get("b", 0.0)
+        return None
+
+    def _save_model(self, w: float, b: float) -> None:
+        model_path = self.metrics_dir / "model.json"
+        model_path.write_text(json.dumps({"w": w, "b": b}, indent=2))
+
+    def _update_model(self, x: float, y: float, lr: float = 0.01) -> None:
+        model = self._load_model()
+        if model is None:
+            w, b = 0.0, 0.0
+        else:
+            w, b = model
+        pred = w * x + b
+        error = pred - y
+        w -= lr * error * x
+        b -= lr * error
+        self._save_model(w, b)
 
     def _plan_actions(self, principles: List[str]) -> List[str]:
         """Generate an ordered action plan from principles using A* search."""
