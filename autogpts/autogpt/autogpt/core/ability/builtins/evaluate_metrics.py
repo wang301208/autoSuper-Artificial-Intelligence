@@ -2,6 +2,8 @@ import asyncio
 import logging
 import re
 import time
+from functools import wraps
+from pathlib import Path
 from typing import ClassVar
 
 from autogpt.core.ability.base import Ability, AbilityConfiguration
@@ -9,6 +11,45 @@ from autogpt.core.ability.schema import AbilityResult
 from autogpt.core.plugin.simple import PluginLocation, PluginStorageFormat
 from autogpt.core.utils.json_schema import JSONSchema
 from autogpt.core.workspace import Workspace
+
+
+class _MetricsCollector:
+    """Collect metrics and track success state."""
+
+    def __init__(self) -> None:
+        self._parts: list[str] = []
+        self.success = True
+
+    def add_metric(self, key: str, value: object) -> None:
+        self._parts.append(f"{key}={value}")
+
+    def add_error(self, key: str, error: object) -> None:
+        self.success = False
+        self._parts.append(f"{key}_error={error}")
+
+    def fail(self) -> None:
+        self.success = False
+
+    def message(self) -> str:
+        return ", ".join(self._parts)
+
+
+def _handle_errors(metric_name: str, missing_msg: str | None = None):
+    """Decorator to capture exceptions and record them in the collector."""
+
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, collector: _MetricsCollector, *args, **kwargs):
+            try:
+                await func(self, collector, *args, **kwargs)
+            except FileNotFoundError:
+                collector.add_error(metric_name, missing_msg or "not installed")
+            except Exception as e:  # pragma: no cover - best effort
+                collector.add_error(metric_name, e)
+
+        return wrapper
+
+    return decorator
 
 
 class EvaluateMetrics(Ability):
@@ -40,104 +81,97 @@ class EvaluateMetrics(Ability):
 
     async def __call__(self, file_path: str) -> AbilityResult:
         file_abs = self._workspace.get_path(file_path)
-        metrics_parts: list[str] = []
-        success = True
+        collector = _MetricsCollector()
         try:
             source = file_abs.read_text()
-            try:
-                from radon.complexity import cc_visit
-
-                blocks = cc_visit(source)
-                if blocks:
-                    avg_complexity = sum(b.complexity for b in blocks) / len(blocks)
-                else:
-                    avg_complexity = 0.0
-                metrics_parts.append(f"complexity={avg_complexity:.2f}")
-            except Exception as e:  # pragma: no cover - best effort
-                success = False
-                metrics_parts.append(f"complexity_error={e}")
         except Exception as e:  # pragma: no cover - best effort
-            success = False
-            metrics_parts.append(f"file_error={e}")
+            collector.add_error("file", e)
             return AbilityResult(
                 ability_name=self.name(),
                 ability_args={"file_path": file_path},
                 success=False,
-                message=", ".join(metrics_parts),
+                message=collector.message(),
             )
 
-        try:
-            start = time.perf_counter()
-            proc = await asyncio.create_subprocess_exec(
-                "python",
-                str(file_abs),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            await proc.communicate()
-            runtime = time.perf_counter() - start
-            metrics_parts.append(f"runtime={runtime:.4f}")
-            if proc.returncode != 0:
-                success = False
-        except Exception as e:  # pragma: no cover - best effort
-            success = False
-            metrics_parts.append(f"runtime_error={e}")
-
-        # Run pytest with coverage and parse coverage percentage
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pytest",
-                "--cov",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                cwd=str(self._workspace.root),
-            )
-            stdout, _ = await proc.communicate()
-            output = stdout.decode()
-            match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
-            if match:
-                metrics_parts.append(f"coverage={match.group(1)}%")
-            else:
-                metrics_parts.append("coverage_error=unparsed")
-                success = False
-            if proc.returncode != 0:
-                success = False
-        except FileNotFoundError:
-            metrics_parts.append("coverage_error=pytest not installed")
-            success = False
-        except Exception as e:  # pragma: no cover - best effort
-            metrics_parts.append(f"coverage_error={e}")
-            success = False
-
-        # Run static analysis (ruff) and count errors
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ruff",
-                "check",
-                str(file_abs),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            stdout, _ = await proc.communicate()
-            output = stdout.decode().strip()
-            if output:
-                error_count = len(output.splitlines())
-                metrics_parts.append(f"style_errors={error_count}")
-                success = False
-            else:
-                metrics_parts.append("style_errors=0")
-            if proc.returncode not in (0, 1):
-                success = False
-        except FileNotFoundError:
-            metrics_parts.append("style_error=ruff not installed")
-            success = False
-        except Exception as e:  # pragma: no cover - best effort
-            metrics_parts.append(f"style_error={e}")
-            success = False
+        await self._evaluate_complexity(collector, source)
+        await self._measure_runtime(collector, file_abs)
+        await self._collect_coverage(collector)
+        await self._run_style_check(collector, file_abs)
 
         return AbilityResult(
             ability_name=self.name(),
             ability_args={"file_path": file_path},
-            success=success,
-            message=", ".join(metrics_parts),
+            success=collector.success,
+            message=collector.message(),
         )
+
+    @_handle_errors("complexity")
+    async def _evaluate_complexity(
+        self, collector: _MetricsCollector, source: str
+    ) -> None:
+        from radon.complexity import cc_visit
+
+        blocks = cc_visit(source)
+        if blocks:
+            avg_complexity = sum(b.complexity for b in blocks) / len(blocks)
+        else:
+            avg_complexity = 0.0
+        collector.add_metric("complexity", f"{avg_complexity:.2f}")
+
+    @_handle_errors("runtime")
+    async def _measure_runtime(
+        self, collector: _MetricsCollector, file_abs: Path
+    ) -> None:
+        start = time.perf_counter()
+        proc = await asyncio.create_subprocess_exec(
+            "python",
+            str(file_abs),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+        runtime = time.perf_counter() - start
+        collector.add_metric("runtime", f"{runtime:.4f}")
+        if proc.returncode != 0:
+            collector.fail()
+
+    @_handle_errors("coverage", "pytest not installed")
+    async def _collect_coverage(self, collector: _MetricsCollector) -> None:
+        proc = await asyncio.create_subprocess_exec(
+            "pytest",
+            "--cov",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(self._workspace.root),
+        )
+        stdout, _ = await proc.communicate()
+        output = stdout.decode()
+        match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", output)
+        if match:
+            collector.add_metric("coverage", f"{match.group(1)}%")
+        else:
+            collector.add_error("coverage", "unparsed")
+        if proc.returncode != 0:
+            collector.fail()
+
+    @_handle_errors("style", "ruff not installed")
+    async def _run_style_check(
+        self, collector: _MetricsCollector, file_abs: Path
+    ) -> None:
+        proc = await asyncio.create_subprocess_exec(
+            "ruff",
+            "check",
+            str(file_abs),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await proc.communicate()
+        output = stdout.decode().strip()
+        if output:
+            error_count = len(output.splitlines())
+            collector.add_metric("style_errors", error_count)
+            collector.fail()
+        else:
+            collector.add_metric("style_errors", 0)
+        if proc.returncode not in (0, 1):
+            collector.fail()
