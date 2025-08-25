@@ -15,7 +15,9 @@ except ImportError:
     import click
 
 from autogpts.autogpt.autogpt.core.errors import AutoGPTError
-from autogpts.autogpt.autogpt.core.logging import handle_exception
+from autogpts.autogpt.autogpt.core.logging import handle_exception, setup_exception_hooks
+
+setup_exception_hooks()
 
 
 @click.group()
