@@ -8,6 +8,7 @@ from autogpt.file_storage.base import FileStorage
 from autogpt.logs.config import configure_chat_plugins
 from autogpt.models.command_registry import CommandRegistry
 from autogpt.plugins import scan_plugins
+from events import EventBus
 
 
 def create_agent(
@@ -18,6 +19,7 @@ def create_agent(
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
     directives: Optional[AIDirectives] = None,
+    event_bus: EventBus,
 ) -> Agent:
     if not task:
         raise ValueError("No task specified for new agent")
@@ -32,6 +34,7 @@ def create_agent(
         app_config=app_config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        event_bus=event_bus,
     )
 
     return agent
@@ -42,12 +45,14 @@ def configure_agent_with_state(
     app_config: Config,
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
+    event_bus: EventBus,
 ) -> Agent:
     return _configure_agent(
         state=state,
         app_config=app_config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        event_bus=event_bus,
     )
 
 
@@ -55,6 +60,7 @@ def _configure_agent(
     app_config: Config,
     llm_provider: ChatModelProvider,
     file_storage: FileStorage,
+    event_bus: EventBus,
     agent_id: str = "",
     task: str = "",
     ai_profile: Optional[AIProfile] = None,
@@ -92,6 +98,7 @@ def _configure_agent(
         command_registry=command_registry,
         file_storage=file_storage,
         legacy_config=app_config,
+        event_bus=event_bus,
     )
 
 

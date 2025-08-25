@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict
 
-from . import EventBus, get_event_bus
+from . import EventBus
 
 
 class EventClient:
@@ -14,8 +14,8 @@ class EventClient:
     event bus implementation.
     """
 
-    def __init__(self, bus: EventBus | None = None) -> None:
-        self._bus = bus or get_event_bus()
+    def __init__(self, bus: EventBus) -> None:
+        self._bus = bus
 
     def publish(self, topic: str, event: Dict[str, Any]) -> None:
         self._bus.publish(topic, event)

@@ -12,16 +12,7 @@ import threading
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List
 
-__all__ = [
-    "EventBus",
-    "InMemoryEventBus",
-    "event_bus",
-    "create_event_bus",
-    "get_event_bus",
-    "set_event_bus",
-    "publish",
-    "subscribe",
-]
+__all__ = ["EventBus", "InMemoryEventBus", "create_event_bus", "publish", "subscribe"]
 
 
 class EventBus(ABC):
@@ -60,22 +51,6 @@ class InMemoryEventBus(EventBus):
             self._subscribers.setdefault(topic, []).append(handler)
 
 
-event_bus: EventBus = InMemoryEventBus()
-
-
-def set_event_bus(bus: EventBus) -> None:
-    """Set the global event bus instance."""
-
-    global event_bus
-    event_bus = bus
-
-
-def get_event_bus() -> EventBus:
-    """Return the currently configured global event bus."""
-
-    return event_bus
-
-
 def create_event_bus(backend: str, **kwargs: Any) -> EventBus:
     """Create an event bus for *backend*.
 
@@ -93,14 +68,16 @@ def create_event_bus(backend: str, **kwargs: Any) -> EventBus:
     return InMemoryEventBus()
 
 
-def publish(topic: str, event: Dict[str, Any]) -> None:
-    """Publish *event* on *topic* using the configured event bus."""
+def publish(bus: EventBus, topic: str, event: Dict[str, Any]) -> None:
+    """Publish *event* on *topic* using *bus*."""
 
-    event_bus.publish(topic, event)
+    bus.publish(topic, event)
 
 
-def subscribe(topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
-    """Subscribe *handler* to events published on *topic*."""
+def subscribe(
+    bus: EventBus, topic: str, handler: Callable[[Dict[str, Any]], None]
+) -> None:
+    """Subscribe *handler* to events published on *topic* using *bus*."""
 
-    event_bus.subscribe(topic, handler)
+    bus.subscribe(topic, handler)
 

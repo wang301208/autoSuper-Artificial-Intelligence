@@ -45,6 +45,7 @@ from autogpt.logs.instrumentation import log_call
 from autogpt.models.action_history import ActionInterruptedByHuman
 from autogpt.plugins import scan_plugins
 from scripts.install_plugin_deps import install_plugin_dependencies
+from events import create_event_bus
 
 from .configurator import apply_overrides_to_config
 from .setup import apply_overrides_to_ai_settings, interactively_revise_ai_settings
@@ -95,6 +96,13 @@ async def run_auto_gpt(
         config.file_storage_backend, root_path="data", restrict_to_root=restrict_to_root
     )
     file_storage.initialize()
+
+    bus = create_event_bus(
+        config.event_bus_backend,
+        host=config.event_bus_redis_host,
+        port=config.event_bus_redis_port,
+        password=config.event_bus_redis_password or None,
+    )
 
     # Set up logging module
     if speak:
@@ -224,6 +232,7 @@ async def run_auto_gpt(
             app_config=config,
             file_storage=file_storage,
             llm_provider=llm_provider,
+            event_bus=bus,
         )
         apply_overrides_to_ai_settings(
             ai_profile=agent.state.ai_profile,
@@ -328,6 +337,7 @@ async def run_auto_gpt(
             app_config=config,
             file_storage=file_storage,
             llm_provider=llm_provider,
+            event_bus=bus,
         )
 
         if not agent.config.allow_fs_access:
@@ -381,6 +391,13 @@ async def run_auto_gpt_server(
     )
     file_storage.initialize()
 
+    bus = create_event_bus(
+        config.event_bus_backend,
+        host=config.event_bus_redis_host,
+        port=config.event_bus_redis_port,
+        password=config.event_bus_redis_password or None,
+    )
+
     # Set up logging module
     configure_logging(
         debug=debug,
@@ -421,6 +438,7 @@ async def run_auto_gpt_server(
         database=database,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        event_bus=bus,
     )
     await server.start(port=port)
 

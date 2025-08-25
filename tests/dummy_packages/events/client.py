@@ -3,3 +3,5 @@ class EventClient:
         self.bus = bus
     def publish(self, *args, **kwargs):
         pass
+    def subscribe(self, *args, **kwargs):
+        pass

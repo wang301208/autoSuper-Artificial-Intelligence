@@ -38,6 +38,7 @@ from autogpt.models.context_item import ContextItem
 from .base import BaseAgent, BaseAgentConfiguration, BaseAgentSettings
 from .features.agent_file_manager import AgentFileManagerMixin
 from .features.context import ContextMixin
+from events import EventBus
 from .features.watchdog import WatchdogMixin
 from .prompt_strategies.one_shot import (
     OneShotAgentPromptConfiguration,
@@ -99,6 +100,7 @@ class Agent(
         command_registry: CommandRegistry,
         file_storage: FileStorage,
         legacy_config: Config,
+        event_bus: EventBus,
     ):
         prompt_strategy = OneShotAgentPromptStrategy(
             configuration=settings.prompt_config,
@@ -111,6 +113,7 @@ class Agent(
             command_registry=command_registry,
             file_storage=file_storage,
             legacy_config=legacy_config,
+            event_bus=event_bus,
         )
         self._experience_learner = ExperienceLearner(
             memory=self.event_history,

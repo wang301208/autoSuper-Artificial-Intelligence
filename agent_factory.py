@@ -23,6 +23,7 @@ from autogpt.config.ai_directives import AIDirectives
 from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.models.command_registry import CommandRegistry
+from events import EventBus
 
 from capability.librarian import Librarian
 from org_charter import io as charter_io
@@ -81,6 +82,7 @@ def create_agent_from_blueprint(
     config: Config,
     llm_provider: ChatModelProvider,
     file_storage: FileStorage,
+    bus: EventBus,
 ) -> Agent:
     """Instantiate an :class:`Agent` from a blueprint file.
 
@@ -94,6 +96,8 @@ def create_agent_from_blueprint(
         Model provider used for prompting.
     file_storage:
         File storage backend for the agent.
+    bus:
+        Event bus instance to inject into the agent.
     """
     path = Path(blueprint_path)
     blueprint = _parse_blueprint(path)
@@ -114,6 +118,7 @@ def create_agent_from_blueprint(
         app_config=config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        event_bus=bus,
     )
 
     # Restrict commands to authorised tools

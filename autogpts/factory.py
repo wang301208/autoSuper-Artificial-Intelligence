@@ -9,6 +9,7 @@ from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 
 from agent_factory import create_agent_from_blueprint
+from events import EventBus
 
 
 def spawn_agent(
@@ -17,6 +18,7 @@ def spawn_agent(
     config: Config,
     llm_provider: ChatModelProvider,
     file_storage: FileStorage,
+    bus: EventBus,
 ):
     """Create a new AutoGPT agent from a blueprint.
 
@@ -30,12 +32,15 @@ def spawn_agent(
         LLM provider used for the agent's thinking.
     file_storage: FileStorage
         Storage backend for the agent's file operations.
+    bus: EventBus
+        Event bus instance to inject into the agent.
     """
     return create_agent_from_blueprint(
         blueprint_path,
         config=config,
         llm_provider=llm_provider,
         file_storage=file_storage,
+        bus=bus,
     )
 
 

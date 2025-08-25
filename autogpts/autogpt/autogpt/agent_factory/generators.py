@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from autogpt.config.ai_directives import AIDirectives
 from autogpt.file_storage.base import FileStorage
+from events import EventBus
 
 from .configurators import _configure_agent
 from .profile_generator import generate_agent_profile_for_task
@@ -20,6 +21,7 @@ async def generate_agent_for_task(
     app_config: Config,
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
+    event_bus: EventBus,
 ) -> Agent:
     base_directives = AIDirectives.from_file(app_config.prompt_settings_file)
     ai_profile, task_directives = await generate_agent_profile_for_task(
@@ -35,4 +37,5 @@ async def generate_agent_for_task(
         app_config=app_config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        event_bus=event_bus,
     )

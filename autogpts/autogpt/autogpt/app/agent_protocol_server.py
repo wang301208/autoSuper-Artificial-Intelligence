@@ -42,6 +42,7 @@ from autogpt.core.resource.model_providers.schema import ModelProviderBudget
 from autogpt.file_storage import FileStorage
 from autogpt.logs.utils import fmt_kwargs
 from autogpt.models.action_history import ActionErrorResult, ActionSuccessResult
+from events import EventBus
 
 logger = logging.getLogger(__name__)
 
@@ -55,11 +56,13 @@ class AgentProtocolServer:
         database: AgentDB,
         file_storage: FileStorage,
         llm_provider: ChatModelProvider,
+        event_bus: EventBus,
     ):
         self.app_config = app_config
         self.db = database
         self.file_storage = file_storage
         self.llm_provider = llm_provider
+        self.event_bus = event_bus
         self.agent_manager = AgentManager(file_storage)
         self._task_budgets = defaultdict(ModelProviderBudget)
 
@@ -142,13 +145,14 @@ class AgentProtocolServer:
             additional_input=task_request.additional_input,
         )
         logger.debug(f"Creating agent for task: '{task.input}'")
-        task_agent = await generate_agent_for_task(
-            agent_id=task_agent_id(task.task_id),
-            task=task.input,
-            app_config=self.app_config,
-            file_storage=self.file_storage,
-            llm_provider=self._get_task_llm_provider(task),
-        )
+            task_agent = await generate_agent_for_task(
+                agent_id=task_agent_id(task.task_id),
+                task=task.input,
+                app_config=self.app_config,
+                file_storage=self.file_storage,
+                llm_provider=self._get_task_llm_provider(task),
+                event_bus=self.event_bus,
+            )
         await task_agent.save_state()
 
         return task
@@ -192,6 +196,7 @@ class AgentProtocolServer:
             app_config=self.app_config,
             file_storage=self.file_storage,
             llm_provider=self._get_task_llm_provider(task),
+            event_bus=self.event_bus,
         )
 
         if user_id := (task.additional_input or {}).get("user_id"):
