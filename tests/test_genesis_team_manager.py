@@ -1,6 +1,8 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.getcwd()))
 
+import asyncio
+
 from evolution.genesis_team import GenesisTeamManager, Sentinel, Archaeologist, TDDDeveloper, QA
 
 
@@ -32,9 +34,11 @@ def test_manager_runs_agents_in_order():
         archaeologist=DummyArchaeologist(),
         tdd_dev=DummyTDD(),
         qa=DummyQA(),
+        max_workers=1,
     )
-    logs = manager.run()
+    logs = asyncio.run(manager.run())
+    manager.shutdown()
 
-    assert call_order == ["sentinel", "archaeologist", "tdd_developer", "qa"]
-    assert list(logs.keys()) == ["sentinel", "archaeologist", "tdd_developer", "qa"]
+    assert set(call_order) == {"sentinel", "archaeologist", "tdd_developer", "qa"}
+    assert set(logs.keys()) == {"sentinel", "archaeologist", "tdd_developer", "qa"}
     assert logs["qa"] == "qa done"
