@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import re
 import logging
 from typing import Any, Dict, List
@@ -10,6 +9,7 @@ import asyncio
 from capability.skill_library import SkillLibrary
 from .task_graph import TaskGraph
 from .scheduler import Scheduler
+from common.security import SkillSecurityError, SAFE_BUILTINS, _verify_skill
 
 logger = logging.getLogger(__name__)
 
@@ -19,32 +19,6 @@ class SkillExecutionError(RuntimeError):
         super().__init__(f"Skill {skill} failed: {cause}")
         self.skill = skill
         self.cause = cause
-
-
-class SkillSecurityError(RuntimeError):
-    def __init__(self, skill: str, cause: str) -> None:
-        super().__init__(f"Skill {skill} blocked: {cause}")
-        self.skill = skill
-        self.cause = cause
-
-
-SAFE_BUILTINS: Dict[str, Any] = {
-    "__import__": __import__,
-    "len": len,
-    "range": range,
-    "print": print,
-    "Exception": Exception,
-    "RuntimeError": RuntimeError,
-}
-
-
-def _verify_skill(name: str, code: str, metadata: Dict[str, Any]) -> None:
-    signature = metadata.get("signature")
-    if not signature:
-        raise SkillSecurityError(name, "missing signature")
-    digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
-    if signature != digest:
-        raise SkillSecurityError(name, "invalid signature")
 
 
 class Executor:
