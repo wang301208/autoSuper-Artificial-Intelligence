@@ -15,10 +15,7 @@ from typing import Any, Callable, Dict, List
 __all__ = [
     "EventBus",
     "InMemoryEventBus",
-    "event_bus",
     "create_event_bus",
-    "get_event_bus",
-    "set_event_bus",
     "publish",
     "subscribe",
     "unsubscribe",
@@ -80,22 +77,6 @@ class InMemoryEventBus(EventBus):
                     del self._subscribers[topic]
 
 
-event_bus: EventBus = InMemoryEventBus()
-
-
-def set_event_bus(bus: EventBus) -> None:
-    """Set the global event bus instance."""
-
-    global event_bus
-    event_bus = bus
-
-
-def get_event_bus() -> EventBus:
-    """Return the currently configured global event bus."""
-
-    return event_bus
-
-
 def create_event_bus(backend: str, **kwargs: Any) -> EventBus:
     """Create an event bus for *backend*.
 
@@ -113,20 +94,22 @@ def create_event_bus(backend: str, **kwargs: Any) -> EventBus:
     return InMemoryEventBus()
 
 
-def publish(topic: str, event: Dict[str, Any]) -> None:
-    """Publish *event* on *topic* using the configured event bus."""
+def publish(bus: EventBus, topic: str, event: Dict[str, Any]) -> None:
+    """Publish *event* on *topic* using *bus*."""
 
-    event_bus.publish(topic, event)
-
-
-def subscribe(topic: str, handler: Callable[[Dict[str, Any]], None]) -> Callable[[], None]:
-    """Subscribe *handler* to events published on *topic*."""
-
-    return event_bus.subscribe(topic, handler)
+    bus.publish(topic, event)
 
 
-def unsubscribe(topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
-    """Remove *handler* subscription from *topic*."""
+def subscribe(
+    bus: EventBus, topic: str, handler: Callable[[Dict[str, Any]], None]
+) -> Callable[[], None]:
+    """Subscribe *handler* to events published on *topic* using *bus*."""
 
-    event_bus.unsubscribe(topic, handler)
+    return bus.subscribe(topic, handler)
+
+
+def unsubscribe(bus: EventBus, topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
+    """Remove *handler* subscription from *topic* using *bus*."""
+
+    bus.unsubscribe(topic, handler)
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict
 
 from agent_factory import create_agent_from_blueprint
-from events import publish
+from events import EventBus
 from org_charter.watchdog import BlueprintWatcher
 from autogpt.config import Config
 from autogpt.core.resource.model_providers import ChatModelProvider
@@ -26,10 +26,12 @@ class AgentLifecycleManager:
         config: Config,
         llm_provider: ChatModelProvider,
         file_storage: FileStorage,
+        event_bus: EventBus,
     ) -> None:
         self._config = config
         self._llm_provider = llm_provider
         self._file_storage = file_storage
+        self._event_bus = event_bus
         self._agents: Dict[str, Agent] = {}
         self._watcher = BlueprintWatcher(self._on_blueprint_change)
         self._watcher.start()
@@ -50,12 +52,12 @@ class AgentLifecycleManager:
             else:
                 action = "spawned"
             self._agents[name] = agent
-            publish(
+            self._event_bus.publish(
                 "agent.lifecycle",
                 {"agent": name, "action": action, "path": str(path)},
             )
         except Exception as exc:  # pragma: no cover - logging path
-            publish(
+            self._event_bus.publish(
                 "agent.lifecycle",
                 {
                     "agent": name,
