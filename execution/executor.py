@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Dict, List
+import asyncio
 
 from capability.skill_library import SkillLibrary
 from .task_graph import TaskGraph
@@ -57,7 +58,7 @@ class Executor:
         implementations to route tasks to remote agents or specialized
         resources.
         """
-        code, _ = self.skill_library.get_skill(name)
+        code, _ = asyncio.run(self.skill_library.get_skill(name))
         namespace: Dict[str, Any] = {}
         exec(code, namespace)
         func = namespace.get(name)

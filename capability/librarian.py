@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 import os
+import asyncio
 
 try:
     from autogpt.core.knowledge_graph import (
@@ -100,7 +101,7 @@ class Librarian:
         return ids
 
     def get_skill(self, name: str):
-        return self.library.get_skill(name)
+        return asyncio.run(self.library.get_skill(name))
 
     def list_skills(self) -> List[str]:
         return self.library.list_skills()
