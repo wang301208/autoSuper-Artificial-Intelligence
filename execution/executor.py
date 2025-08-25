@@ -6,13 +6,18 @@ from typing import Any, Dict, List
 
 from capability.skill_library import SkillLibrary
 from .task_graph import TaskGraph
+from .scheduler import Scheduler
 
 
 class Executor:
     """Very small executor that decomposes a goal into skill tasks."""
 
-    def __init__(self, skill_library: SkillLibrary) -> None:
+    def __init__(self, skill_library: SkillLibrary, scheduler: Scheduler | None = None) -> None:
         self.skill_library = skill_library
+        self.scheduler = scheduler or Scheduler()
+        if not self.scheduler._agents:
+            # Ensure at least one local agent for execution
+            self.scheduler.add_agent("local")
 
     # Goal decomposition
     def decompose_goal(self, goal: str) -> TaskGraph:
@@ -42,12 +47,7 @@ class Executor:
     # Task scheduling and execution
     def execute(self, goal: str) -> Dict[str, Any]:
         graph = self.decompose_goal(goal)
-        results: Dict[str, Any] = {}
-        for task_id in graph.execution_order():
-            task = graph.tasks[task_id]
-            if task.skill:
-                results[task_id] = self._call_skill(task.skill)
-        return results
+        return self.scheduler.submit(graph, self._call_skill)
 
     def _call_skill(self, name: str) -> Any:
         code, _ = self.skill_library.get_skill(name)
