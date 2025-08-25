@@ -49,7 +49,14 @@ class Executor:
         graph = self.decompose_goal(goal)
         return self.scheduler.submit(graph, self._call_skill)
 
-    def _call_skill(self, name: str) -> Any:
+    def _call_skill(self, agent: str, name: str) -> Any:
+        """Execute ``name`` skill for ``agent``.
+
+        The basic executor only supports a local ``SkillLibrary`` and therefore
+        ignores the ``agent`` argument, but the parameter allows alternative
+        implementations to route tasks to remote agents or specialized
+        resources.
+        """
         code, _ = self.skill_library.get_skill(name)
         namespace: Dict[str, Any] = {}
         exec(code, namespace)
