@@ -54,9 +54,14 @@ def handle_exceptions(
     return wrapped
 
 
-def coroutine(f: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, T]:
+def coroutine(f: Callable[P, Coroutine[Any, Any, T]]) -> Callable[P, T | asyncio.Task[T]]:
     @functools.wraps(f)
     def wrapper(*args: P.args, **kwargs: P.kwargs):
-        return asyncio.run(f(*args, **kwargs))
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(f(*args, **kwargs))
+        else:
+            return loop.create_task(f(*args, **kwargs))
 
     return wrapper

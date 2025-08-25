@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, List, Tuple, Optional
-import asyncio
 from datetime import datetime
 from threading import Timer
 from heapq import heappop, heappush
@@ -12,6 +11,7 @@ import json
 
 from capability.meta_skill import META_SKILL_STRATEGY_EVOLUTION
 from capability.skill_library import SkillLibrary
+from common.async_utils import run_async
 
 from . import Agent
 
@@ -34,7 +34,7 @@ class Strategist(Agent):
 
     def perform(self, logs: Iterable[Path] | None = None) -> Path:
         # Load strategist reasoning template to guide log analysis
-        template, _meta = asyncio.run(
+        template, _meta = run_async(
             self.library.get_skill(META_SKILL_STRATEGY_EVOLUTION)
         )
         lines: List[str] = template.splitlines()

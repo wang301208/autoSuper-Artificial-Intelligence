@@ -11,13 +11,14 @@ from autogpt.config import AIProfile, ConfigBuilder
 from autogpt.file_storage import FileStorageBackendName, get_storage
 from autogpt.logs.config import configure_logging
 from autogpt.models.command_registry import CommandRegistry
+from common.async_utils import run_async
 
 LOG_DIR = Path(__file__).parent / "logs"
 
 
 def run_specific_agent(task: str, continuous_mode: bool = False) -> None:
     agent = bootstrap_agent(task, continuous_mode)
-    asyncio.run(run_interaction_loop(agent))
+    run_async(run_interaction_loop(agent))
 
 
 def bootstrap_agent(task: str, continuous_mode: bool) -> Agent:

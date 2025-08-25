@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 import os
-import asyncio
 
 try:
     from autogpt.core.knowledge_graph import (
@@ -24,6 +23,8 @@ try:
     from .vector_index import VectorIndex
 except Exception:  # pragma: no cover - vector index optional
     VectorIndex = None
+
+from common.async_utils import run_async
 
 
 class Librarian:
@@ -89,19 +90,19 @@ class Librarian:
         ids = result.get("ids", [[]])[0]
         if return_content:
             if len(ids) <= 1 or (max_workers is not None and max_workers <= 1):
-                return [self.get_skill(name)[0] for name in ids]
+                return [run_async(self.get_skill(name))[0] for name in ids]
 
             workers = min(len(ids), max_workers or (os.cpu_count() or 1))
 
             def _load(name: str) -> str:
-                return self.get_skill(name)[0]
+                return run_async(self.get_skill(name))[0]
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
                 return list(executor.map(_load, ids))
         return ids
 
-    def get_skill(self, name: str):
-        return asyncio.run(self.library.get_skill(name))
+    async def get_skill(self, name: str):
+        return await self.library.get_skill(name)
 
     def list_skills(self) -> List[str]:
         return self.library.list_skills()
