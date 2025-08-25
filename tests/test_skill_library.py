@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.abspath(os.getcwd()))
 import json
 import subprocess
 from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -23,7 +24,7 @@ def test_add_and_get_skill(tmp_path: Path) -> None:
     metadata = {"lang": "python"}
 
     lib.add_skill("hello", code, metadata)
-    retrieved_code, retrieved_meta = lib.get_skill("hello")
+    retrieved_code, retrieved_meta = asyncio.run(lib.get_skill("hello"))
 
     assert "return 'hi'" in retrieved_code
     assert retrieved_meta == metadata
@@ -47,7 +48,7 @@ def test_meta_skill_requires_activation(tmp_path: Path) -> None:
     }
     lib.add_skill("MetaSkill_Test", code, metadata)
     with pytest.raises(PermissionError):
-        lib.get_skill("MetaSkill_Test")
+        asyncio.run(lib.get_skill("MetaSkill_Test"))
     lib.activate_meta_skill("MetaSkill_Test")
-    _, meta = lib.get_skill("MetaSkill_Test")
+    _, meta = asyncio.run(lib.get_skill("MetaSkill_Test"))
     assert meta["active"] is True

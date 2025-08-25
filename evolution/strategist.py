@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, List, Tuple, Optional
+import asyncio
 from datetime import datetime
 from threading import Timer
 from heapq import heappop, heappush
@@ -33,7 +34,9 @@ class Strategist(Agent):
 
     def perform(self, logs: Iterable[Path] | None = None) -> Path:
         # Load strategist reasoning template to guide log analysis
-        template, _meta = self.library.get_skill(META_SKILL_STRATEGY_EVOLUTION)
+        template, _meta = asyncio.run(
+            self.library.get_skill(META_SKILL_STRATEGY_EVOLUTION)
+        )
         lines: List[str] = template.splitlines()
         for log in logs or []:
             path = Path(log)
