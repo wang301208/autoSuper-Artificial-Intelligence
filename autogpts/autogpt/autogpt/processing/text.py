@@ -55,6 +55,53 @@ def chunk_content(
         yield tokenizer.decode(token_batch), len(token_batch)
 
 
+
+
+
+def chunk_code_by_structure(
+    content: str,
+    max_chunk_length: int,
+    tokenizer: ModelTokenizer,
+    with_overlap: bool = True,
+) -> Iterator[tuple[str, int]]:
+    """Split code into chunks based on top-level structure.
+
+    The implementation currently parses Python code and separates top-level
+    functions and classes. If parsing fails, it falls back to :func:`chunk_content`.
+    """
+    import ast
+
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        yield from chunk_content(content, max_chunk_length, tokenizer, with_overlap)
+        return
+
+    lines = content.splitlines()
+    pieces: list[tuple[int, int]] = []
+    last_end = 0
+    for node in tree.body:
+        if not hasattr(node, 'lineno'):
+            continue
+        start = node.lineno - 1
+        end = getattr(node, 'end_lineno', start)
+        if start > last_end:
+            pieces.append((last_end, start))
+        pieces.append((start, end))
+        last_end = end
+    if last_end < len(lines):
+        pieces.append((last_end, len(lines)))
+
+    for start, end in pieces:
+        segment = "\n".join(lines[start:end])
+        if not segment.strip():
+            continue
+        token_length = len(tokenizer.encode(segment))
+        if token_length <= max_chunk_length:
+            yield segment, token_length
+        else:
+            yield from chunk_content(segment, max_chunk_length, tokenizer, with_overlap)
+
 async def summarize_text(
     text: str,
     llm_provider: ChatModelProvider,

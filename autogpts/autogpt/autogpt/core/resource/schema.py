@@ -2,7 +2,11 @@ import abc
 import enum
 import math
 
-from pydantic import BaseModel, SecretBytes, SecretField, SecretStr
+from pydantic import BaseModel, SecretBytes, SecretStr
+try:
+    from pydantic import SecretField
+except ImportError:
+    SecretField = SecretStr
 
 from autogpt.core.configuration import (
     SystemConfiguration,

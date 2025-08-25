@@ -38,6 +38,7 @@ class ModelProviderService(str, enum.Enum):
 
 class ModelProviderName(str, enum.Enum):
     OPENAI = "openai"
+    LOCAL = "local"
 
 
 class ChatMessage(BaseModel):

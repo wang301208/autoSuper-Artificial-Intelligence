@@ -6,6 +6,7 @@ from .openai import (
     OpenAIProvider,
     OpenAISettings,
 )
+from .local import LocalEmbeddingProvider
 from .schema import (
     AssistantChatMessage,
     AssistantChatMessageDict,
@@ -62,4 +63,5 @@ __all__ = [
     "OpenAIModelName",
     "OpenAIProvider",
     "OpenAISettings",
+    "LocalEmbeddingProvider",
 ]

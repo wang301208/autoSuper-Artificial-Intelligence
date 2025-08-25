@@ -14,7 +14,7 @@ from autogpt.core.resource.model_providers import (
     ChatModelProvider,
     EmbeddingModelProvider,
 )
-from autogpt.processing.text import chunk_content, split_text, summarize_text
+from autogpt.processing.text import chunk_content, split_text, summarize_text, chunk_code_by_structure
 
 from .utils import Embedding, get_embedding
 
@@ -99,7 +99,6 @@ class MemoryItemFactory:
         # Fix encoding, e.g. removing unicode surrogates (see issue #778)
         text = ftfy.fix_text(text)
 
-        # FIXME: needs ModelProvider
         chunks = [
             chunk
             for chunk, _ in (
@@ -110,8 +109,7 @@ class MemoryItemFactory:
                     tokenizer=self.llm_provider.get_tokenizer(config.fast_llm),
                 )
                 if source_type != "code_file"
-                # TODO: chunk code based on structure/outline
-                else chunk_content(
+                else chunk_code_by_structure(
                     content=text,
                     max_chunk_length=1000,
                     tokenizer=self.llm_provider.get_tokenizer(config.fast_llm),
@@ -135,7 +133,7 @@ class MemoryItemFactory:
         ]
         logger.debug("Chunk summaries: " + str(chunk_summaries))
 
-        e_chunks = get_embedding(chunks, config, self.embedding_provider)
+        e_chunks = await get_embedding(chunks, config, self.embedding_provider)
 
         summary = (
             chunk_summaries[0]
@@ -152,9 +150,8 @@ class MemoryItemFactory:
         )
         logger.debug("Total summary: " + summary)
 
-        # TODO: investigate search performance of weighted average vs summary
-        # e_average = np.average(e_chunks, axis=0, weights=[len(c) for c in chunks])
-        e_summary = get_embedding(summary, config, self.embedding_provider)
+        # Represent memory by weighted average of chunk embeddings (see docs/embedding_search_benchmark.md)
+        e_summary = np.average(np.array(e_chunks), axis=0, weights=[len(c) for c in chunks])
 
         metadata["source_type"] = source_type
 
