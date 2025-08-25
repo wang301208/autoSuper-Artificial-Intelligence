@@ -179,6 +179,8 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._current_task = None
         self._next_ability = None
         self._performance_evaluator = PerformanceEvaluator()
+        # Minimum score required for a task to be accepted into the queue
+        self._task_quality_threshold: float = 0.5
         self._optimize_abilities = optimize_abilities
         self._ability_metrics: dict[str, list[float]] = {}
         self._action_logger = ActionLogger(
@@ -244,6 +246,24 @@ class SimpleAgent(LayeredAgent, Configurable):
         else:
             self._planning = self._default_planning
 
+    def _evaluate_task_quality(self, task: Task) -> float:
+        """Evaluate how well-defined a task is.
+
+        A task is considered high quality when it contains both ready and
+        acceptance criteria. The :class:`PerformanceEvaluator` is re-used here to
+        produce a numeric score that can be compared against a threshold.
+        """
+
+        result = AbilityResult(
+            ability_name="task_quality_evaluation",
+            ability_args={},
+            success=bool(task.ready_criteria and task.acceptance_criteria),
+            message="",
+        )
+        # Cost and duration are unknown for a task that has not yet executed, so
+        # we pass zero for those values.
+        return self._performance_evaluator.score(result, cost=0.0, duration=0.0)
+
     async def build_initial_plan(self) -> dict:
         plan = await self._planning.make_initial_plan(
             agent_name=self._configuration.name,
@@ -256,11 +276,15 @@ class SimpleAgent(LayeredAgent, Configurable):
             plan_dict = plan_dict["plan_options"][0]
         tasks = [Task.parse_obj(task) for task in plan_dict["task_list"]]
 
-        # TODO: Should probably do a step to evaluate the quality of the generated tasks
-        #  and ensure that they have actionable ready and acceptance criteria
-
+        # Evaluate each task and only enqueue those that meet a minimum quality
         for task in tasks:
-            heapq.heappush(self._task_queue, (task.priority, task))
+            score = self._evaluate_task_quality(task)
+            if score < self._task_quality_threshold:
+                self._logger.info(
+                    f"Rejecting low-quality task '{task.objective}' with score {score:.2f}"
+                )
+                continue
+            heapq.heappush(self._task_queue, (task.priority - score, task))
         if self._task_queue:
             self._task_queue[0][1].context.status = TaskStatus.READY
         return plan_dict
