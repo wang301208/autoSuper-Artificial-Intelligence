@@ -16,6 +16,7 @@ from enum import Enum
 from agent_factory import create_agent_from_blueprint
 from events import EventBus
 from monitoring import SystemMetricsCollector
+from common import AutoGPTException, log_and_format_exception
 from org_charter.watchdog import BlueprintWatcher
 from autogpt.config import Config
 from autogpt.core.resource.model_providers import ChatModelProvider
@@ -135,14 +136,24 @@ class AgentLifecycleManager:
                 "agent.lifecycle",
                 {"agent": name, "action": action, "path": str(path)},
             )
-        except Exception as exc:  # pragma: no cover - logging path
+        except AutoGPTException as exc:
             self._event_bus.publish(
                 "agent.lifecycle",
                 {
                     "agent": name,
                     "action": "failed",
                     "path": str(path),
-                    "error": str(exc),
+                    **log_and_format_exception(exc),
+                },
+            )
+        except Exception as exc:  # pragma: no cover - unexpected
+            self._event_bus.publish(
+                "agent.lifecycle",
+                {
+                    "agent": name,
+                    "action": "failed",
+                    "path": str(path),
+                    **log_and_format_exception(exc),
                 },
             )
 
@@ -267,7 +278,11 @@ class AgentLifecycleManager:
                 if self._scheduler:
                     self._scheduler.add_agent(name)
                 self._set_state(name, AgentState.RUNNING)
-            except Exception:
+            except AutoGPTException as err:
+                log_and_format_exception(err)
+                self._set_state(name, AgentState.TERMINATED)
+            except Exception as err:  # pragma: no cover - unexpected
+                log_and_format_exception(err)
                 self._set_state(name, AgentState.TERMINATED)
 
     def _release_idle_agents(self, count: int) -> None:
