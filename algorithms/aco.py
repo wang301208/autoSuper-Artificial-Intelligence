@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Optional, Tuple
 import numpy as np
 
+from .termination import StopCondition
+
 from benchmarks.problems import Problem
 
 
@@ -11,6 +13,8 @@ def optimize(
     problem: Problem,
     seed: Optional[int] = None,
     max_iters: int = 100,
+    max_time: Optional[float] = None,
+    patience: Optional[int] = None,
     ant_count: int = 20,
     q: float = 0.1,
 ) -> Tuple[np.ndarray, float]:
@@ -22,16 +26,20 @@ def optimize(
     best = None
     best_val = float("inf")
 
-    for _ in range(max_iters):
+    stopper = StopCondition(max_iters=max_iters, max_time=max_time, patience=patience)
+    while stopper.keep_running():
         ants = rng.normal(mean, std, size=(ant_count, problem.dim))
         ants = problem.clip(ants)
         values = np.array([problem.evaluate(a) for a in ants])
         idx = np.argmin(values)
+        improved = False
         if values[idx] < best_val:
             best_val = values[idx]
             best = ants[idx]
+            improved = True
         # update pheromone (mean) towards best ant
         mean = (1 - q) * mean + q * best
         std *= 0.95  # slowly reduce exploration
+        stopper.update(improved)
 
     return best, best_val
