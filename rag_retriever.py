@@ -1,7 +1,8 @@
 """Simple Retrieval Augmented Generation helper."""
 from __future__ import annotations
 
-from typing import Callable, List
+from functools import lru_cache
+from typing import Callable, List, Tuple
 
 from capability.librarian import Librarian
 
@@ -11,6 +12,22 @@ class RAGRetriever:
 
     def __init__(self, librarian: Librarian) -> None:
         self.librarian = librarian
+        # Reusable buffer for retrieved documents to reduce temporary object creation.
+        self._docs_buffer: List[str] = []
+
+    @lru_cache(maxsize=128)
+    def _cached_search(
+        self, embedding_key: Tuple[float, ...], n_results: int, vector_type: str
+    ) -> Tuple[str, ...]:
+        """Cache search results for repeated queries."""
+        return tuple(
+            self.librarian.search(
+                list(embedding_key),
+                n_results=n_results,
+                vector_type=vector_type,
+                return_content=True,
+            )
+        )
 
     def generate(
         self,
@@ -35,12 +52,10 @@ class RAGRetriever:
         vector_type: str
             Vector space to query (e.g. ``"text"`` or ``"image"``).
         """
-        docs = self.librarian.search(
-            query_embedding,
-            n_results=n_results,
-            vector_type=vector_type,
-            return_content=True,
-        )
-        context = "\n".join(docs)
+        docs = list(self._cached_search(tuple(query_embedding), n_results, vector_type))
+        self._docs_buffer.clear()
+        self._docs_buffer.extend(docs)
+        context = "\n".join(self._docs_buffer)
         final_prompt = f"{context}\n\n{prompt}" if context else prompt
         return llm_callable(final_prompt)
+
