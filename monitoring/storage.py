@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import queue
 import sqlite3
+import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Tuple
 
 from events import subscribe
 
@@ -16,8 +18,15 @@ class TimeSeriesStorage:
 
     def __init__(self, db_path: Path | str = "monitoring.db") -> None:
         self.db_path = Path(db_path)
-        self._conn = sqlite3.connect(self.db_path)
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        # Enable WAL mode for better concurrency.
+        self._conn.execute("PRAGMA journal_mode=WAL")
         self._init_db()
+
+        self._lock = threading.Lock()
+        self._queue: queue.Queue[Tuple[str, Dict[str, Any]] | None] = queue.Queue()
+        self._worker = threading.Thread(target=self._writer, daemon=True)
+        self._worker.start()
 
     def _init_db(self) -> None:
         cur = self._conn.cursor()
@@ -35,14 +44,43 @@ class TimeSeriesStorage:
     # ------------------------------------------------------------------
     # event ingestion
     # ------------------------------------------------------------------
-    def store(self, topic: str, event: Dict[str, Any]) -> None:
-        """Store *event* published on *topic*."""
+    def _writer(self) -> None:
+        """Background thread that persists queued events in batches."""
         cur = self._conn.cursor()
-        cur.execute(
-            "INSERT INTO events (ts, topic, data) VALUES (?, ?, ?)",
-            (time.time(), topic, json.dumps(event)),
-        )
-        self._conn.commit()
+        batch: list[Tuple[str, Dict[str, Any]]] = []
+        while True:
+            item = self._queue.get()
+            if item is None:
+                self._queue.task_done()
+                break
+            batch.append(item)
+            try:
+                while True:
+                    item = self._queue.get_nowait()
+                    if item is None:
+                        self._queue.task_done()
+                        self._queue.put(None)
+                        break
+                    batch.append(item)
+            except queue.Empty:
+                pass
+
+            with self._lock:
+                cur.executemany(
+                    "INSERT INTO events (ts, topic, data) VALUES (?, ?, ?)",
+                    [
+                        (time.time(), topic, json.dumps(event))
+                        for topic, event in batch
+                    ],
+                )
+                self._conn.commit()
+            for _ in batch:
+                self._queue.task_done()
+            batch.clear()
+
+    def store(self, topic: str, event: Dict[str, Any]) -> None:
+        """Queue *event* published on *topic* for asynchronous persistence."""
+        self._queue.put((topic, event))
 
     def subscribe_to(self, topics: Iterable[str]) -> None:
         """Subscribe to *topics* on the global event bus and persist events."""
@@ -54,12 +92,15 @@ class TimeSeriesStorage:
     # ------------------------------------------------------------------
     def events(self, topic: str | None = None) -> list[Dict[str, Any]]:
         """Return stored events, optionally filtered by *topic*."""
-        cur = self._conn.cursor()
-        if topic is None:
-            cur.execute("SELECT data FROM events")
-        else:
-            cur.execute("SELECT data FROM events WHERE topic=?", (topic,))
-        rows = cur.fetchall()
+        # Ensure all pending events are flushed before reading.
+        self._queue.join()
+        with self._lock:
+            cur = self._conn.cursor()
+            if topic is None:
+                cur.execute("SELECT data FROM events")
+            else:
+                cur.execute("SELECT data FROM events WHERE topic=?", (topic,))
+            rows = cur.fetchall()
         return [json.loads(r[0]) for r in rows]
 
     # ------------------------------------------------------------------
@@ -99,4 +140,8 @@ class TimeSeriesStorage:
     # cleanup
     # ------------------------------------------------------------------
     def close(self) -> None:
+        """Flush pending events and close the underlying database connection."""
+        self._queue.put(None)
+        self._queue.join()
+        self._worker.join()
         self._conn.close()
