@@ -31,18 +31,19 @@ class Transition:
 
 
 class ResourceRL:
-    """Minimal DQN agent for resource optimisation."""
+    """Minimal DQN agent for resource optimisation with optional GPU support."""
 
-    def __init__(self, gamma: float = 0.9) -> None:
+    def __init__(self, gamma: float = 0.9, device: torch.device | str | None = None) -> None:
         self.gamma = gamma
-        self.policy = _DQN()
+        self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.policy = _DQN().to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=0.01)
 
     # ------------------------------------------------------------------
     def select_action(self, cpu: float, mem: float) -> int:
         """Choose an action based on current predictions."""
 
-        state = torch.tensor([[cpu, mem]], dtype=torch.float32)
+        state = torch.tensor([[cpu, mem]], dtype=torch.float32, device=self.device)
         with torch.no_grad():
             q_vals = self.policy(state)
         return int(torch.argmax(q_vals).item())
@@ -51,22 +52,18 @@ class ResourceRL:
     def train(self, transitions: Iterable[Transition], epochs: int = 50) -> None:
         """Train the DQN from a batch of transitions."""
 
-        states: List[np.ndarray] = []
-        targets: List[float] = []
-        actions: List[int] = []
-        for t in transitions:
-            states.append(t.state)
-            targets.append(t.reward)
-            actions.append(t.action)
-
-        if not states:
+        batch = list(transitions)
+        if not batch:
             return
-        x = torch.tensor(states, dtype=torch.float32)
-        y = torch.tensor(targets, dtype=torch.float32)
-        a = torch.tensor(actions, dtype=torch.long)
+
+        states_np = np.array([t.state for t in batch], dtype=np.float32)
+        states = torch.from_numpy(states_np).to(self.device)
+        targets = torch.tensor([t.reward for t in batch], dtype=torch.float32, device=self.device)
+        actions = torch.tensor([t.action for t in batch], dtype=torch.long, device=self.device)
+
         for _ in range(epochs):
-            q_vals = self.policy(x).gather(1, a.unsqueeze(1)).squeeze()
-            loss = nn.functional.mse_loss(q_vals, y)
+            q_vals = self.policy(states).gather(1, actions.unsqueeze(1)).squeeze()
+            loss = nn.functional.mse_loss(q_vals, targets)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -75,15 +72,26 @@ class ResourceRL:
     def evaluate(self, samples: Iterable[Tuple[float, float]]) -> float:
         """Return average reward for given samples."""
 
-        total = 0.0
-        n = 0
-        for cpu, mem in samples:
-            state = np.array([cpu, mem])
-            action = self.select_action(cpu, mem)
-            reward = self._rule_reward(state, action)
-            total += reward
-            n += 1
-        return total / max(n, 1)
+        arr = np.array(list(samples), dtype=np.float32)
+        if arr.size == 0:
+            return 0.0
+
+        states = torch.tensor(arr, dtype=torch.float32, device=self.device)
+        with torch.no_grad():
+            actions = torch.argmax(self.policy(states), dim=1).cpu().numpy()
+
+        cpu_vals = arr[:, 0]
+        mem_vals = arr[:, 1]
+        rewards = np.where(
+            (cpu_vals > 80) | (mem_vals > 80),
+            np.where(actions == 0, 1.0, -1.0),
+            np.where(
+                (cpu_vals < 20) & (mem_vals < 20),
+                np.where(actions == 2, 1.0, -1.0),
+                np.where(actions == 1, 1.0, -1.0),
+            ),
+        )
+        return float(rewards.mean())
 
     # ------------------------------------------------------------------
     @staticmethod
