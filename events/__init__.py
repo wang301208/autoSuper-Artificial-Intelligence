@@ -21,6 +21,7 @@ __all__ = [
     "set_event_bus",
     "publish",
     "subscribe",
+    "unsubscribe",
 ]
 
 
@@ -34,8 +35,14 @@ class EventBus(ABC):
     @abstractmethod
     def subscribe(
         self, topic: str, handler: Callable[[Dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        """Subscribe *handler* to events on *topic* and return a cancel function."""
+
+    @abstractmethod
+    def unsubscribe(
+        self, topic: str, handler: Callable[[Dict[str, Any]], None]
     ) -> None:
-        """Subscribe *handler* to events on *topic*."""
+        """Remove *handler* subscription from *topic*."""
 
 
 class InMemoryEventBus(EventBus):
@@ -55,9 +62,22 @@ class InMemoryEventBus(EventBus):
                 # Don't allow one bad handler to break the others
                 pass
 
-    def subscribe(self, topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
+    def subscribe(
+        self, topic: str, handler: Callable[[Dict[str, Any]], None]
+    ) -> Callable[[], None]:
         with self._lock:
             self._subscribers.setdefault(topic, []).append(handler)
+        return lambda: self.unsubscribe(topic, handler)
+
+    def unsubscribe(
+        self, topic: str, handler: Callable[[Dict[str, Any]], None]
+    ) -> None:
+        with self._lock:
+            handlers = self._subscribers.get(topic)
+            if handlers and handler in handlers:
+                handlers.remove(handler)
+                if not handlers:
+                    del self._subscribers[topic]
 
 
 event_bus: EventBus = InMemoryEventBus()
@@ -99,8 +119,14 @@ def publish(topic: str, event: Dict[str, Any]) -> None:
     event_bus.publish(topic, event)
 
 
-def subscribe(topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
+def subscribe(topic: str, handler: Callable[[Dict[str, Any]], None]) -> Callable[[], None]:
     """Subscribe *handler* to events published on *topic*."""
 
-    event_bus.subscribe(topic, handler)
+    return event_bus.subscribe(topic, handler)
+
+
+def unsubscribe(topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
+    """Remove *handler* subscription from *topic*."""
+
+    event_bus.unsubscribe(topic, handler)
 

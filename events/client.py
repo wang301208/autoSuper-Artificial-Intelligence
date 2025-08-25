@@ -20,5 +20,12 @@ class EventClient:
     def publish(self, topic: str, event: Dict[str, Any]) -> None:
         self._bus.publish(topic, event)
 
-    def subscribe(self, topic: str, handler: Callable[[Dict[str, Any]], None]) -> None:
-        self._bus.subscribe(topic, handler)
+    def subscribe(
+        self, topic: str, handler: Callable[[Dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        return self._bus.subscribe(topic, handler)
+
+    def unsubscribe(
+        self, topic: str, handler: Callable[[Dict[str, Any]], None]
+    ) -> None:
+        self._bus.unsubscribe(topic, handler)
