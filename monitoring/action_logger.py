@@ -17,6 +17,7 @@ class ActionLogger:
 
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self._closed = False
+        self._lock = threading.Lock()
 
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
@@ -29,9 +30,10 @@ class ActionLogger:
                 record = self._queue.get()
                 if record is None:
                     break
-                json.dump(record, f)
-                f.write("\n")
-                f.flush()
+                with self._lock:
+                    json.dump(record, f)
+                    f.write("\n")
+                    f.flush()
 
     def log(self, record: Dict[str, Any]) -> None:
         """Append *record* to the log with timestamp and unique id."""
