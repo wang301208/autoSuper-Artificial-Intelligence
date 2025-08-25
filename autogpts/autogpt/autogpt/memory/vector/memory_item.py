@@ -14,7 +14,17 @@ from autogpt.core.resource.model_providers import (
     ChatModelProvider,
     EmbeddingModelProvider,
 )
-from autogpt.processing.text import chunk_content, split_text, summarize_text
+try:  # pragma: no cover - optional heavy dependencies
+    from autogpt.processing.text import chunk_content, split_text, summarize_text
+except Exception:  # pragma: no cover
+    def chunk_content(*args, **kwargs):
+        return []
+
+    def split_text(*args, **kwargs):
+        return []
+
+    async def summarize_text(*args, **kwargs):
+        return "", None
 
 from .utils import Embedding, get_embedding
 

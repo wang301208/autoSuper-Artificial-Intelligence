@@ -9,14 +9,18 @@ import os.path
 from pathlib import Path
 from typing import Iterator, Literal
 
-from autogpt.agents.agent import Agent
+from typing import TYPE_CHECKING
+
 from autogpt.agents.utils.exceptions import DuplicateOperationError
 from autogpt.command_decorator import command
 from autogpt.core.utils.json_schema import JSONSchema
 from autogpt.memory.vector import MemoryItemFactory, VectorMemory
 
 from .decorators import sanitize_path_arg
-from .file_operations_utils import decode_textual_file
+from .file_operations_utils import decode_textual_file, is_file_binary_fn
+
+if TYPE_CHECKING:
+    from autogpt.agents.agent import Agent
 
 COMMAND_CATEGORY = "file_operations"
 COMMAND_CATEGORY_TITLE = "File Operations"
@@ -27,6 +31,24 @@ from .file_context import open_file, open_folder  # NOQA
 logger = logging.getLogger(__name__)
 
 Operation = Literal["write", "append", "delete"]
+
+CODE_EXTENSIONS = {
+    ".c",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".java",
+    ".js",
+    ".jsx",
+    ".php",
+    ".py",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".swift",
+    ".ts",
+    ".tsx",
+}
 
 
 def text_checksum(text: str) -> str:
@@ -157,6 +179,7 @@ def read_file(filename: str | Path, agent: Agent) -> str:
 def ingest_file(
     filename: str,
     memory: VectorMemory,
+    agent: Agent,
 ) -> None:
     """
     Ingest a file by reading its content, splitting it into chunks with a specified
@@ -168,10 +191,27 @@ def ingest_file(
     """
     try:
         logger.info(f"Ingesting file {filename}")
-        content = read_file(filename)
+        file_path = Path(filename)
 
-        # TODO: differentiate between different types of files
-        file_memory = MemoryItemFactory.from_text_file(content, filename)
+        with agent.workspace.open_file(file_path, binary=True) as f:
+            if is_file_binary_fn(f):
+                logger.warning(f"File {filename} is binary; skipping ingestion")
+                return
+
+        content = read_file(filename, agent=agent)
+
+        location = file_path.as_posix()
+        for item in list(memory):
+            if item.metadata.get("location") == location:
+                memory.discard(item)
+
+        if file_path.suffix.lower() in CODE_EXTENSIONS:
+            file_memory = MemoryItemFactory.from_code_file(content, location)
+        else:
+            file_memory = MemoryItemFactory.from_text_file(
+                content, location, agent.legacy_config
+            )
+
         logger.debug(f"Created memory: {file_memory.dump(True)}")
         memory.add(file_memory)
 
