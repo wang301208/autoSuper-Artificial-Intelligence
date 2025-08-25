@@ -4,7 +4,7 @@ import inspect
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any
 
 import sentry_sdk
 from pydantic import Field
@@ -123,6 +123,14 @@ class Agent(
 
         self.log_cycle_handler = LogCycleHandler()
         """LogCycleHandler for structured debug logging."""
+
+    # ------------------------------------------------------------------
+    def report_status(
+        self, status: str, progress: float | None = None, **info: Any
+    ) -> None:
+        """Proxy to :meth:`BaseAgent.report_status`."""
+
+        super().report_status(status, progress=progress, **info)
 
     def build_prompt(
         self,

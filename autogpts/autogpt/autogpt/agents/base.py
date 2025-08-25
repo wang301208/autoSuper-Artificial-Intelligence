@@ -9,6 +9,7 @@ from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from pydantic import Field, validator
 from events import EventBus, create_event_bus
 from events.client import EventClient
+from events.coordination import STATUS_SYNC_TOPIC, StatusEvent
 
 if TYPE_CHECKING:
     from autogpt.config import Config
@@ -199,6 +200,20 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         super(BaseAgent, self).__init__()
 
         logger.debug(f"Created {__class__} '{self.ai_profile.ai_name}'")
+
+    # ------------------------------------------------------------------
+    def report_status(
+        self, status: str, progress: float | None = None, **info: Any
+    ) -> None:
+        """Publish a status update for this agent on the event bus."""
+
+        event = StatusEvent(
+            agent=self.state.agent_id or self.ai_profile.ai_name,
+            status=status,
+            progress=progress,
+            info=info or {},
+        )
+        self.event_client.publish(STATUS_SYNC_TOPIC, event.__dict__)
 
     @property
     def llm(self) -> ChatModelInfo:
