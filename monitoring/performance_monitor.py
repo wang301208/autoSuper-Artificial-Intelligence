@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from email.message import EmailMessage
 from typing import Any, Callable, Iterable, List
 import smtplib
@@ -20,11 +21,17 @@ class PerformanceMonitor:
         training_accuracy: float,
         degradation_threshold: float,
         alert_handlers: Iterable[AlertHandler] | None = None,
+        cpu_threshold: float | None = None,
+        memory_threshold: float | None = None,
+        throughput_threshold: float | None = None,
     ) -> None:
         self.storage = storage
         self.training_accuracy = training_accuracy
         self.degradation_threshold = degradation_threshold
         self.alert_handlers: List[AlertHandler] = list(alert_handlers or [])
+        self.cpu_threshold = cpu_threshold
+        self.memory_threshold = memory_threshold
+        self.throughput_threshold = throughput_threshold
 
     # ------------------------------------------------------------------
     # logging
@@ -46,8 +53,44 @@ class PerformanceMonitor:
         correct = sum(1 for e in events if e.get("prediction") == e.get("outcome"))
         return correct / len(events)
 
+    # ------------------------------------------------------------------
+    # resource metrics
+    # ------------------------------------------------------------------
+    def log_resource_usage(self, agent: str, cpu: float, memory: float) -> None:
+        """Persist resource usage for *agent*."""
+        self.storage.store("agent.resource", {"agent": agent, "cpu": cpu, "memory": memory})
+
+    def log_task_completion(self, agent: str) -> None:
+        """Record completion of a task by *agent*."""
+        self.storage.store("task", {"agent": agent})
+
+    def cpu_usage(self, agent: str | None = None, interval: float = 60.0) -> float:
+        """Return average CPU usage for *agent* over *interval* seconds."""
+        start = time.time() - interval
+        events = self.storage.events("agent.resource", start_ts=start)
+        samples = [e for e in events if agent is None or e.get("agent") == agent]
+        if not samples:
+            return 0.0
+        return sum(float(e.get("cpu", 0.0)) for e in samples) / len(samples)
+
+    def memory_usage(self, agent: str | None = None, interval: float = 60.0) -> float:
+        """Return average memory usage for *agent* over *interval* seconds."""
+        start = time.time() - interval
+        events = self.storage.events("agent.resource", start_ts=start)
+        samples = [e for e in events if agent is None or e.get("agent") == agent]
+        if not samples:
+            return 0.0
+        return sum(float(e.get("memory", 0.0)) for e in samples) / len(samples)
+
+    def task_throughput(self, agent: str | None = None, interval: float = 60.0) -> float:
+        """Return tasks completed per second for *agent* over *interval* seconds."""
+        start = time.time() - interval
+        events = self.storage.events("task", start_ts=start)
+        count = sum(1 for e in events if agent is None or e.get("agent") == agent)
+        return count / interval if interval > 0 else 0.0
+
     def check_performance(self) -> None:
-        """Compare live accuracy against training benchmark and alert if degraded."""
+        """Compare live metrics against thresholds and alert on degradation."""
         accuracy = self.current_accuracy()
         allowed_drop = self.training_accuracy - self.degradation_threshold
         if accuracy < allowed_drop:
@@ -55,6 +98,30 @@ class PerformanceMonitor:
                 "Model performance degraded",
                 f"Accuracy {accuracy:.2%} below threshold {allowed_drop:.2%}",
             )
+
+        # Check resource utilization
+        if self.cpu_threshold is not None:
+            cpu = self.cpu_usage()
+            if cpu > self.cpu_threshold:
+                self._alert(
+                    "CPU usage high",
+                    f"Average CPU usage {cpu:.2f}% exceeds {self.cpu_threshold:.2f}%",
+                )
+        if self.memory_threshold is not None:
+            mem = self.memory_usage()
+            if mem > self.memory_threshold:
+                self._alert(
+                    "Memory usage high",
+                    f"Average memory usage {mem:.2f}% exceeds {self.memory_threshold:.2f}%",
+                )
+
+        if self.throughput_threshold is not None:
+            tp = self.task_throughput()
+            if tp < self.throughput_threshold:
+                self._alert(
+                    "Task throughput low",
+                    f"Throughput {tp:.2f} tasks/sec below {self.throughput_threshold:.2f}",
+                )
 
     # ------------------------------------------------------------------
     # alerting

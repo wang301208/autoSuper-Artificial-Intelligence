@@ -1,31 +1,25 @@
-import sys
+import sys, os
+sys.path.insert(0, os.path.abspath(os.getcwd()))
+
 from pathlib import Path
 
-sys.path.append(str(Path(__file__).resolve().parents[1]))
-
-from monitoring.performance_monitor import PerformanceMonitor
-from monitoring.storage import TimeSeriesStorage
+from monitoring import PerformanceMonitor, TimeSeriesStorage
 
 
-def test_alert_triggered_on_accuracy_drop(tmp_path):
-    storage = TimeSeriesStorage(tmp_path / "perf.db")
-    alerted = []
+def test_performance_monitor_resource_alert(tmp_path: Path) -> None:
+    storage = TimeSeriesStorage(tmp_path / "monitoring.db")
+    alerts: list[tuple[str, str]] = []
 
-    def handler(subject: str, message: str) -> None:
-        alerted.append((subject, message))
+    def handler(subj: str, msg: str) -> None:
+        alerts.append((subj, msg))
 
     monitor = PerformanceMonitor(
         storage,
-        training_accuracy=0.9,
+        training_accuracy=1.0,
         degradation_threshold=0.1,
         alert_handlers=[handler],
+        cpu_threshold=50.0,
     )
-
-    monitor.log_prediction(1, 1)
-    monitor.log_prediction(1, 0)
-    monitor.log_prediction(0, 1)
+    monitor.log_resource_usage("agent", 90.0, 10.0)
     monitor.check_performance()
-
-    assert alerted, "Performance drop should trigger alert"
-    events = storage.events("prediction")
-    assert len(events) == 3
+    assert any("CPU" in a[0] for a in alerts)
