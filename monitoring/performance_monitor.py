@@ -8,6 +8,8 @@ from typing import Any, Callable, Iterable, List
 import smtplib
 
 from .storage import TimeSeriesStorage
+from common import AutoGPTException, log_and_format_exception
+from smtplib import SMTPException
 
 AlertHandler = Callable[[str, str], None]
 
@@ -130,8 +132,12 @@ class PerformanceMonitor:
         for handler in self.alert_handlers:
             try:
                 handler(subject, message)
-            except Exception:
-                pass
+            except AutoGPTException as err:
+                log_and_format_exception(err)
+            except SMTPException as err:
+                log_and_format_exception(err)
+            except Exception as err:  # pragma: no cover - unexpected
+                log_and_format_exception(err)
 
 
 def email_alert(
