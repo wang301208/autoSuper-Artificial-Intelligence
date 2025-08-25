@@ -25,6 +25,12 @@ AutoGPT Arena 黑客松中，[**evo.ninja**](https://github.com/polywrap/evo.nin
 
 📈 想挑战 evo.ninja、AutoGPT 等代理？提交你的基准测试到[排行榜](#-leaderboard)，也许下一个上榜的就是你的代理！
 
+## 🔌 硬件后端
+
+AutoGPT 现在包含可插拔的 CPU、GPU 和 TPU 后端。
+详见 [docs/hardware_backends.md](docs/hardware_backends.md) 了解硬件配置和回退方案。
+
+
 ## 🧱 构建模块
 
 ### 🏗️ Forge
