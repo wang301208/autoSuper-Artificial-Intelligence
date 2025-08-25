@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -20,10 +21,38 @@ def apply_parameters(config_path: Path, params: dict) -> dict:
 
 
 def run_tests(command: str) -> tuple[int, float, str]:
+    """Run the regression tests securely.
+
+    The command is validated against a small whitelist and executed without a
+    shell. A non-zero exit code or validation error will be surfaced via the
+    returned output message.
+    """
+
+    try:
+        args = shlex.split(command)
+    except ValueError as err:
+        return 1, 0.0, f"Invalid test command: {err}"
+    if not args:
+        return 1, 0.0, "Empty test command"
+
+    is_pytest = args[0] == "pytest"
+    is_python_pytest = (
+        args[0] == "python" and len(args) >= 3 and args[1] == "-m" and args[2] == "pytest"
+    )
+    if not (is_pytest or is_python_pytest):
+        return 1, 0.0, f"Disallowed test command: {' '.join(args)}"
+
     start = time.perf_counter()
-    proc = subprocess.run(command, shell=True, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(args, shell=False, capture_output=True, text=True)
+    except OSError as err:
+        duration = time.perf_counter() - start
+        return 1, duration, f"Failed to execute test command: {err}"
+
     duration = time.perf_counter() - start
     output = proc.stdout + proc.stderr
+    if proc.returncode != 0:
+        output = f"Test command exited with code {proc.returncode}:\n" + output
     return proc.returncode, duration, output
 
 
