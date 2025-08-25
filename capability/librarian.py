@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor
+import os
 
 try:
     from autogpt.core.knowledge_graph import (
@@ -61,6 +63,7 @@ class Librarian:
         n_results: int = 1,
         vector_type: str = "text",
         return_content: bool = False,
+        max_workers: int | None = None,
     ) -> List[str]:
         """Search skills by embedding.
 
@@ -74,13 +77,26 @@ class Librarian:
             Which vector space to query in.
         return_content: bool
             When ``True`` return the document contents instead of IDs.
+        max_workers: int | None
+            Maximum number of threads to use when fetching content. ``None``
+            uses ``min(n_results, os.cpu_count() or 1)``. ``1`` disables
+            parallelism.
         """
         if not self.index:
             raise RuntimeError("Vector index not available")
         result = self.index.query(embedding, n_results, vector_type=vector_type)
         ids = result.get("ids", [[]])[0]
         if return_content:
-            return [self.get_skill(name)[0] for name in ids]
+            if len(ids) <= 1 or (max_workers is not None and max_workers <= 1):
+                return [self.get_skill(name)[0] for name in ids]
+
+            workers = min(len(ids), max_workers or (os.cpu_count() or 1))
+
+            def _load(name: str) -> str:
+                return self.get_skill(name)[0]
+
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                return list(executor.map(_load, ids))
         return ids
 
     def get_skill(self, name: str):
