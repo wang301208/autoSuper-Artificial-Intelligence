@@ -50,13 +50,23 @@ class TimeSeriesStorage:
             subscribe(topic, lambda e, t=topic: self.store(t, e))
 
     # ------------------------------------------------------------------
+    # event retrieval
+    # ------------------------------------------------------------------
+    def events(self, topic: str | None = None) -> list[Dict[str, Any]]:
+        """Return stored events, optionally filtered by *topic*."""
+        cur = self._conn.cursor()
+        if topic is None:
+            cur.execute("SELECT data FROM events")
+        else:
+            cur.execute("SELECT data FROM events WHERE topic=?", (topic,))
+        rows = cur.fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+    # ------------------------------------------------------------------
     # aggregations
     # ------------------------------------------------------------------
     def _all_events(self) -> list[Dict[str, Any]]:
-        cur = self._conn.cursor()
-        cur.execute("SELECT data FROM events")
-        rows = cur.fetchall()
-        return [json.loads(r[0]) for r in rows]
+        return self.events()
 
     def success_rate(self) -> float:
         """Return overall success rate from stored events."""
