@@ -26,6 +26,8 @@ class Scheduler:
             env_weights.update(weights)
         self._weights = env_weights
         self._agents: Dict[str, Dict[str, float]] = {}
+        # Track total completed tasks for fairness verification
+        self._task_counts: Dict[str, int] = {}
         self._lock = threading.Lock()
         self._task_callback = task_callback
 
@@ -42,11 +44,13 @@ class Scheduler:
             self._agents.setdefault(
                 name, {"cpu": 0.0, "memory": 0.0, "tasks": 0.0}
             )
+            self._task_counts.setdefault(name, 0)
 
     def remove_agent(self, name: str) -> None:
         """Remove an agent from scheduling."""
         with self._lock:
             self._agents.pop(name, None)
+            self._task_counts.pop(name, None)
 
     def update_agent(self, name: str, cpu: float, memory: float) -> None:
         """Update utilization metrics for an agent."""
@@ -72,8 +76,15 @@ class Scheduler:
             return min(self._agents.items(), key=score)[0]
 
     # ------------------------------------------------------------------
-    def submit(self, graph: TaskGraph, worker: Callable[[str], Any]) -> Dict[str, Any]:
-        """Schedule tasks on available agents and execute them in parallel."""
+    def submit(
+        self, graph: TaskGraph, worker: Callable[[str, str], Any]
+    ) -> Dict[str, Any]:
+        """Schedule tasks on available agents and execute them in parallel.
+
+        The ``worker`` callable receives the selected ``agent`` name and the
+        ``skill`` associated with each task, allowing downstream consumers to
+        route execution appropriately.
+        """
         # Build dependency counts and reverse edges
         indegree: Dict[str, int] = {}
         dependents: Dict[str, List[str]] = {}
@@ -98,7 +109,7 @@ class Scheduler:
                         agent = self._pick_least_busy()
                         if agent is None:
                             continue
-                        future = pool.submit(worker, task.skill)
+                        future = pool.submit(worker, agent, task.skill)
                         in_progress[future] = (task_id, agent)
                         with self._lock:
                             self._agents[agent]["tasks"] += 1
@@ -111,6 +122,7 @@ class Scheduler:
                 results[tid] = done.result()
                 with self._lock:
                     self._agents[agent]["tasks"] -= 1
+                    self._task_counts[agent] += 1
                 for dep in dependents.get(tid, []):
                     indegree[dep] -= 1
                     if indegree[dep] == 0:
@@ -119,6 +131,12 @@ class Scheduler:
             self._task_callback(0)
         # Ensure deterministic order
         return {tid: results.get(tid) for tid in graph.execution_order()}
+
+    # ------------------------------------------------------------------
+    def task_counts(self) -> Dict[str, int]:
+        """Return a snapshot of total completed tasks per agent."""
+        with self._lock:
+            return dict(self._task_counts)
 
 
 __all__ = ["Scheduler"]
