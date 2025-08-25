@@ -10,7 +10,7 @@ import pytest
 
 from capability.skill_library import SkillLibrary
 from execution import Executor
-from execution.executor import SkillExecutionError
+from autogpts.autogpt.autogpt.core.errors import SkillExecutionError
 
 
 def init_repo(path: Path) -> None:

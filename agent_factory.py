@@ -29,24 +29,16 @@ from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.models.command_registry import CommandRegistry
 
-from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+from autogpts.autogpt.autogpt.core.errors import (
+    AutoGPTError,
+    SkillSecurityError,
+)
 
 from capability.librarian import Librarian
 from org_charter import io as charter_io
 
 
 logger = logging.getLogger(__name__)
-
-
-class SkillSecurityError(AutoGPTError):
-    """Raised when a skill fails security verification."""
-
-    def __init__(self, skill: str, cause: str) -> None:
-        super().__init__(f"Skill {skill} blocked: {cause}")
-        self.skill = skill
-        self.cause = cause
-
-
 SAFE_BUILTINS: dict[str, object] = {
     "__import__": __import__,
     "len": len,
@@ -101,7 +93,7 @@ def _load_additional_tool(
     try:
         _verify_skill(name, code, meta)
     except SkillSecurityError as err:
-        logger.warning("Rejected tool '%s': %s", name, err.cause)
+        logger.exception("Security violation for skill %s: %s", name, err.cause)
         raise
 
     namespace: dict[str, object] = {}

@@ -16,3 +16,21 @@ class PluginError(AutoGPTError):
 
 class EventBusError(AutoGPTError):
     """Raised for problems related to the event bus."""
+
+
+class SkillSecurityError(AutoGPTError):
+    """Raised when a skill fails security verification."""
+
+    def __init__(self, skill: str, cause: str) -> None:
+        super().__init__(f"Skill {skill} blocked: {cause}")
+        self.skill = skill
+        self.cause = cause
+
+
+class SkillExecutionError(AutoGPTError):
+    """Raised when a skill fails during execution."""
+
+    def __init__(self, skill: str, cause: str) -> None:
+        super().__init__(f"Skill {skill} failed: {cause}")
+        self.skill = skill
+        self.cause = cause

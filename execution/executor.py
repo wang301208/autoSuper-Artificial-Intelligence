@@ -7,25 +7,15 @@ import logging
 from typing import Any, Dict, List
 import asyncio
 
+from autogpts.autogpt.autogpt.core.errors import (
+    SkillExecutionError,
+    SkillSecurityError,
+)
 from capability.skill_library import SkillLibrary
 from .task_graph import TaskGraph
 from .scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
-
-
-class SkillExecutionError(RuntimeError):
-    def __init__(self, skill: str, cause: str) -> None:
-        super().__init__(f"Skill {skill} failed: {cause}")
-        self.skill = skill
-        self.cause = cause
-
-
-class SkillSecurityError(RuntimeError):
-    def __init__(self, skill: str, cause: str) -> None:
-        super().__init__(f"Skill {skill} blocked: {cause}")
-        self.skill = skill
-        self.cause = cause
 
 
 SAFE_BUILTINS: Dict[str, Any] = {
@@ -99,7 +89,7 @@ class Executor:
         try:
             _verify_skill(name, code, meta)
         except SkillSecurityError as err:
-            logger.error("Security violation for skill %s: %s", name, err.cause)
+            logger.exception("Security violation for skill %s: %s", name, err.cause)
             raise
         namespace: Dict[str, Any] = {}
         parsed = ast.parse(code, mode="exec")
@@ -107,7 +97,7 @@ class Executor:
         func = namespace.get(name)
         if not callable(func):
             err = SkillExecutionError(name, f"did not define a callable {name}()")
-            logger.error(str(err))
+            logger.error("Error executing skill %s: %s", name, err.cause)
             raise err
         try:
             return func()
