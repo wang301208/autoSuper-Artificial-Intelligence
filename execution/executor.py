@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any, Dict, List
 
 from capability.skill_library import SkillLibrary
@@ -12,7 +11,9 @@ from .scheduler import Scheduler
 class Executor:
     """Very small executor that decomposes a goal into skill tasks."""
 
-    def __init__(self, skill_library: SkillLibrary, scheduler: Scheduler | None = None) -> None:
+    def __init__(
+        self, skill_library: SkillLibrary, scheduler: Scheduler | None = None
+    ) -> None:
         self.skill_library = skill_library
         self.scheduler = scheduler or Scheduler()
         if not self.scheduler._agents:
@@ -49,7 +50,7 @@ class Executor:
         graph = self.decompose_goal(goal)
         return self.scheduler.submit(graph, self._call_skill)
 
-    def _call_skill(self, name: str) -> Any:
+    def _call_skill(self, agent: str, name: str) -> Any:
         code, _ = self.skill_library.get_skill(name)
         namespace: Dict[str, Any] = {}
         exec(code, namespace)

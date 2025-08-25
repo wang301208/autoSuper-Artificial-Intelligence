@@ -12,6 +12,7 @@ class Scheduler:
 
     def __init__(self, task_callback: Optional[Callable[[int], None]] = None) -> None:
         self._agents: Dict[str, Dict[str, float]] = {}
+        self._task_counts: Dict[str, int] = {}
         self._lock = threading.Lock()
         self._task_callback = task_callback
 
@@ -26,11 +27,13 @@ class Scheduler:
         """Register a new agent with default utilization."""
         with self._lock:
             self._agents.setdefault(name, {"cpu": 0.0, "memory": 0.0})
+            self._task_counts.setdefault(name, 0)
 
     def remove_agent(self, name: str) -> None:
         """Remove an agent from scheduling."""
         with self._lock:
             self._agents.pop(name, None)
+            self._task_counts.pop(name, None)
 
     def update_agent(self, name: str, cpu: float, memory: float) -> None:
         """Update utilization metrics for an agent."""
@@ -38,6 +41,12 @@ class Scheduler:
             if name in self._agents:
                 self._agents[name]["cpu"] = cpu
                 self._agents[name]["memory"] = memory
+
+    @property
+    def task_counts(self) -> Dict[str, int]:
+        """Return a snapshot of tasks executed per agent."""
+        with self._lock:
+            return dict(self._task_counts)
 
     # ------------------------------------------------------------------
     def _pick_least_busy(self) -> str | None:
@@ -50,7 +59,9 @@ class Scheduler:
             )[0]
 
     # ------------------------------------------------------------------
-    def submit(self, graph: TaskGraph, worker: Callable[[str], Any]) -> Dict[str, Any]:
+    def submit(
+        self, graph: TaskGraph, worker: Callable[[str, str], Any]
+    ) -> Dict[str, Any]:
         """Schedule tasks on available agents and execute them in parallel."""
         # Build dependency counts and reverse edges
         indegree: Dict[str, int] = {}
@@ -74,7 +85,14 @@ class Scheduler:
                     task = graph.tasks[task_id]
                     if task.skill:
                         agent = self._pick_least_busy()
-                        future = pool.submit(worker, task.skill)
+                        if agent is None:
+                            results[task_id] = None
+                            continue
+                        with self._lock:
+                            self._task_counts[agent] = (
+                                self._task_counts.get(agent, 0) + 1
+                            )
+                        future = pool.submit(worker, agent, task.skill)
                         in_progress[future] = task_id
                     else:
                         results[task_id] = None
