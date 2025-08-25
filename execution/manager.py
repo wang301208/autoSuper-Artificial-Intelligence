@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import Dict, Any
 from enum import Enum
 
-import psutil
-
 from agent_factory import create_agent_from_blueprint
 from events import EventBus
 from monitoring import SystemMetricsCollector
@@ -61,6 +59,10 @@ class AgentLifecycleManager:
         self._task_count = 0
         self._heartbeat_timeout = 30.0
         self._sleep_timeout = sleep_timeout
+        self._default_quota = {
+            "cpu": float(os.getenv("AGENT_CPU_QUOTA", 80.0)),
+            "memory": float(os.getenv("AGENT_MEMORY_QUOTA", 80.0)),
+        }
         self._metrics = SystemMetricsCollector(event_bus)
         self._metrics.start()
         self._event_bus.subscribe("agent.resource", self._on_resource_event)
@@ -119,6 +121,9 @@ class AgentLifecycleManager:
             self._resources[name] = {
                 "cpu": 0.0,
                 "memory": 0.0,
+                "cpu_pred": 0.0,
+                "memory_pred": 0.0,
+                "quota": dict(self._default_quota),
                 "last_active": time.time(),
             }
             self._heartbeats[name] = time.time()
@@ -167,6 +172,9 @@ class AgentLifecycleManager:
         data = self._resources[name]
         data["cpu"] = event.get("cpu", 0.0)
         data["memory"] = event.get("memory", 0.0)
+        quota = event.get("quota")
+        if quota:
+            data.setdefault("quota", dict(self._default_quota)).update(quota)
         if self._scheduler:
             self._scheduler.update_agent(name, data["cpu"], data["memory"])
         if data["cpu"] > 1.0:
@@ -175,8 +183,8 @@ class AgentLifecycleManager:
 
     def _resource_manager(self) -> None:
         idle_timeout = 30.0
-        pressure_threshold = 80.0
-        while not self._resource_stop.wait(5.0):
+        alpha = 0.5
+        while not self._resource_stop.wait(1.0):
             now = time.time()
 
             # Check heartbeat timeouts
@@ -192,8 +200,20 @@ class AgentLifecycleManager:
                     self._resources.pop(name, None)
                     self._set_state(name, AgentState.SLEEPING)
 
-            # Check for idleness
+            # Predictive resource checks and idleness
             for name, data in list(self._resources.items()):
+                cpu = data.get("cpu", 0.0)
+                mem = data.get("memory", 0.0)
+                data["cpu_pred"] = alpha * cpu + (1 - alpha) * data.get("cpu_pred", cpu)
+                data["memory_pred"] = alpha * mem + (1 - alpha) * data.get("memory_pred", mem)
+                quota = data.get("quota", self._default_quota)
+                if (
+                    data["cpu_pred"] > quota.get("cpu", 100.0)
+                    or data["memory_pred"] > quota.get("memory", 100.0)
+                ):
+                    self._event_bus.publish(
+                        "agent.resource", {"agent": name, "action": "throttle"}
+                    )
                 if now - data.get("last_active", now) > idle_timeout:
                     if self._states.get(name) == AgentState.RUNNING:
                         self._set_state(name, AgentState.IDLE)
@@ -205,18 +225,6 @@ class AgentLifecycleManager:
                 self._wake_sleeping_agents(self._task_count - len(self._agents))
             elif self._task_count < len(self._agents):
                 self._release_idle_agents(len(self._agents) - self._task_count)
-
-            cpu_total = psutil.cpu_percent()
-            mem_total = psutil.virtual_memory().percent
-            if cpu_total > pressure_threshold or mem_total > pressure_threshold:
-                if self._resources:
-                    heavy = max(
-                        self._resources.items(), key=lambda item: item[1].get("cpu", 0.0)
-                    )[0]
-                    self._event_bus.publish(
-                        "agent.resource",
-                        {"agent": heavy, "action": "throttle"},
-                    )
 
     def _cleanup_sleeping_agents(self, now: float) -> None:
         for name, state in list(self._states.items()):
@@ -250,6 +258,9 @@ class AgentLifecycleManager:
                 self._resources[name] = {
                     "cpu": 0.0,
                     "memory": 0.0,
+                    "cpu_pred": 0.0,
+                    "memory_pred": 0.0,
+                    "quota": dict(self._default_quota),
                     "last_active": time.time(),
                 }
                 self._heartbeats[name] = time.time()

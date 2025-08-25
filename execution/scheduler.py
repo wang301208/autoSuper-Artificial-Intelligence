@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import heapq
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -30,6 +31,9 @@ class Scheduler:
         self._task_counts: Dict[str, int] = {}
         self._lock = threading.Lock()
         self._task_callback = task_callback
+        # Heap of (score, revision, name) for O(log n) selection
+        self._heap: List[tuple[float, int, str]] = []
+        self._revisions: Dict[str, int] = {}
 
     def set_task_callback(self, cb: Callable[[int], None]) -> None:
         """Set a callback to be notified when task counts change."""
@@ -41,16 +45,18 @@ class Scheduler:
     def add_agent(self, name: str) -> None:
         """Register a new agent with default utilization."""
         with self._lock:
-            self._agents.setdefault(
-                name, {"cpu": 0.0, "memory": 0.0, "tasks": 0.0}
-            )
-            self._task_counts.setdefault(name, 0)
+            if name in self._agents:
+                return
+            self._agents[name] = {"cpu": 0.0, "memory": 0.0, "tasks": 0.0}
+            self._task_counts[name] = 0
+            self._push(name)
 
     def remove_agent(self, name: str) -> None:
         """Remove an agent from scheduling."""
         with self._lock:
             self._agents.pop(name, None)
             self._task_counts.pop(name, None)
+            self._revisions.pop(name, None)
 
     def update_agent(self, name: str, cpu: float, memory: float) -> None:
         """Update utilization metrics for an agent."""
@@ -58,22 +64,36 @@ class Scheduler:
             if name in self._agents:
                 self._agents[name]["cpu"] = cpu
                 self._agents[name]["memory"] = memory
+                self._push(name)
+
+    def _score(self, name: str) -> float:
+        metrics = self._agents[name]
+        return (
+            self._weights["cpu"] * metrics.get("cpu", 0.0)
+            + self._weights["memory"] * metrics.get("memory", 0.0)
+            + self._weights["tasks"] * metrics.get("tasks", 0.0)
+        )
+
+    def _push(self, name: str) -> None:
+        rev = self._revisions.get(name, 0) + 1
+        self._revisions[name] = rev
+        heapq.heappush(self._heap, (self._score(name), rev, name))
+
+    def _update_tasks(self, name: str, delta: float) -> None:
+        self._agents[name]["tasks"] += delta
+        self._push(name)
 
     # ------------------------------------------------------------------
     def _pick_least_busy(self) -> str | None:
         with self._lock:
-            if not self._agents:
-                return None
-
-            def score(item: tuple[str, Dict[str, float]]) -> float:
-                metrics = item[1]
-                return (
-                    self._weights["cpu"] * metrics.get("cpu", 0.0)
-                    + self._weights["memory"] * metrics.get("memory", 0.0)
-                    + self._weights["tasks"] * metrics.get("tasks", 0.0)
-                )
-
-            return min(self._agents.items(), key=score)[0]
+            while self._heap:
+                score, rev, name = heapq.heappop(self._heap)
+                if name not in self._agents:
+                    continue
+                if self._revisions.get(name) != rev:
+                    continue
+                return name
+            return None
 
     # ------------------------------------------------------------------
     def submit(
@@ -112,7 +132,7 @@ class Scheduler:
                         future = pool.submit(worker, agent, task.skill)
                         in_progress[future] = (task_id, agent)
                         with self._lock:
-                            self._agents[agent]["tasks"] += 1
+                            self._update_tasks(agent, 1)
                     else:
                         results[task_id] = None
                 if not in_progress:
@@ -121,7 +141,7 @@ class Scheduler:
                 tid, agent = in_progress.pop(done)
                 results[tid] = done.result()
                 with self._lock:
-                    self._agents[agent]["tasks"] -= 1
+                    self._update_tasks(agent, -1)
                     self._task_counts[agent] += 1
                 for dep in dependents.get(tid, []):
                     indegree[dep] -= 1
