@@ -4,6 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Optional
+import time
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from pydantic import Field, validator
@@ -197,8 +198,20 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
 
         # Support multi-inheritance and mixins for subclasses
         super(BaseAgent, self).__init__()
-
         logger.debug(f"Created {__class__} '{self.ai_profile.ai_name}'")
+
+    # ------------------------------------------------------------------
+    # Heartbeat
+    # ------------------------------------------------------------------
+    def heartbeat(self) -> None:
+        """Emit a heartbeat event for this agent."""
+        try:
+            self.event_bus.publish(
+                "agent.heartbeat",
+                {"agent": self.state.agent_id, "time": time.time()},
+            )
+        except Exception:  # pragma: no cover - best effort
+            logger.debug("Failed to publish heartbeat", exc_info=True)
 
     @property
     def llm(self) -> ChatModelInfo:
