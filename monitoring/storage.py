@@ -30,6 +30,9 @@ class TimeSeriesStorage:
             )
             """
         )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_events_topic_ts ON events(topic, ts)"
+        )
         self._conn.commit()
 
     # ------------------------------------------------------------------
@@ -52,48 +55,101 @@ class TimeSeriesStorage:
     # ------------------------------------------------------------------
     # event retrieval
     # ------------------------------------------------------------------
-    def events(self, topic: str | None = None) -> list[Dict[str, Any]]:
-        """Return stored events, optionally filtered by *topic*."""
+    def events(
+        self,
+        topic: str | None = None,
+        start_ts: float | None = None,
+        end_ts: float | None = None,
+        limit: int | None = None,
+    ) -> list[Dict[str, Any]]:
+        """Return stored events.
+
+        Parameters
+        ----------
+        topic:
+            Optional topic to filter events by.
+        start_ts, end_ts:
+            Optional timestamp range. ``start_ts`` is inclusive, ``end_ts`` is
+            exclusive if provided.
+        limit:
+            Optional maximum number of events to return.
+        """
         cur = self._conn.cursor()
-        if topic is None:
-            cur.execute("SELECT data FROM events")
-        else:
-            cur.execute("SELECT data FROM events WHERE topic=?", (topic,))
+        query = "SELECT data FROM events"
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if topic is not None:
+            clauses.append("topic = ?")
+            params.append(topic)
+
+        if start_ts is not None:
+            clauses.append("ts >= ?")
+            params.append(start_ts)
+
+        if end_ts is not None:
+            clauses.append("ts < ?")
+            params.append(end_ts)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY ts"
+
+        if limit is not None:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cur.execute(query, params)
         rows = cur.fetchall()
         return [json.loads(r[0]) for r in rows]
 
     # ------------------------------------------------------------------
     # aggregations
     # ------------------------------------------------------------------
-    def _all_events(self) -> list[Dict[str, Any]]:
-        return self.events()
-
     def success_rate(self) -> float:
         """Return overall success rate from stored events."""
-        events = self._all_events()
-        if not events:
-            return 0.0
-        successes = sum(1 for e in events if e.get("status") == "success")
-        return successes / len(events)
+        cur = self._conn.cursor()
+        cur.execute(
+            """
+            SELECT AVG(CASE
+                           WHEN json_extract(data, '$.status') = 'success'
+                           THEN 1.0 ELSE 0.0
+                       END)
+            FROM events
+            """
+        )
+        row = cur.fetchone()
+        return float(row[0] or 0.0)
 
     def bottlenecks(self) -> Dict[str, int]:
         """Return counts of failed events grouped by stage."""
-        events = self._all_events()
-        result: Dict[str, int] = {}
-        for ev in events:
-            if ev.get("status") != "success":
-                stage = ev.get("stage", "unknown")
-                result[stage] = result.get(stage, 0) + 1
-        return result
+        cur = self._conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(json_extract(data, '$.stage'), 'unknown') AS stage,
+                   COUNT(*)
+            FROM events
+            WHERE json_extract(data, '$.status') != 'success'
+            GROUP BY stage
+            """
+        )
+        rows = cur.fetchall()
+        return {str(stage): count for stage, count in rows}
 
     def blueprint_versions(self) -> Dict[str, int]:
         """Return counts of events grouped by blueprint version."""
-        events = self._all_events()
-        versions: Dict[str, int] = {}
-        for ev in events:
-            ver = str(ev.get("blueprint_version", "unknown"))
-            versions[ver] = versions.get(ver, 0) + 1
-        return versions
+        cur = self._conn.cursor()
+        cur.execute(
+            """
+            SELECT COALESCE(json_extract(data, '$.blueprint_version'), 'unknown') AS ver,
+                   COUNT(*)
+            FROM events
+            GROUP BY ver
+            """
+        )
+        rows = cur.fetchall()
+        return {str(ver): count for ver, count in rows}
 
     # ------------------------------------------------------------------
     # cleanup
