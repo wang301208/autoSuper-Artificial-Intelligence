@@ -5,9 +5,9 @@ import hashlib
 import re
 import logging
 from typing import Any, Dict, List
-import asyncio
 
 from capability.skill_library import SkillLibrary
+from common.async_utils import run_async
 from .task_graph import TaskGraph
 from .scheduler import Scheduler
 
@@ -85,9 +85,11 @@ class Executor:
     # Task scheduling and execution
     def execute(self, goal: str) -> Dict[str, Any]:
         graph = self.decompose_goal(goal)
-        return self.scheduler.submit(graph, self._call_skill)
+        return self.scheduler.submit(
+            graph, lambda agent, skill: run_async(self._call_skill(agent, skill))
+        )
 
-    def _call_skill(self, agent: str, name: str) -> Any:
+    async def _call_skill(self, agent: str, name: str) -> Any:
         """Execute ``name`` skill for ``agent``.
 
         The basic executor only supports a local ``SkillLibrary`` and therefore
@@ -95,7 +97,7 @@ class Executor:
         implementations to route tasks to remote agents or specialized
         resources.
         """
-        code, meta = asyncio.run(self.skill_library.get_skill(name))
+        code, meta = await self.skill_library.get_skill(name)
         try:
             _verify_skill(name, code, meta)
         except SkillSecurityError as err:

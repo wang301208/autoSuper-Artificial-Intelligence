@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import subprocess
 from collections import OrderedDict
@@ -74,10 +73,10 @@ class SkillLibrary:
         """Retrieve a skill's source code and metadata using an in-memory cache."""
         return await self._load_skill(name)
 
-    def activate_meta_skill(self, name: str) -> None:
+    async def activate_meta_skill(self, name: str) -> None:
         """Mark a meta-skill as active and commit the change to Git."""
         meta_file = self.storage_dir / f"{name}.json"
-        metadata = json.loads(asyncio.run(self._read_file(meta_file)))
+        metadata = json.loads(await self._read_file(meta_file))
         metadata["active"] = True
         meta_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
         subprocess.run(["git", "add", str(meta_file)], cwd=self.repo_path, check=True)

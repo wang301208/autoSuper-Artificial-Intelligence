@@ -49,6 +49,6 @@ def test_meta_skill_requires_activation(tmp_path: Path) -> None:
     lib.add_skill("MetaSkill_Test", code, metadata)
     with pytest.raises(PermissionError):
         asyncio.run(lib.get_skill("MetaSkill_Test"))
-    lib.activate_meta_skill("MetaSkill_Test")
+    asyncio.run(lib.activate_meta_skill("MetaSkill_Test"))
     _, meta = asyncio.run(lib.get_skill("MetaSkill_Test"))
     assert meta["active"] is True
