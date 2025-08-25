@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Any, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .task_graph import TaskGraph
 
@@ -10,7 +11,20 @@ from .task_graph import TaskGraph
 class Scheduler:
     """Dispatch tasks to the least busy agents based on resource usage."""
 
-    def __init__(self, task_callback: Optional[Callable[[int], None]] = None) -> None:
+    def __init__(
+        self,
+        task_callback: Optional[Callable[[int], None]] = None,
+        *,
+        weights: Optional[Dict[str, float]] = None,
+    ) -> None:
+        env_weights = {
+            "cpu": float(os.getenv("SCHEDULER_CPU_WEIGHT", 1.0)),
+            "memory": float(os.getenv("SCHEDULER_MEMORY_WEIGHT", 1.0)),
+            "tasks": float(os.getenv("SCHEDULER_TASK_WEIGHT", 1.0)),
+        }
+        if weights:
+            env_weights.update(weights)
+        self._weights = env_weights
         self._agents: Dict[str, Dict[str, float]] = {}
         self._lock = threading.Lock()
         self._task_callback = task_callback
@@ -25,7 +39,9 @@ class Scheduler:
     def add_agent(self, name: str) -> None:
         """Register a new agent with default utilization."""
         with self._lock:
-            self._agents.setdefault(name, {"cpu": 0.0, "memory": 0.0})
+            self._agents.setdefault(
+                name, {"cpu": 0.0, "memory": 0.0, "tasks": 0.0}
+            )
 
     def remove_agent(self, name: str) -> None:
         """Remove an agent from scheduling."""
@@ -44,10 +60,16 @@ class Scheduler:
         with self._lock:
             if not self._agents:
                 return None
-            return min(
-                self._agents.items(),
-                key=lambda item: (item[1].get("cpu", 0.0), item[1].get("memory", 0.0)),
-            )[0]
+
+            def score(item: tuple[str, Dict[str, float]]) -> float:
+                metrics = item[1]
+                return (
+                    self._weights["cpu"] * metrics.get("cpu", 0.0)
+                    + self._weights["memory"] * metrics.get("memory", 0.0)
+                    + self._weights["tasks"] * metrics.get("tasks", 0.0)
+                )
+
+            return min(self._agents.items(), key=score)[0]
 
     # ------------------------------------------------------------------
     def submit(self, graph: TaskGraph, worker: Callable[[str], Any]) -> Dict[str, Any]:
@@ -64,7 +86,7 @@ class Scheduler:
         if self._task_callback:
             self._task_callback(len(ready))
         results: Dict[str, Any] = {}
-        in_progress: Dict[Any, str] = {}
+        in_progress: Dict[Any, tuple[str, str]] = {}
         max_workers = max(len(self._agents), 1)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             while ready or in_progress:
@@ -74,15 +96,21 @@ class Scheduler:
                     task = graph.tasks[task_id]
                     if task.skill:
                         agent = self._pick_least_busy()
+                        if agent is None:
+                            continue
                         future = pool.submit(worker, task.skill)
-                        in_progress[future] = task_id
+                        in_progress[future] = (task_id, agent)
+                        with self._lock:
+                            self._agents[agent]["tasks"] += 1
                     else:
                         results[task_id] = None
                 if not in_progress:
                     continue
                 done = next(as_completed(list(in_progress.keys())))
-                tid = in_progress.pop(done)
+                tid, agent = in_progress.pop(done)
                 results[tid] = done.result()
+                with self._lock:
+                    self._agents[agent]["tasks"] -= 1
                 for dep in dependents.get(tid, []):
                     indegree[dep] -= 1
                     if indegree[dep] == 0:
