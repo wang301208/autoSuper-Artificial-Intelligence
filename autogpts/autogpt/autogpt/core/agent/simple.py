@@ -1,3 +1,4 @@
+import heapq
 import logging
 import subprocess
 import re
@@ -172,7 +173,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._default_planning = planning
         self._creative_planning = creative_planning
         self._workspace = workspace
-        self._task_queue = []
+        self._task_queue: list[tuple[int, Task]] = []
         self._completed_tasks = []
         self._current_task = None
         self._next_ability = None
@@ -254,15 +255,15 @@ class SimpleAgent(LayeredAgent, Configurable):
         # TODO: Should probably do a step to evaluate the quality of the generated tasks
         #  and ensure that they have actionable ready and acceptance criteria
 
-        self._task_queue.extend(tasks)
-        self._task_queue.sort(key=lambda t: t.priority, reverse=True)
-        self._task_queue[-1].context.status = TaskStatus.READY
+        for task in tasks:
+            heapq.heappush(self._task_queue, (task.priority, task))
+        if self._task_queue:
+            self._task_queue[0][1].context.status = TaskStatus.READY
         return plan_dict
 
     def route_task(self, task: Task, *args, **kwargs):
-        self._task_queue.append(task)
-        self._task_queue.sort(key=lambda t: t.priority, reverse=True)
-        self._task_queue[-1].context.status = TaskStatus.READY
+        heapq.heappush(self._task_queue, (task.priority, task))
+        self._task_queue[0][1].context.status = TaskStatus.READY
         return task
 
     async def determine_next_ability(self, *args, **kwargs):
@@ -270,7 +271,7 @@ class SimpleAgent(LayeredAgent, Configurable):
             return {"response": "I don't have any tasks to work on right now."}
 
         self._configuration.cycle_count += 1
-        task = self._task_queue.pop()
+        _, task = heapq.heappop(self._task_queue)
         self._logger.info(f"Working on task: {task}")
 
         task = await self._evaluate_task_and_add_context(task)
@@ -435,7 +436,11 @@ class SimpleAgent(LayeredAgent, Configurable):
             if self._current_task.context.status == TaskStatus.DONE:
                 self._completed_tasks.append(self._current_task)
             else:
-                self._task_queue.append(self._current_task)
+                heapq.heappush(
+                    self._task_queue,
+                    (self._current_task.priority, self._current_task),
+                )
+                self._task_queue[0][1].context.status = TaskStatus.READY
             self._current_task = None
             self._next_ability = None
 
