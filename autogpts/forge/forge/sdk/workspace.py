@@ -1,9 +1,14 @@
 import abc
+import logging
 import os
+import shutil
 import typing
 from pathlib import Path
 
 from google.cloud import storage
+
+
+logger = logging.getLogger(__name__)
 
 
 class Workspace(abc.ABC):
@@ -39,11 +44,10 @@ class LocalWorkspace(Workspace):
         self.base_path = Path(base_path).resolve()
 
     def _resolve_path(self, task_id: str, path: str) -> Path:
-        path = str(path)
-        path = path if not path.startswith("/") else path[1:]
+        path = Path(str(path).lstrip("/"))
         abs_path = (self.base_path / task_id / path).resolve()
-        if not str(abs_path).startswith(str(self.base_path)):
-            print("Error")
+        if not abs_path.is_relative_to(self.base_path):
+            logger.error("Directory traversal is not allowed! - %s", abs_path)
             raise ValueError(f"Directory traversal is not allowed! - {abs_path}")
         try:
             abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,22 +67,19 @@ class LocalWorkspace(Workspace):
     def delete(
         self, task_id: str, path: str, directory: bool = False, recursive: bool = False
     ) -> None:
-        path = self.base_path / task_id / path
         resolved_path = self._resolve_path(task_id, path)
         if directory:
             if recursive:
-                os.rmdir(resolved_path)
+                shutil.rmtree(resolved_path)
             else:
-                os.removedirs(resolved_path)
+                os.rmdir(resolved_path)
         else:
             os.remove(resolved_path)
 
     def exists(self, task_id: str, path: str) -> bool:
-        path = self.base_path / task_id / path
         return self._resolve_path(task_id, path).exists()
 
     def list(self, task_id: str, path: str) -> typing.List[str]:
-        path = self.base_path / task_id / path
         base = self._resolve_path(task_id, path)
         if not base.exists() or not base.is_dir():
             return []
@@ -88,18 +89,17 @@ class LocalWorkspace(Workspace):
 class GCSWorkspace(Workspace):
     def __init__(self, bucket_name: str, base_path: str = ""):
         self.bucket_name = bucket_name
-        self.base_path = Path(base_path).resolve() if base_path else ""
+        self.base_path = Path(base_path).resolve() if base_path else Path().resolve()
         self.storage_client = storage.Client()
         self.bucket = self.storage_client.get_bucket(self.bucket_name)
 
-    def _resolve_path(self, task_id: str, path: str) -> Path:
-        path = str(path)
-        path = path if not path.startswith("/") else path[1:]
-        abs_path = (self.base_path / task_id / path).resolve()
-        if not str(abs_path).startswith(str(self.base_path)):
-            print("Error")
+    def _resolve_path(self, task_id: str, path: str) -> str:
+        path_obj = Path(str(path).lstrip("/"))
+        abs_path = (self.base_path / task_id / path_obj).resolve()
+        if not abs_path.is_relative_to(self.base_path):
+            logger.error("Directory traversal is not allowed! - %s", abs_path)
             raise ValueError(f"Directory traversal is not allowed! - {abs_path}")
-        return abs_path
+        return abs_path.relative_to(self.base_path).as_posix()
 
     def read(self, task_id: str, path: str) -> bytes:
         blob = self.bucket.blob(self._resolve_path(task_id, path))
