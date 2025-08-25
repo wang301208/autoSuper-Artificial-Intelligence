@@ -36,7 +36,6 @@ from autogpts.autogpt.autogpt.core.errors import (
 
 from capability.librarian import Librarian
 from org_charter import io as charter_io
-from common.async_utils import run_async
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +85,7 @@ def _load_additional_tool(
     """
     librarian = Librarian(str(repo_path))
     try:
-        code, meta = run_async(librarian.get_skill(name))
+        code, meta = librarian.get_skill(name)
     except (OSError, PermissionError, JSONDecodeError) as err:
         logger.exception("Failed to retrieve tool '%s' from skill library", name)
         raise AutoGPTError(f"Failed to load tool '{name}'") from err
