@@ -35,6 +35,7 @@ from autogpt.core.workspace.simple import SimpleWorkspace, WorkspaceSettings
 from autogpt.config import Config
 from autogpt.core.knowledge_extractor import extract
 from autogpt.core.knowledge_conflict import resolve_conflicts
+from monitoring import ActionLogger
 
 
 class AgentSystems(SystemConfiguration):
@@ -180,6 +181,9 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._performance_evaluator = PerformanceEvaluator()
         self._optimize_abilities = optimize_abilities
         self._ability_metrics: dict[str, list[float]] = {}
+        self._action_logger = ActionLogger(
+            self._workspace.root / "logs" / "actions.jsonl"
+        )
 
     @classmethod
     def from_workspace(
@@ -275,12 +279,23 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._logger.info(f"Working on task: {task}")
 
         task = await self._evaluate_task_and_add_context(task)
-        next_ability = await self._choose_next_ability(
-            task,
-            self._ability_registry.dump_abilities(),
-        )
+        ability_specs = self._ability_registry.dump_abilities()
+        next_ability = await self._choose_next_ability(task, ability_specs)
         self._current_task = task
         self._next_ability = next_ability.parsed_result
+        task_desc = getattr(task, "description", task.objective)
+        task_id = str(getattr(task, "id", id(task)))
+        self._action_logger.log(
+            {
+                "event": "action_selected",
+                "agent": self._configuration.name,
+                "task_id": task_id,
+                "task_description": task_desc,
+                "cycle_count": task.context.cycle_count,
+                "ability_options": [spec.name for spec in ability_specs],
+                "chosen_action": self._next_ability["next_ability"],
+            }
+        )
         return self._current_task, self._next_ability
 
     async def execute_next_ability(self, user_input: str, *args, **kwargs):
@@ -297,7 +312,11 @@ class SimpleAgent(LayeredAgent, Configurable):
             duration = time.perf_counter() - start_time
             cost = float(ability_response.ability_args.get("cost", 0))
             self._ability_metrics.setdefault(ability_name, []).append(duration)
-            hint = getattr(getattr(ability, "_configuration", None), "performance_hint", None)
+            hint = getattr(
+                getattr(ability, "_configuration", None),
+                "performance_hint",
+                None,
+            )
             if (
                 self._optimize_abilities
                 and hint is not None
@@ -414,8 +433,14 @@ class SimpleAgent(LayeredAgent, Configurable):
                         )
 
             await self._update_tasks_and_memory(ability_response)
-            task_desc = getattr(self._current_task, "description", self._current_task.objective)
-            task_id = str(getattr(self._current_task, "id", id(self._current_task)))
+            task_desc = getattr(
+                self._current_task,
+                "description",
+                self._current_task.objective,
+            )
+            task_id = str(
+                getattr(self._current_task, "id", id(self._current_task))
+            )
             score = self._performance_evaluator.score(
                 ability_response, cost=cost, duration=duration
             )
@@ -425,8 +450,24 @@ class SimpleAgent(LayeredAgent, Configurable):
                 ability=ability_name,
                 score=score,
             )
+            self._action_logger.log(
+                {
+                    "event": "action_executed",
+                    "agent": self._configuration.name,
+                    "task_id": task_id,
+                    "task_description": task_desc,
+                    "action": ability_name,
+                    "metrics": {
+                        "success": ability_response.success,
+                        "cost": cost,
+                        "duration": duration,
+                        "score": score,
+                    },
+                }
+            )
             if (
-                self._configuration.cycle_count % self._configuration.self_assess_frequency
+                self._configuration.cycle_count
+                % self._configuration.self_assess_frequency
                 == 0
             ):
                 assessment = await self._ability_registry.perform(
