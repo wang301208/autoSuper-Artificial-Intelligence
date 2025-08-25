@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Callable, Dict, Iterable, List
 
 from events import subscribe
 
@@ -18,6 +18,7 @@ class TimeSeriesStorage:
         self.db_path = Path(db_path)
         self._conn = sqlite3.connect(self.db_path)
         self._init_db()
+        self._subscriptions: List[Callable[[], None]] = []
 
     def _init_db(self) -> None:
         cur = self._conn.cursor()
@@ -47,7 +48,8 @@ class TimeSeriesStorage:
     def subscribe_to(self, topics: Iterable[str]) -> None:
         """Subscribe to *topics* on the global event bus and persist events."""
         for topic in topics:
-            subscribe(topic, lambda e, t=topic: self.store(t, e))
+            cancel = subscribe(topic, lambda e, t=topic: self.store(t, e))
+            self._subscriptions.append(cancel)
 
     # ------------------------------------------------------------------
     # event retrieval
@@ -99,4 +101,6 @@ class TimeSeriesStorage:
     # cleanup
     # ------------------------------------------------------------------
     def close(self) -> None:
+        for cancel in self._subscriptions:
+            cancel()
         self._conn.close()

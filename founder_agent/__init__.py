@@ -27,11 +27,13 @@ def run_monitoring_loop(
         interval: Seconds between proposal generations.
     """
     analytics = Analytics()
-    for topic in topics:
-        subscribe(topic, analytics.handle_event)
-
-    while True:
-        time.sleep(interval)
-        trends = analytics.get_trends()
-        if trends:
-            generate_proposal(trends)
+    subscriptions = [subscribe(topic, analytics.handle_event) for topic in topics]
+    try:
+        while True:
+            time.sleep(interval)
+            trends = analytics.get_trends()
+            if trends:
+                generate_proposal(trends)
+    finally:
+        for cancel in subscriptions:
+            cancel()
