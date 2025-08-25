@@ -1,6 +1,7 @@
 import numpy
 import pytest
 from pytest_mock import MockerFixture
+from unittest.mock import AsyncMock
 
 import autogpt.memory.vector.memory_item as vector_memory_item
 import autogpt.memory.vector.providers.base as memory_provider_base
@@ -25,7 +26,7 @@ def mock_get_embedding(mocker: MockerFixture, mock_embedding: Embedding):
     mocker.patch.object(
         vector_memory_item,
         "get_embedding",
-        return_value=mock_embedding,
+        AsyncMock(return_value=mock_embedding),
     )
     mocker.patch.object(
         memory_provider_base,

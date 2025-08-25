@@ -16,6 +16,7 @@ from autogpt.core.resource.model_providers import (
 )
 try:  # pragma: no cover - optional heavy dependencies
     from autogpt.processing.text import chunk_content, split_text, summarize_text
+    from autogpt.processing.code import chunk_code_by_structure
 except Exception:  # pragma: no cover
     def chunk_content(*args, **kwargs):
         return []
@@ -25,6 +26,9 @@ except Exception:  # pragma: no cover
 
     async def summarize_text(*args, **kwargs):
         return "", None
+
+    def chunk_code_by_structure(*args, **kwargs):
+        return []
 
 from .utils import Embedding, get_embedding
 
@@ -109,7 +113,7 @@ class MemoryItemFactory:
         # Fix encoding, e.g. removing unicode surrogates (see issue #778)
         text = ftfy.fix_text(text)
 
-        # FIXME: needs ModelProvider
+        tokenizer = self.llm_provider.get_tokenizer(config.fast_llm)
         chunks = [
             chunk
             for chunk, _ in (
@@ -117,14 +121,13 @@ class MemoryItemFactory:
                     text=text,
                     config=config,
                     max_chunk_length=1000,  # arbitrary, but shorter ~= better
-                    tokenizer=self.llm_provider.get_tokenizer(config.fast_llm),
+                    tokenizer=tokenizer,
                 )
                 if source_type != "code_file"
-                # TODO: chunk code based on structure/outline
-                else chunk_content(
-                    content=text,
+                else chunk_code_by_structure(
+                    code=text,
                     max_chunk_length=1000,
-                    tokenizer=self.llm_provider.get_tokenizer(config.fast_llm),
+                    tokenizer=tokenizer,
                 )
             )
         ]
@@ -145,7 +148,7 @@ class MemoryItemFactory:
         ]
         logger.debug("Chunk summaries: " + str(chunk_summaries))
 
-        e_chunks = get_embedding(chunks, config, self.embedding_provider)
+        e_chunks = await get_embedding(chunks, config, self.embedding_provider)
 
         summary = (
             chunk_summaries[0]
@@ -164,7 +167,7 @@ class MemoryItemFactory:
 
         # TODO: investigate search performance of weighted average vs summary
         # e_average = np.average(e_chunks, axis=0, weights=[len(c) for c in chunks])
-        e_summary = get_embedding(summary, config, self.embedding_provider)
+        e_summary = await get_embedding(summary, config, self.embedding_provider)
 
         metadata["source_type"] = source_type
 
