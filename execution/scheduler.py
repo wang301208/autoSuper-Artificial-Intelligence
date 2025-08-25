@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Dict, List, Any
+from typing import Callable, Dict, List, Any, Optional
 
 from .task_graph import TaskGraph
 
@@ -10,9 +10,14 @@ from .task_graph import TaskGraph
 class Scheduler:
     """Dispatch tasks to the least busy agents based on resource usage."""
 
-    def __init__(self) -> None:
+    def __init__(self, task_callback: Optional[Callable[[int], None]] = None) -> None:
         self._agents: Dict[str, Dict[str, float]] = {}
         self._lock = threading.Lock()
+        self._task_callback = task_callback
+
+    def set_task_callback(self, cb: Callable[[int], None]) -> None:
+        """Set a callback to be notified when task counts change."""
+        self._task_callback = cb
 
     # ------------------------------------------------------------------
     # Agent management API
@@ -56,6 +61,8 @@ class Scheduler:
                 dependents.setdefault(dep, []).append(task_id)
 
         ready = [tid for tid, deg in indegree.items() if deg == 0]
+        if self._task_callback:
+            self._task_callback(len(ready))
         results: Dict[str, Any] = {}
         in_progress: Dict[Any, str] = {}
         max_workers = max(len(self._agents), 1)
@@ -80,6 +87,8 @@ class Scheduler:
                     indegree[dep] -= 1
                     if indegree[dep] == 0:
                         ready.append(dep)
+        if self._task_callback:
+            self._task_callback(0)
         # Ensure deterministic order
         return {tid: results.get(tid) for tid in graph.execution_order()}
 
