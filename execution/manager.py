@@ -22,6 +22,7 @@ from autogpt.config import Config
 from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.agents.agent import Agent
+from .scheduler import Scheduler
 
 
 class AgentLifecycleManager:
@@ -33,11 +34,13 @@ class AgentLifecycleManager:
         llm_provider: ChatModelProvider,
         file_storage: FileStorage,
         event_bus: EventBus,
+        scheduler: Scheduler | None = None,
     ) -> None:
         self._config = config
         self._llm_provider = llm_provider
         self._file_storage = file_storage
         self._event_bus = event_bus
+        self._scheduler = scheduler
         self._agents: Dict[str, Agent] = {}
         self._resources: Dict[str, Dict[str, float]] = {}
         self._metrics = SystemMetricsCollector(event_bus)
@@ -74,6 +77,8 @@ class AgentLifecycleManager:
                 "memory": 0.0,
                 "last_active": time.time(),
             }
+            if self._scheduler:
+                self._scheduler.add_agent(name)
             self._event_bus.publish(
                 "agent.lifecycle",
                 {"agent": name, "action": action, "path": str(path)},
@@ -98,8 +103,10 @@ class AgentLifecycleManager:
         self._resource_stop.set()
         self._resource_thread.join()
         self._metrics.stop()
-        for agent in self._agents.values():
+        for name, agent in list(self._agents.items()):
             _shutdown_agent(agent)
+            if self._scheduler:
+                self._scheduler.remove_agent(name)
         self._agents.clear()
 
     # ------------------------------------------------------------------
@@ -110,6 +117,8 @@ class AgentLifecycleManager:
         data = self._resources[name]
         data["cpu"] = event.get("cpu", 0.0)
         data["memory"] = event.get("memory", 0.0)
+        if self._scheduler:
+            self._scheduler.update_agent(name, data["cpu"], data["memory"])
         if data["cpu"] > 1.0:
             data["last_active"] = time.time()
 
@@ -126,6 +135,8 @@ class AgentLifecycleManager:
                         self._metrics.unregister(name)
                         del self._agents[name]
                         del self._resources[name]
+                        if self._scheduler:
+                            self._scheduler.remove_agent(name)
                         self._event_bus.publish(
                             "agent.lifecycle", {"agent": name, "action": "reclaimed"}
                         )
