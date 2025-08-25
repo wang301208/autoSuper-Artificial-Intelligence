@@ -11,6 +11,7 @@ PLUGINS_TEST_DIR = "tests/unit/data/test_plugins"
 PLUGIN_TEST_ZIP_FILE = "Auto-GPT-Plugin-Test-master.zip"
 PLUGIN_TEST_INIT_PY = "Auto-GPT-Plugin-Test-master/src/auto_gpt_vicuna/__init__.py"
 PLUGIN_TEST_OPENAI = "https://weathergpt.vercel.app/"
+LOCAL_OPENAI_PLUGIN = "local_openai_plugin"
 
 
 def test_scan_plugins_openai(config: Config):
@@ -23,6 +24,20 @@ def test_scan_plugins_openai(config: Config):
     # Test that the function returns the correct number of plugins
     result = scan_plugins(config)
     assert len(result) == 1
+
+
+def test_scan_plugins_openai_local(config: Config):
+    config.plugins_openai = []
+    plugins_config = config.plugins_config
+    plugins_config.plugins[LOCAL_OPENAI_PLUGIN] = PluginConfig(
+        name=LOCAL_OPENAI_PLUGIN, enabled=True
+    )
+
+    result = scan_plugins(config)
+    assert len(result) == 1
+    from autogpt.models.base_open_ai_plugin import BaseOpenAIPlugin
+
+    assert any(isinstance(p, BaseOpenAIPlugin) for p in result)
 
 
 def test_scan_plugins_generic(config: Config):
