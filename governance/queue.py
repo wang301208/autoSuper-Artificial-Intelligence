@@ -3,13 +3,15 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Callable
+from typing import Any, Callable, Dict, List
 import subprocess
 
 import yaml
 from jsonschema import validate
 
 from org_charter.io import BLUEPRINT_SCHEMA
+from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+from autogpts.autogpt.autogpt.core.logging import handle_exception
 
 # Default directories relative to repository root
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -106,6 +108,5 @@ class ProposalQueue:
 
             for blueprint in self.blueprint_dir.glob("*.yaml"):
                 create_agent_from_blueprint(blueprint)
-        except Exception:
-            # Reload best-effort; ignore failures
-            pass
+        except AutoGPTError as err:
+            handle_exception(err)

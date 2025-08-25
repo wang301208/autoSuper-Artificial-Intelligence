@@ -12,6 +12,9 @@ import threading
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List
 
+from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+from autogpts.autogpt.autogpt.core.logging import handle_exception
+
 __all__ = [
     "EventBus",
     "InMemoryEventBus",
@@ -55,9 +58,8 @@ class InMemoryEventBus(EventBus):
         for handler in subscribers:
             try:
                 handler(event)
-            except Exception:
-                # Don't allow one bad handler to break the others
-                pass
+            except AutoGPTError as err:
+                handle_exception(err)
 
     def subscribe(
         self, topic: str, handler: Callable[[Dict[str, Any]], None]

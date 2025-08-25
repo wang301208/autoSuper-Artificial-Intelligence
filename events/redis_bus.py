@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, Tuple
 
 import redis
 
+from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+from autogpts.autogpt.autogpt.core.logging import handle_exception
 from . import EventBus
 
 
@@ -39,12 +41,13 @@ class RedisEventBus(EventBus):
                     continue
                 try:
                     data = json.loads(message["data"])
-                except Exception:
+                except json.JSONDecodeError as err:
+                    handle_exception(err)
                     continue
                 try:
                     handler(data)
-                except Exception:
-                    pass
+                except AutoGPTError as err:
+                    handle_exception(err)
 
         thread = threading.Thread(target=_listen, daemon=True)
         thread.start()
