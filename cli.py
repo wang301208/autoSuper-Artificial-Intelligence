@@ -14,6 +14,9 @@ except ImportError:
     os.system("pip3 install PyGithub")
     import click
 
+from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+from autogpts.autogpt.autogpt.core.logging import handle_exception
+
 
 @click.group()
 def cli():
@@ -285,7 +288,8 @@ def create(agent_name):
                     fg="red",
                 )
             )
-    except Exception as e:
+    except (AutoGPTError, OSError) as e:
+        handle_exception(e)
         click.echo(click.style(f"😢 An error occurred: {e}", fg="red"))
 
 
@@ -390,7 +394,8 @@ def list():
             click.echo(click.style("No agents found 😞", fg="red"))
     except FileNotFoundError:
         click.echo(click.style("The autogpts directory does not exist 😢", fg="red"))
-    except Exception as e:
+    except (AutoGPTError, OSError) as e:
+        handle_exception(e)
         click.echo(click.style(f"An error occurred: {e} 😢", fg="red"))
 
 
@@ -865,7 +870,13 @@ Hey there amazing builders! We're thrilled to have you join this exciting journe
         # Switch back to the master branch
         subprocess.check_call(["git", "checkout", branch_to_use])
 
-    except Exception as e:
+    except (
+        AutoGPTError,
+        github.GithubException,
+        subprocess.CalledProcessError,
+        OSError,
+    ) as e:
+        handle_exception(e)
         click.echo(click.style(f"❌ An error occurred: {e}", fg="red"))
         # Switch back to the master branch
         subprocess.check_call(["git", "checkout", branch_to_use])
