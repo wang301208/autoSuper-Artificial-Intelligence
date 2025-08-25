@@ -12,6 +12,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+import logging
+from json import JSONDecodeError
+
 import yaml
 from jsonschema import validate
 
@@ -24,8 +27,13 @@ from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.models.command_registry import CommandRegistry
 
+from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+
 from capability.librarian import Librarian
 from org_charter import io as charter_io
+
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_blueprint(path: Path) -> dict:
@@ -42,7 +50,9 @@ def _parse_blueprint(path: Path) -> dict:
     return data
 
 
-def _load_additional_tool(name: str, registry: CommandRegistry, repo_path: Path) -> None:
+def _load_additional_tool(
+    name: str, registry: CommandRegistry, repo_path: Path
+) -> None:
     """Load a tool from the skill library and register it.
 
     This uses the :mod:`capability` package which serves as a very light-weight
@@ -52,14 +62,16 @@ def _load_additional_tool(name: str, registry: CommandRegistry, repo_path: Path)
     librarian = Librarian(str(repo_path))
     try:
         code, _meta = librarian.get_skill(name)
-    except Exception:
-        return
+    except (OSError, PermissionError, JSONDecodeError) as err:
+        logger.exception("Failed to retrieve tool '%s' from skill library", name)
+        raise AutoGPTError(f"Failed to load tool '{name}'") from err
 
     namespace: dict[str, object] = {}
     try:
         exec(code, namespace)  # noqa: S102 - dynamic plugin loading
-    except Exception:
-        return
+    except (SyntaxError, TypeError, ValueError) as err:
+        logger.exception("Error executing tool '%s'", name)
+        raise AutoGPTError(f"Failed to initialize tool '{name}'") from err
 
     for obj in namespace.values():
         if getattr(obj, AUTO_GPT_COMMAND_IDENTIFIER, False):
@@ -117,7 +129,9 @@ def create_agent_from_blueprint(
     )
 
     # Restrict commands to authorised tools
-    _filter_authorized_tools(agent.command_registry, blueprint.get("authorized_tools", []))
+    _filter_authorized_tools(
+        agent.command_registry, blueprint.get("authorized_tools", [])
+    )
 
     # Attempt to load additional tools from the capability library if they were
     # requested but not part of the default command set.
