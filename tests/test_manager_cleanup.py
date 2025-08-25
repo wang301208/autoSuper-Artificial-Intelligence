@@ -115,6 +115,7 @@ def test_cleanup_removes_long_sleeping_agents(monkeypatch):
     mgr._paths["test"] = Path("dummy")
 
     mgr._cleanup_sleeping_agents(time.time())
+    bus.join()
 
     assert "test" not in mgr._states
     assert "test" not in mgr._agents
