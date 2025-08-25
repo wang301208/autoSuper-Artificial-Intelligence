@@ -1,50 +1,23 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import re
 import logging
 from typing import Any, Dict, List
 
 from capability.skill_library import SkillLibrary
 from common.async_utils import run_async
+from common.security import SAFE_BUILTINS, SkillSecurityError, _verify_skill
 from .task_graph import TaskGraph
 from .scheduler import Scheduler
 
 logger = logging.getLogger(__name__)
-
 
 class SkillExecutionError(RuntimeError):
     def __init__(self, skill: str, cause: str) -> None:
         super().__init__(f"Skill {skill} failed: {cause}")
         self.skill = skill
         self.cause = cause
-
-
-class SkillSecurityError(RuntimeError):
-    def __init__(self, skill: str, cause: str) -> None:
-        super().__init__(f"Skill {skill} blocked: {cause}")
-        self.skill = skill
-        self.cause = cause
-
-
-SAFE_BUILTINS: Dict[str, Any] = {
-    "__import__": __import__,
-    "len": len,
-    "range": range,
-    "print": print,
-    "Exception": Exception,
-    "RuntimeError": RuntimeError,
-}
-
-
-def _verify_skill(name: str, code: str, metadata: Dict[str, Any]) -> None:
-    signature = metadata.get("signature")
-    if not signature:
-        raise SkillSecurityError(name, "missing signature")
-    digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
-    if signature != digest:
-        raise SkillSecurityError(name, "invalid signature")
 
 
 class Executor:
@@ -86,10 +59,15 @@ class Executor:
     def execute(self, goal: str) -> Dict[str, Any]:
         graph = self.decompose_goal(goal)
         return self.scheduler.submit(
-            graph, lambda agent, skill: run_async(self._call_skill(agent, skill))
+            graph, lambda agent, skill: run_async(self._call_skill_async(agent, skill))
         )
 
-    async def _call_skill(self, agent: str, name: str) -> Any:
+    def _call_skill(self, agent: str, name: str) -> Any:
+        """Synchronously execute ``name`` skill for ``agent``."""
+
+        return run_async(self._call_skill_async(agent, name))
+
+    async def _call_skill_async(self, agent: str, name: str) -> Any:
         """Execute ``name`` skill for ``agent``.
 
         The basic executor only supports a local ``SkillLibrary`` and therefore

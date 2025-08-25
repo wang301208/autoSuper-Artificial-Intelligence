@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Iterable
 
 import ast
-import hashlib
 import logging
 from json import JSONDecodeError
 
@@ -34,40 +33,10 @@ from autogpts.autogpt.autogpt.core.errors import AutoGPTError
 from capability.librarian import Librarian
 from org_charter import io as charter_io
 from common.async_utils import run_async
+from common.security import SAFE_BUILTINS, SkillSecurityError, _verify_skill
 
 
 logger = logging.getLogger(__name__)
-
-
-class SkillSecurityError(AutoGPTError):
-    """Raised when a skill fails security verification."""
-
-    def __init__(self, skill: str, cause: str) -> None:
-        super().__init__(f"Skill {skill} blocked: {cause}")
-        self.skill = skill
-        self.cause = cause
-
-
-SAFE_BUILTINS: dict[str, object] = {
-    "__import__": __import__,
-    "len": len,
-    "range": range,
-    "print": print,
-    "Exception": Exception,
-    "RuntimeError": RuntimeError,
-}
-
-
-def _verify_skill(name: str, code: str, metadata: dict) -> None:
-    """Ensure skill source passes signature verification."""
-
-    signature = metadata.get("signature")
-    if not signature:
-        raise SkillSecurityError(name, "missing signature")
-    digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
-    if signature != digest:
-        raise SkillSecurityError(name, "invalid signature")
-
 
 def _parse_blueprint(path: Path) -> dict:
     """Load and validate a blueprint file.
