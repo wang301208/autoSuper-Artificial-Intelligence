@@ -10,6 +10,7 @@ from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from pydantic import Field, validator
 from events import EventBus, create_event_bus
 from events.client import EventClient
+from events.coordination import TaskStatus, TaskStatusEvent
 
 if TYPE_CHECKING:
     from autogpt.config import Config
@@ -212,6 +213,22 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
             )
         except Exception:  # pragma: no cover - best effort
             logger.debug("Failed to publish heartbeat", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Status reporting
+    # ------------------------------------------------------------------
+    def report_status(
+        self, task_id: str, status: TaskStatus, detail: str | None = None
+    ) -> None:
+        """Report the current status of a task to the coordinator."""
+
+        event = TaskStatusEvent(
+            agent_id=self.state.agent_id,
+            task_id=task_id,
+            status=status,
+            detail=detail,
+        )
+        self.event_client.publish("agent.status", event.to_dict())
 
     @property
     def llm(self) -> ChatModelInfo:
