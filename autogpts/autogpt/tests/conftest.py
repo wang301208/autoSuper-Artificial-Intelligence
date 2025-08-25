@@ -12,8 +12,6 @@ from pytest_mock import MockerFixture
 import sys
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 
-from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
-from autogpt.app.main import _configure_openai_provider
 from autogpt.config import AIProfile, Config, ConfigBuilder
 from autogpt.core.resource.model_providers import ChatModelProvider, OpenAIProvider
 from autogpt.file_storage.local import (
@@ -24,11 +22,7 @@ from autogpt.file_storage.local import (
 from autogpt.logs.config import configure_logging
 from autogpt.models.command_registry import CommandRegistry
 
-pytest_plugins = [
-    "tests.integration.agent_factory",
-    "tests.integration.memory.utils",
-    "tests.vcr",
-]
+pytest_plugins: list[str] = []
 
 
 @pytest.fixture()
@@ -106,13 +100,16 @@ def setup_logger(config: Config):
 
 @pytest.fixture
 def llm_provider(config: Config) -> OpenAIProvider:
+    from autogpt.app.main import _configure_openai_provider
+
     return _configure_openai_provider(config)
 
 
 @pytest.fixture
 def agent(
     config: Config, llm_provider: ChatModelProvider, storage: FileStorage
-) -> Agent:
+):
+    from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
     ai_profile = AIProfile(
         ai_name="Base",
         ai_role="A base AI",

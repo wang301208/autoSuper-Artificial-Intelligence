@@ -4,7 +4,10 @@ import re
 from pathlib import Path
 from typing import Callable, ParamSpec, TypeVar
 
-from autogpt.agents.agent import Agent
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from autogpt.agents.agent import Agent
 
 P = ParamSpec("P")
 T = TypeVar("T")
