@@ -179,11 +179,31 @@ class SimpleWorkspace(Configurable, Workspace):
             )
             f.write(settings_json)
 
-        # TODO: What are all the kinds of logs we want here?
         log_path = workspace_root / "logs"
         log_path.mkdir(parents=True, exist_ok=True)
-        (log_path / "debug.log").touch()
-        (log_path / "cycle.log").touch()
+
+        # Log files for different facets of agent execution. Each file is
+        # documented with its intended purpose:
+        log_files = {
+            "debug.log": logging.DEBUG,  # Verbose output for debugging
+            "cycle.log": logging.INFO,  # Summary of each agent cycle/iteration
+            "actions.log": logging.INFO,  # High-level actions executed by the agent
+            "errors.log": logging.ERROR,  # Errors and stack traces
+            "metrics.log": logging.INFO,  # Performance and evaluation metrics
+        }
+
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        )
+
+        for file_name, level in log_files.items():
+            file_path = log_path / file_name
+            file_path.touch()
+
+            handler = logging.FileHandler(file_path)
+            handler.setLevel(level)
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
         return workspace_root
 
