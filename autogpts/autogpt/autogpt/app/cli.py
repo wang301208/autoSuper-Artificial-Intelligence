@@ -6,6 +6,10 @@ from typing import Optional
 import click
 
 from autogpt.logs.config import LogFormatName
+from autogpt.core.utils.exception_handling import setup_global_exception_hook
+
+# Ensure unhandled exceptions are logged consistently
+setup_global_exception_hook()
 
 from .telemetry import setup_telemetry
 

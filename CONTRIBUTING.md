@@ -17,6 +17,10 @@
 6. 不要提交有问题的内容。
 7. 避免不必要的更改，尤其是仅基于你个人喜好的更改。这是维护者的工作 ;-)
 
+## 异常处理约定
+
+为保持一致的错误日志输出，所有新增模块应当从 `AutoGPTError` 继承自定义异常，并通过统一的异常处理接口记录未捕获异常。可使用 `core.utils.exception_handling.setup_global_exception_hook` 在入口处注册全局钩子，并利用提供的异步与线程包装器确保后台任务的异常也能被记录。
+
 [开发频道]: https://discord.com/channels/1092243196446249134/1095817829405704305
 
 如果你希望更深入地参与项目（不仅仅是提交 PR），请阅读 wiki 中的 [catalyzing](https://github.com/Significant-Gravitas/Nexus/wiki/Catalyzing) 页面。

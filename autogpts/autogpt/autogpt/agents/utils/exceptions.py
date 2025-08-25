@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 from typing import Optional
 
+from autogpt.core.exceptions import AutoGPTError
 
-class AgentException(Exception):
+
+class AgentException(AutoGPTError):
     """Base class for specific exceptions relevant in the execution of Agents"""
 
     message: str
-
     hint: Optional[str] = None
     """A hint which can be passed to the LLM to reduce reoccurrence of this error"""
 

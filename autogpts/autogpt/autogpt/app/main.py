@@ -16,6 +16,11 @@ from typing import TYPE_CHECKING, Optional
 from colorama import Fore, Style
 from forge.sdk.db import AgentDB
 
+from autogpt.core.utils.exception_handling import setup_global_exception_hook
+
+# Register handlers for uncaught exceptions early in the application's lifecycle
+setup_global_exception_hook()
+
 if TYPE_CHECKING:
     from autogpt.agents.agent import Agent
 

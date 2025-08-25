@@ -14,6 +14,12 @@ except ImportError:
     os.system("pip3 install PyGithub")
     import click
 
+from autogpts.autogpt.autogpt.core.utils.exception_handling import (
+    setup_global_exception_hook,
+)
+
+setup_global_exception_hook()
+
 
 @click.group()
 def cli():
