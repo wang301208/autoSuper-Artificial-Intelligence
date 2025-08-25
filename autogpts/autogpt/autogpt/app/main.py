@@ -41,6 +41,7 @@ from autogpt.core.runner.client_lib.utils import coroutine
 from autogpt.file_storage import FileStorageBackendName, get_storage
 from autogpt.logs.config import configure_chat_plugins, configure_logging
 from autogpt.logs.helpers import print_attribute, speak
+from autogpt.logs.instrumentation import log_call
 from autogpt.models.action_history import ActionInterruptedByHuman
 from autogpt.plugins import scan_plugins
 from scripts.install_plugin_deps import install_plugin_dependencies
@@ -58,6 +59,7 @@ from .utils import (
 )
 
 
+@log_call
 @coroutine
 async def run_auto_gpt(
     continuous: bool = False,
