@@ -4,8 +4,12 @@ sys.path.insert(0, os.path.abspath(os.getcwd()))
 from pathlib import Path
 import subprocess
 
+import logging
+import pytest
+
 from capability.skill_library import SkillLibrary
 from execution import Executor
+from execution.executor import SkillExecutionError
 
 
 def init_repo(path: Path) -> None:
@@ -28,3 +32,26 @@ def test_executor_flow(tmp_path: Path) -> None:
     assert list(results.keys()) == ["hello", "goodbye"]
     assert results["hello"] == "hi"
     assert results["goodbye"] == "bye"
+
+
+def test_call_skill_logs_exception(tmp_path: Path, caplog) -> None:
+    repo = tmp_path
+    init_repo(repo)
+    lib = SkillLibrary(repo)
+    lib.add_skill(
+        "fail",
+        "def fail():\n    raise RuntimeError('boom')\n",
+        {"lang": "python"},
+    )
+
+    executor = Executor(lib)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(SkillExecutionError) as exc_info:
+            executor._call_skill("local", "fail")
+
+    assert "fail" in str(exc_info.value)
+    assert "boom" in str(exc_info.value)
+    assert any(
+        "fail" in record.message and "boom" in record.message
+        for record in caplog.records
+    )
