@@ -647,7 +647,43 @@ class SimpleAgent(LayeredAgent, Configurable):
             with kb_path.open("w") as f:
                 json.dump(updated, f, indent=2)
 
-        # TODO: evaluate whether the task is complete
+        # --- Determine if the task has been completed ---
+        # First check if an explicit status was provided by the ability result
+        status_arg = ability_result.ability_args.get("status")
+        if status_arg:
+            try:
+                status = (
+                    status_arg
+                    if isinstance(status_arg, TaskStatus)
+                    else TaskStatus(status_arg)
+                )
+            except Exception:
+                status = None
+            if status == TaskStatus.DONE:
+                self._current_task.context.status = TaskStatus.DONE
+
+        # If no explicit status, infer completion from acceptance criteria
+        if (
+            self._current_task.context.status != TaskStatus.DONE
+            and self._current_task.acceptance_criteria
+        ):
+            message_text = ability_result.message or ""
+            if all(
+                criterion.lower() in message_text.lower()
+                for criterion in self._current_task.acceptance_criteria
+            ):
+                self._current_task.context.status = TaskStatus.DONE
+
+        # Move any tasks marked as done out of the queue
+        remaining_queue: list[tuple[int, Task]] = []
+        for priority, task in self._task_queue:
+            if task.context.status == TaskStatus.DONE:
+                self._completed_tasks.append(task)
+            else:
+                remaining_queue.append((priority, task))
+        if len(remaining_queue) != len(self._task_queue):
+            heapq.heapify(remaining_queue)
+            self._task_queue = remaining_queue
 
     def __repr__(self):
         return "SimpleAgent()"
