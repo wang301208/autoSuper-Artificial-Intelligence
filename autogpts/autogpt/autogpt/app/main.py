@@ -58,6 +58,10 @@ from .utils import (
     print_python_version_info,
 )
 
+from autogpt.core.logging import setup_exception_hooks
+
+setup_exception_hooks()
+
 
 @log_call
 @coroutine
