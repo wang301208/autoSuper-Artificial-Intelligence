@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 try:
     import psutil  # type: ignore
@@ -12,15 +12,29 @@ except Exception:  # pragma: no cover - optional dependency
 
 from . import Agent
 from .genesis_team import GenesisTeamManager
-from .ml_model import ResourceModel
+from .policy_model import FeatureExtractor, PolicyModel
 from .self_improvement import SelfImprovement
+
+if TYPE_CHECKING:
+    from .ml_model import ResourceModel
 
 
 class Founder(Agent):
     """Agent that reads system performance metrics and outputs suggestions."""
 
-    def __init__(self) -> None:
-        self.model = ResourceModel()
+    def __init__(
+        self,
+        model: Optional["ResourceModel"] = None,
+        policy: Optional[PolicyModel] = None,
+        feature_extractor: Optional[FeatureExtractor] = None,
+    ) -> None:
+        if model is None:
+            from .ml_model import ResourceModel
+
+            model = ResourceModel()
+        self.model = model
+        self.policy = policy or PolicyModel()
+        self.feature_extractor = feature_extractor or FeatureExtractor()
 
     def perform(self) -> str:
         metrics = self._collect_metrics()
@@ -37,17 +51,13 @@ class Founder(Agent):
         return metrics
 
     def _generate_suggestions(self, metrics: Dict[str, Any]) -> list[str]:
-        suggestions: list[str] = []
         predictions = self.model.predict_next()
         cpu = predictions.get("cpu_percent") or metrics.get("cpu_percent")
         mem = predictions.get("memory_percent") or metrics.get("memory_percent")
-        if cpu is not None and cpu > 80:
-            suggestions.append("CPU usage high; consider distributing tasks.")
-        if mem is not None and mem > 80:
-            suggestions.append("Memory usage high; investigate memory leaks.")
-        if not suggestions:
-            suggestions.append("System resources stable; maintain current structure.")
-        return suggestions
+        features = self.feature_extractor.extract(
+            {"cpu_percent": cpu, "memory_percent": mem}
+        )
+        return self.policy.predict(features)
 
     def plan_tool_updates(self) -> str:
         """Run the Genesis team and self-improvement routine."""
