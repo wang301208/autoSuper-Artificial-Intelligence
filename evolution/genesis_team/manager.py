@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Dict, List
 
@@ -64,6 +65,7 @@ class GenesisTeamManager:
                 getattr(self.qa, "load", 0),
             ),
         }
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
 
     def _priority(self, info: _AgentInfo) -> float:
         """Compute scheduling priority based on capability and load."""
@@ -84,7 +86,10 @@ class GenesisTeamManager:
                 if agent_name is None:
                     queue.task_done()
                     break
-                result = await asyncio.to_thread(info.agent.perform)
+                loop = asyncio.get_running_loop()
+                result = await loop.run_in_executor(
+                    self._executor, info.agent.perform
+                )
                 logs[agent_name] = result
                 decision = self.conflict.resolve(agent_name, logs)
                 self.decision_log.append(decision)
@@ -99,3 +104,8 @@ class GenesisTeamManager:
             await queue.put((float("inf"), None, None))
         await asyncio.gather(*workers)
         return logs
+
+    def shutdown(self) -> None:
+        """Shut down the shared thread pool executor."""
+
+        self._executor.shutdown(wait=True)
