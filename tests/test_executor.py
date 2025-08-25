@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.abspath(os.getcwd()))
 
 from pathlib import Path
 import subprocess
+import hashlib
 
 import logging
 import pytest
@@ -23,8 +24,18 @@ def test_executor_flow(tmp_path: Path) -> None:
     init_repo(repo)
     lib = SkillLibrary(repo)
 
-    lib.add_skill("hello", "def hello():\n    return 'hi'\n", {"lang": "python"})
-    lib.add_skill("goodbye", "def goodbye():\n    return 'bye'\n", {"lang": "python"})
+    hello_code = "def hello():\n    return 'hi'\n"
+    goodbye_code = "def goodbye():\n    return 'bye'\n"
+    lib.add_skill(
+        "hello",
+        hello_code,
+        {"lang": "python", "signature": hashlib.sha256(hello_code.encode()).hexdigest()},
+    )
+    lib.add_skill(
+        "goodbye",
+        goodbye_code,
+        {"lang": "python", "signature": hashlib.sha256(goodbye_code.encode()).hexdigest()},
+    )
 
     executor = Executor(lib)
     results = executor.execute("hello then goodbye")
@@ -38,10 +49,11 @@ def test_call_skill_logs_exception(tmp_path: Path, caplog) -> None:
     repo = tmp_path
     init_repo(repo)
     lib = SkillLibrary(repo)
+    fail_code = "def fail():\n    raise RuntimeError('boom')\n"
     lib.add_skill(
         "fail",
-        "def fail():\n    raise RuntimeError('boom')\n",
-        {"lang": "python"},
+        fail_code,
+        {"lang": "python", "signature": hashlib.sha256(fail_code.encode()).hexdigest()},
     )
 
     executor = Executor(lib)
