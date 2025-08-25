@@ -6,6 +6,7 @@ import yaml
 
 from algorithms import ALGORITHMS
 from benchmarks import PROBLEMS
+from metrics.recorder import MetricsRecorder
 
 
 def _load_config(path: str = "config/experiment.yaml") -> Dict[str, Any]:
@@ -23,9 +24,13 @@ def run_experiments(
     max_iters: int | None = None,
     max_time: float | None = None,
     patience: int | None = None,
+    output: str | None = None,
     **kwargs: Any,
 ) -> List[Dict[str, Any]]:
-    """Run ``algorithm`` on ``problem`` for each seed."""
+    """Run ``algorithm`` on ``problem`` for each seed.
+
+    If ``output`` is provided, metrics are written to the given JSON or CSV file.
+    """
     config = _load_config()
     max_iters = max_iters or config.get("max_iters", 100)
     max_time = max_time or config.get("time_budget")
@@ -35,9 +40,9 @@ def run_experiments(
     problem_cls = PROBLEMS[problem]
     prob = problem_cls()
 
-    results: List[Dict[str, Any]] = []
+    recorder = MetricsRecorder()
     for seed in seeds:
-        best_x, best_val = algo_fn(
+        best_x, best_val, iterations, elapsed = algo_fn(
             prob,
             seed=seed,
             max_iters=max_iters,
@@ -45,10 +50,22 @@ def run_experiments(
             patience=patience,
             **kwargs,
         )
-        results.append(
-            {"seed": seed, "best_x": best_x.tolist(), "best_val": float(best_val)}
+        recorder.record(
+            algorithm,
+            prob.name,
+            seed,
+            best_val,
+            prob.optimum_value,
+            iterations,
+            elapsed,
+            max_iters=max_iters,
+            max_time=max_time,
         )
-    return results
+
+    if output:
+        recorder.save(output)
+
+    return recorder.to_list()
 
 
 if __name__ == "__main__":
@@ -62,7 +79,7 @@ if __name__ == "__main__":
     parser.add_argument("--max-iters", type=int, default=None)
     parser.add_argument("--max-time", type=float, default=None)
     parser.add_argument("--patience", type=int, default=None)
-    parser.add_argument("--output", type=str, default=None)
+    parser.add_argument("--output", type=str, default=None, help="JSON or CSV output path")
     args = parser.parse_args()
 
     output = run_experiments(
@@ -72,9 +89,7 @@ if __name__ == "__main__":
         max_iters=args.max_iters,
         max_time=args.max_time,
         patience=args.patience,
+        output=args.output,
     )
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(output, f, indent=2)
-    else:
+    if not args.output:
         print(json.dumps(output, indent=2))

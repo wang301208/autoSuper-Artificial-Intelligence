@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+import time
 import numpy as np
 
 from .termination import StopCondition
@@ -19,7 +20,7 @@ def optimize(
     inertia: float = 0.7,
     cognitive: float = 1.4,
     social: float = 1.4,
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, int, float]:
     rng = np.random.default_rng(seed)
 
     lower = np.array([b[0] for b in problem.bounds])
@@ -57,4 +58,5 @@ def optimize(
             improved = True
         stopper.update(improved)
 
-    return global_best, global_best_val
+    elapsed = time.time() - stopper.start_time
+    return global_best, global_best_val, stopper.iteration, elapsed

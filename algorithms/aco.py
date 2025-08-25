@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+import time
 import numpy as np
 
 from .termination import StopCondition
@@ -17,7 +18,7 @@ def optimize(
     patience: Optional[int] = None,
     ant_count: int = 20,
     q: float = 0.1,
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, int, float]:
     rng = np.random.default_rng(seed)
 
     mean = np.array([(b[0] + b[1]) / 2 for b in problem.bounds])
@@ -42,4 +43,5 @@ def optimize(
         std *= 0.95  # slowly reduce exploration
         stopper.update(improved)
 
-    return best, best_val
+    elapsed = time.time() - stopper.start_time
+    return best, best_val, stopper.iteration, elapsed
