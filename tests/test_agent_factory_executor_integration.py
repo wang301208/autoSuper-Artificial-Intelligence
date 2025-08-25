@@ -58,7 +58,7 @@ sys.modules.setdefault("autogpt.commands", commands_module)
 from agent_factory import create_agent_from_blueprint
 from capability.skill_library import SkillLibrary
 from execution import Executor
-from execution.executor import SkillExecutionError
+from autogpts.autogpt.autogpt.core.errors import SkillExecutionError
 from autogpt.config import Config
 from autogpt.file_storage.local import LocalFileStorage, FileStorageConfiguration
 
