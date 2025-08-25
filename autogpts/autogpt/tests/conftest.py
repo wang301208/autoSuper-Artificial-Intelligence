@@ -9,6 +9,9 @@ import pytest
 import yaml
 from pytest_mock import MockerFixture
 
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[3]))
+
 from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
 from autogpt.app.main import _configure_openai_provider
 from autogpt.config import AIProfile, Config, ConfigBuilder

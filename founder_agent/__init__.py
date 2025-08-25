@@ -8,7 +8,7 @@ from __future__ import annotations
 import time
 from typing import Sequence
 
-from events import subscribe
+from events import EventBus
 
 from .analytics import Analytics
 from .proposal_generator import generate_proposal
@@ -18,7 +18,9 @@ DEFAULT_TOPICS: Sequence[str] = ("system.metrics",)
 
 
 def run_monitoring_loop(
-    topics: Sequence[str] = DEFAULT_TOPICS, interval: float = 60.0
+    event_bus: EventBus,
+    topics: Sequence[str] = DEFAULT_TOPICS,
+    interval: float = 60.0,
 ) -> None:
     """Subscribe to metric *topics* and periodically emit proposals.
 
@@ -27,7 +29,9 @@ def run_monitoring_loop(
         interval: Seconds between proposal generations.
     """
     analytics = Analytics()
-    subscriptions = [subscribe(topic, analytics.handle_event) for topic in topics]
+    subscriptions = [
+        event_bus.subscribe(topic, analytics.handle_event) for topic in topics
+    ]
     try:
         while True:
             time.sleep(interval)

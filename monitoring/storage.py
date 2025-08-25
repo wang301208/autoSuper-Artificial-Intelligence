@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List
 
-from events import subscribe
+from events import EventBus
 
 
 class TimeSeriesStorage:
@@ -48,10 +48,10 @@ class TimeSeriesStorage:
         )
         self._conn.commit()
 
-    def subscribe_to(self, topics: Iterable[str]) -> None:
-        """Subscribe to *topics* on the global event bus and persist events."""
+    def subscribe_to(self, bus: EventBus, topics: Iterable[str]) -> None:
+        """Subscribe to *topics* on *bus* and persist events."""
         for topic in topics:
-            cancel = subscribe(topic, lambda e, t=topic: self.store(t, e))
+            cancel = bus.subscribe(topic, lambda e, t=topic: self.store(t, e))
             self._subscriptions.append(cancel)
 
     # ------------------------------------------------------------------
