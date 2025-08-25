@@ -7,6 +7,12 @@ from pydantic import BaseModel
 
 
 class JSONSchema(BaseModel):
+    """Representation of a JSON Schema node.
+
+    Provides helpers for converting to and from dictionaries, validating
+    objects against the schema, and generating TypeScript interfaces.
+    """
+
     class Type(str, enum.Enum):
         STRING = "string"
         ARRAY = "array"
@@ -15,7 +21,6 @@ class JSONSchema(BaseModel):
         INTEGER = "integer"
         BOOLEAN = "boolean"
 
-    # TODO: add docstrings
     description: Optional[str] = None
     type: Optional[Type] = None
     enum: Optional[list] = None
@@ -28,6 +33,8 @@ class JSONSchema(BaseModel):
     maxItems: Optional[int] = None
 
     def to_dict(self) -> dict:
+        """Convert the JSONSchema to a JSON-serialisable dictionary."""
+
         schema: dict = {
             "type": self.type.value if self.type else None,
             "description": self.description,
@@ -57,6 +64,8 @@ class JSONSchema(BaseModel):
 
     @staticmethod
     def from_dict(schema: dict) -> "JSONSchema":
+        """Create a JSONSchema instance from a dictionary definition."""
+
         return JSONSchema(
             description=schema.get("description"),
             type=schema["type"],
@@ -73,6 +82,8 @@ class JSONSchema(BaseModel):
 
     @staticmethod
     def parse_properties(schema_node: dict) -> dict[str, "JSONSchema"]:
+        """Parse child property schemas from a schema node."""
+
         properties = (
             {k: JSONSchema.from_dict(v) for k, v in schema_node["properties"].items()}
             if "properties" in schema_node
@@ -103,6 +114,8 @@ class JSONSchema(BaseModel):
         return True, []
 
     def to_typescript_object_interface(self, interface_name: str = "") -> str:
+        """Render a TypeScript interface string for an object schema."""
+
         if self.type != JSONSchema.Type.OBJECT:
             raise NotImplementedError("Only `object` schemas are supported")
 
@@ -122,6 +135,8 @@ class JSONSchema(BaseModel):
 
     @property
     def typescript_type(self) -> str:
+        """Return the TypeScript type representation for this schema."""
+
         if self.type == JSONSchema.Type.BOOLEAN:
             return "boolean"
         elif self.type in {JSONSchema.Type.INTEGER, JSONSchema.Type.NUMBER}:
