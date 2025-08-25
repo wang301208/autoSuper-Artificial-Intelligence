@@ -8,6 +8,7 @@ be plugged in to enable coordination across multiple hosts.
 
 from __future__ import annotations
 
+import queue
 import threading
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List
@@ -46,20 +47,36 @@ class EventBus(ABC):
 
 
 class InMemoryEventBus(EventBus):
-    """Simple in-memory pub/sub event bus."""
+    """Simple in-memory pub/sub event bus using worker threads."""
 
-    def __init__(self) -> None:
+    def __init__(self, worker_count: int = 1) -> None:
         self._subscribers: Dict[str, List[Callable[[Dict[str, Any]], None]]] = {}
         self._lock = threading.Lock()
+        self._queue: queue.Queue[tuple[str, Dict[str, Any]]] = queue.Queue()
+        self._workers: List[threading.Thread] = []
+        for _ in range(max(1, worker_count)):
+            worker = threading.Thread(target=self._worker, daemon=True)
+            worker.start()
+            self._workers.append(worker)
+
+    def _worker(self) -> None:
+        while True:
+            topic, event = self._queue.get()
+            try:
+                with self._lock:
+                    subscribers = list(self._subscribers.get(topic, []))
+                for handler in subscribers:
+                    try:
+                        handler(event)
+                    except AutoGPTError as err:
+                        handle_exception(err)
+            finally:
+                self._queue.task_done()
 
     def publish(self, topic: str, event: Dict[str, Any]) -> None:
-        with self._lock:
-            subscribers = list(self._subscribers.get(topic, []))
-        for handler in subscribers:
-            try:
-                handler(event)
-            except AutoGPTError as err:
-                handle_exception(err)
+        """Enqueue *event* to be processed asynchronously."""
+
+        self._queue.put((topic, event))
 
     def subscribe(
         self, topic: str, handler: Callable[[Dict[str, Any]], None]
@@ -77,6 +94,11 @@ class InMemoryEventBus(EventBus):
                 handlers.remove(handler)
                 if not handlers:
                     del self._subscribers[topic]
+
+    def join(self) -> None:
+        """Block until all queued events have been processed."""
+
+        self._queue.join()
 
 
 def create_event_bus(backend: str, **kwargs: Any) -> EventBus:
