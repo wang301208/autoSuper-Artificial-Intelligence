@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Optional, Tuple
+import time
 import numpy as np
 
 from .termination import StopCondition
@@ -17,7 +18,7 @@ def optimize(
     patience: Optional[int] = None,
     pop_size: int = 20,
     mutation_rate: float = 0.1,
-) -> Tuple[np.ndarray, float]:
+) -> Tuple[np.ndarray, float, int, float]:
     """Optimize ``problem`` using a very small GA."""
     rng = np.random.default_rng(seed)
 
@@ -62,4 +63,5 @@ def optimize(
             improved = True
         stopper.update(improved)
 
-    return best, best_val
+    elapsed = time.time() - stopper.start_time
+    return best, best_val, stopper.iteration, elapsed
