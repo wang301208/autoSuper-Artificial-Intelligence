@@ -44,6 +44,7 @@ class AgentLifecycleManager:
         file_storage: FileStorage,
         event_bus: EventBus,
         scheduler: Scheduler | None = None,
+        sleep_timeout: float = 3600.0,
     ) -> None:
         self._config = config
         self._llm_provider = llm_provider
@@ -59,6 +60,7 @@ class AgentLifecycleManager:
         self._paths: Dict[str, Path] = {}
         self._task_count = 0
         self._heartbeat_timeout = 30.0
+        self._sleep_timeout = sleep_timeout
         self._metrics = SystemMetricsCollector(event_bus)
         self._metrics.start()
         self._event_bus.subscribe("agent.resource", self._on_resource_event)
@@ -196,6 +198,8 @@ class AgentLifecycleManager:
                     if self._states.get(name) == AgentState.RUNNING:
                         self._set_state(name, AgentState.IDLE)
 
+            self._cleanup_sleeping_agents(now)
+
             # Scale agents based on pending tasks
             if self._task_count > len(self._agents):
                 self._wake_sleeping_agents(self._task_count - len(self._agents))
@@ -213,6 +217,23 @@ class AgentLifecycleManager:
                         "agent.resource",
                         {"agent": heavy, "action": "throttle"},
                     )
+
+    def _cleanup_sleeping_agents(self, now: float) -> None:
+        for name, state in list(self._states.items()):
+            if state != AgentState.SLEEPING:
+                continue
+            hb = self._heartbeats.get(name, 0.0)
+            if now - hb <= self._sleep_timeout:
+                continue
+            self._metrics.unregister(name)
+            if self._scheduler:
+                self._scheduler.remove_agent(name)
+            self._agents.pop(name, None)
+            self._resources.pop(name, None)
+            self._paths.pop(name, None)
+            self._heartbeats.pop(name, None)
+            self._set_state(name, AgentState.TERMINATED)
+            self._states.pop(name, None)
 
     def _wake_sleeping_agents(self, count: int) -> None:
         sleepers = [n for n, s in self._states.items() if s == AgentState.SLEEPING]
