@@ -35,6 +35,8 @@ from autogpt.models.action_history import (
 from autogpt.models.command import CommandOutput
 from autogpt.models.context_item import ContextItem
 
+from events.coordination import TaskStatus
+
 from .base import BaseAgent, BaseAgentConfiguration, BaseAgentSettings
 from .features.agent_file_manager import AgentFileManagerMixin
 from .features.context import ContextMixin
@@ -123,6 +125,13 @@ class Agent(
 
         self.log_cycle_handler = LogCycleHandler()
         """LogCycleHandler for structured debug logging."""
+
+    def report_status(
+        self, task_id: str, status: TaskStatus, detail: str | None = None
+    ) -> None:
+        """Report current task status via the event bus."""
+
+        super().report_status(task_id, status, detail)
 
     def build_prompt(
         self,
