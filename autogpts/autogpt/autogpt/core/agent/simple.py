@@ -29,8 +29,9 @@ from autogpt.core.resource.model_providers import (
     OpenAIProvider,
     OpenAISettings,
     AssistantChatMessage,
+    ChatModelProvider,
 )
-from autogpt.core.resource.model_providers.schema import ChatModelResponse
+from autogpt.core.resource.model_providers.schema import ChatModelResponse, ModelProviderName
 from autogpt.core.workspace.simple import SimpleWorkspace, WorkspaceSettings
 from autogpt.config import Config
 from autogpt.core.knowledge_extractor import extract
@@ -66,7 +67,7 @@ class AgentSettings(BaseModel):
     agent: AgentSystemSettings
     ability_registry: AbilityRegistrySettings
     memory: MemorySettings
-    openai_provider: OpenAISettings
+    openai_providers: dict[str, OpenAISettings]
     planning: PlannerSettings
     creative_planning: PlannerSettings
     workspace: WorkspaceSettings
@@ -155,7 +156,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         logger: logging.Logger,
         ability_registry: SimpleAbilityRegistry,
         memory: SimpleMemory,
-        openai_provider: OpenAIProvider,
+        model_providers: dict[str | ModelProviderName, ChatModelProvider],
         planning: SimplePlanner,
         workspace: SimpleWorkspace,
         creative_planning: SimplePlanner | None = None,
@@ -167,9 +168,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._logger = logger
         self._ability_registry = ability_registry
         self._memory = memory
-        # FIXME: Need some work to make this work as a dict of providers
-        #  Getting the construction of the config to work is a bit tricky
-        self._openai_provider = openai_provider
+        self._model_providers = model_providers
         self._planning = planning
         self._default_planning = planning
         self._creative_planning = creative_planning
@@ -202,22 +201,31 @@ class SimpleAgent(LayeredAgent, Configurable):
             agent_settings,
             logger,
         )
-        agent_args["openai_provider"] = cls._get_system_instance(
-            "openai_provider",
-            agent_settings,
-            logger,
-        )
+        providers: dict[str | ModelProviderName, ChatModelProvider] = {}
+        for name, provider_settings in agent_settings.openai_providers.items():
+            key = name
+            try:
+                key = ModelProviderName(name)
+            except Exception:
+                pass
+            providers[key] = cls._get_system_instance(
+                "openai_provider",
+                agent_settings,
+                logger,
+                system_settings=provider_settings,
+            )
+        agent_args["model_providers"] = providers
         agent_args["planning"] = cls._get_system_instance(
             "planning",
             agent_settings,
             logger,
-            model_providers={"openai": agent_args["openai_provider"]},
+            model_providers=providers,
         )
         agent_args["creative_planning"] = cls._get_system_instance(
             "creative_planning",
             agent_settings,
             logger,
-            model_providers={"openai": agent_args["openai_provider"]},
+            model_providers=providers,
         )
         agent_args["memory"] = cls._get_system_instance(
             "memory",
@@ -232,7 +240,7 @@ class SimpleAgent(LayeredAgent, Configurable):
             logger,
             workspace=agent_args["workspace"],
             memory=agent_args["memory"],
-            model_providers={"openai": agent_args["openai_provider"]},
+            model_providers=providers,
         )
 
         return cls(**agent_args, optimize_abilities=optimize_abilities)
@@ -656,9 +664,18 @@ class SimpleAgent(LayeredAgent, Configurable):
         for system_name, system_location in system_locations.items():
             logger.debug(f"Compiling configuration for system {system_name}")
             system_class = SimplePluginService.get_plugin(system_location)
-            configuration_dict[system_name] = system_class.build_agent_configuration(
-                user_configuration.get(system_name, {})
-            ).dict()
+            if system_name == "openai_provider":
+                providers_cfg = user_configuration.get(system_name, {})
+                if not providers_cfg:
+                    providers_cfg = {"openai": {}}
+                configuration_dict["openai_providers"] = {
+                    name: system_class.build_agent_configuration(cfg).dict()
+                    for name, cfg in providers_cfg.items()
+                }
+            else:
+                configuration_dict[system_name] = system_class.build_agent_configuration(
+                    user_configuration.get(system_name, {})
+                ).dict()
 
         return AgentSettings.parse_obj(configuration_dict)
 
@@ -669,18 +686,26 @@ class SimpleAgent(LayeredAgent, Configurable):
         agent_settings: AgentSettings,
         logger: logging.Logger,
     ) -> dict:
-        logger.debug("Loading OpenAI provider.")
-        provider: OpenAIProvider = cls._get_system_instance(
-            "openai_provider",
-            agent_settings,
-            logger=logger,
-        )
+        logger.debug("Loading model providers.")
+        providers: dict[str | ModelProviderName, ChatModelProvider] = {}
+        for name, provider_settings in agent_settings.openai_providers.items():
+            key = name
+            try:
+                key = ModelProviderName(name)
+            except Exception:
+                pass
+            providers[key] = cls._get_system_instance(
+                "openai_provider",
+                agent_settings,
+                logger=logger,
+                system_settings=provider_settings,
+            )
         logger.debug("Loading agent planner.")
         agent_planner: SimplePlanner = cls._get_system_instance(
             "planning",
             agent_settings,
             logger=logger,
-            model_providers={"openai": provider},
+            model_providers=providers,
         )
         logger.debug("determining agent name and goals.")
         model_response = await agent_planner.decide_name_and_goals(
@@ -712,11 +737,12 @@ class SimpleAgent(LayeredAgent, Configurable):
         agent_settings: AgentSettings,
         logger: logging.Logger,
         *args,
+        system_settings=None,
         **kwargs,
     ):
         system_locations = agent_settings.agent.configuration.systems.dict()
-
-        system_settings = getattr(agent_settings, system_name)
+        if system_settings is None:
+            system_settings = getattr(agent_settings, system_name)
         system_class = SimplePluginService.get_plugin(system_locations[system_name])
         system_instance = system_class(
             system_settings,
