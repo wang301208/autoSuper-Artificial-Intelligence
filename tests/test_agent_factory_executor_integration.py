@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 import pytest
 import types
+import hashlib
 
 # Ensure root path and autogpt package are importable
 sys.path.insert(0, os.path.abspath(os.getcwd()))
@@ -106,9 +107,20 @@ def test_agent_factory_and_executor(tmp_path: Path, caplog: pytest.LogCaptureFix
         "@command('hello', 'say hi', {})\n"
         "def hello():\n    return 'hi'\n"
     )
-    lib.add_skill("hello", hello_code, {"lang": "python"})
+    lib.add_skill(
+        "hello",
+        hello_code,
+        {
+            "lang": "python",
+            "signature": hashlib.sha256(hello_code.encode()).hexdigest(),
+        },
+    )
     fail_code = "def fail():\n    raise RuntimeError('boom')\n"
-    lib.add_skill("fail", fail_code, {"lang": "python"})
+    lib.add_skill(
+        "fail",
+        fail_code,
+        {"lang": "python", "signature": hashlib.sha256(fail_code.encode()).hexdigest()},
+    )
 
     blueprint = {
         "role_name": "Tester",

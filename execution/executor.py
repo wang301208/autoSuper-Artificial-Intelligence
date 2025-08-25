@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import hashlib
 import re
 import logging
 from typing import Any, Dict, List
@@ -17,6 +19,32 @@ class SkillExecutionError(RuntimeError):
         super().__init__(f"Skill {skill} failed: {cause}")
         self.skill = skill
         self.cause = cause
+
+
+class SkillSecurityError(RuntimeError):
+    def __init__(self, skill: str, cause: str) -> None:
+        super().__init__(f"Skill {skill} blocked: {cause}")
+        self.skill = skill
+        self.cause = cause
+
+
+SAFE_BUILTINS: Dict[str, Any] = {
+    "__import__": __import__,
+    "len": len,
+    "range": range,
+    "print": print,
+    "Exception": Exception,
+    "RuntimeError": RuntimeError,
+}
+
+
+def _verify_skill(name: str, code: str, metadata: Dict[str, Any]) -> None:
+    signature = metadata.get("signature")
+    if not signature:
+        raise SkillSecurityError(name, "missing signature")
+    digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    if signature != digest:
+        raise SkillSecurityError(name, "invalid signature")
 
 
 class Executor:
@@ -67,9 +95,15 @@ class Executor:
         implementations to route tasks to remote agents or specialized
         resources.
         """
-        code, _ = asyncio.run(self.skill_library.get_skill(name))
+        code, meta = asyncio.run(self.skill_library.get_skill(name))
+        try:
+            _verify_skill(name, code, meta)
+        except SkillSecurityError as err:
+            logger.error("Security violation for skill %s: %s", name, err.cause)
+            raise
         namespace: Dict[str, Any] = {}
-        exec(code, namespace)
+        parsed = ast.parse(code, mode="exec")
+        exec(compile(parsed, filename=name, mode="exec"), {"__builtins__": SAFE_BUILTINS}, namespace)
         func = namespace.get(name)
         if not callable(func):
             err = SkillExecutionError(name, f"did not define a callable {name}()")

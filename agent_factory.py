@@ -12,6 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
+import ast
+import hashlib
 import logging
 from json import JSONDecodeError
 
@@ -34,6 +36,36 @@ from org_charter import io as charter_io
 
 
 logger = logging.getLogger(__name__)
+
+
+class SkillSecurityError(AutoGPTError):
+    """Raised when a skill fails security verification."""
+
+    def __init__(self, skill: str, cause: str) -> None:
+        super().__init__(f"Skill {skill} blocked: {cause}")
+        self.skill = skill
+        self.cause = cause
+
+
+SAFE_BUILTINS: dict[str, object] = {
+    "__import__": __import__,
+    "len": len,
+    "range": range,
+    "print": print,
+    "Exception": Exception,
+    "RuntimeError": RuntimeError,
+}
+
+
+def _verify_skill(name: str, code: str, metadata: dict) -> None:
+    """Ensure skill source passes signature verification."""
+
+    signature = metadata.get("signature")
+    if not signature:
+        raise SkillSecurityError(name, "missing signature")
+    digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
+    if signature != digest:
+        raise SkillSecurityError(name, "invalid signature")
 
 
 def _parse_blueprint(path: Path) -> dict:
@@ -61,14 +93,21 @@ def _load_additional_tool(
     """
     librarian = Librarian(str(repo_path))
     try:
-        code, _meta = librarian.get_skill(name)
+        code, meta = librarian.get_skill(name)
     except (OSError, PermissionError, JSONDecodeError) as err:
         logger.exception("Failed to retrieve tool '%s' from skill library", name)
         raise AutoGPTError(f"Failed to load tool '{name}'") from err
 
+    try:
+        _verify_skill(name, code, meta)
+    except SkillSecurityError as err:
+        logger.warning("Rejected tool '%s': %s", name, err.cause)
+        raise
+
     namespace: dict[str, object] = {}
     try:
-        exec(code, namespace)  # noqa: S102 - dynamic plugin loading
+        parsed = ast.parse(code, mode="exec")
+        exec(compile(parsed, filename=name, mode="exec"), {"__builtins__": SAFE_BUILTINS}, namespace)
     except (SyntaxError, TypeError, ValueError) as err:
         logger.exception("Error executing tool '%s'", name)
         raise AutoGPTError(f"Failed to initialize tool '{name}'") from err
