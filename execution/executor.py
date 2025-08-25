@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+import logging
 from typing import Any, Dict, List
 
 from capability.skill_library import SkillLibrary
 from .task_graph import TaskGraph
 from .scheduler import Scheduler
+
+logger = logging.getLogger(__name__)
+
+
+class SkillExecutionError(RuntimeError):
+    def __init__(self, skill: str, cause: str) -> None:
+        super().__init__(f"Skill {skill} failed: {cause}")
+        self.skill = skill
+        self.cause = cause
 
 
 class Executor:
@@ -61,6 +70,12 @@ class Executor:
         namespace: Dict[str, Any] = {}
         exec(code, namespace)
         func = namespace.get(name)
-        if callable(func):
+        if not callable(func):
+            err = SkillExecutionError(name, f"did not define a callable {name}()")
+            logger.error(str(err))
+            raise err
+        try:
             return func()
-        raise ValueError(f"Skill {name} did not define a callable {name}()")
+        except Exception as err:  # noqa: BLE001
+            logger.exception("Error executing skill %s: %s", name, err)
+            raise SkillExecutionError(name, str(err)) from err
