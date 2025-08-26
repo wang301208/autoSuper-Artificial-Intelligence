@@ -87,6 +87,30 @@ class SelfImprovement:
                         actions.append(f"Script not found: {script_path}")
         return actions
 
+    def evaluate_and_rollback(
+        self,
+        thresholds: Dict[str, float],
+        rollback_script: Path | str = Path("scripts/rollback.sh"),
+    ) -> bool:
+        """Evaluate latest metrics and trigger rollback if below thresholds.
+
+        Returns ``True`` if a rollback was triggered.
+        """
+
+        metrics = self._load_metrics()
+        if not metrics:
+            return False
+        latest = metrics[-1]
+        degraded = [m for m, t in thresholds.items() if latest.get(m, float("inf")) < t]
+        if degraded:
+            script = Path(rollback_script)
+            if script.exists():
+                subprocess.run([str(script)], check=True)
+            else:  # pragma: no cover - execution path
+                print(f"Rollback script not found: {rollback_script}")
+            return True
+        return False
+
     # Genetic algorithm -------------------------------------------------
     def optimize_with_ga(
         self,

@@ -8,11 +8,13 @@ cron job).
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 import subprocess
+from typing import Dict
 
 import pandas as pd
 
@@ -21,6 +23,16 @@ DATASET = DATA_DIR / "dataset.csv"
 NEW_LOGS = DATA_DIR / "new_logs.csv"
 ARTIFACTS = Path("artifacts")
 CURRENT = ARTIFACTS / "current"
+
+# Additional metrics considered during deployment comparison. ``direction``
+# specifies whether higher values are better ("higher") or lower values are
+# better ("lower"). ``threshold`` sets the minimum required improvement.
+METRIC_THRESHOLDS: Dict[str, Dict[str, float | str]] = {
+    "Success Rate": {"direction": "higher", "threshold": 0.0},
+    "Mean Reward": {"direction": "higher", "threshold": 0.0},
+}
+
+logger = logging.getLogger(__name__)
 
 
 def accumulate_logs() -> None:
@@ -53,6 +65,23 @@ def parse_metric(metrics_file: Path, key: str) -> float:
             if line.startswith(f"{key}:"):
                 return float(line.split(":", 1)[1].strip())
     raise ValueError(f"{key} not found in metrics file")
+
+
+def parse_metrics(metrics_file: Path) -> Dict[str, float]:
+    """Parse a metrics file into a dictionary of metric names to values."""
+    metrics: Dict[str, float] = {}
+    if not metrics_file.exists():
+        return metrics
+    with open(metrics_file, "r") as f:
+        for line in f:
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            try:
+                metrics[key.strip()] = float(value.strip())
+            except ValueError:
+                continue
+    return metrics
 
 
 def train_and_evaluate(version: str, model: str) -> tuple[Path, str]:
@@ -89,30 +118,44 @@ def train_and_evaluate(version: str, model: str) -> tuple[Path, str]:
     return ARTIFACTS / version / "metrics.txt", metric_name
 
 
+
 def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> None:
     """Deploy the trained model if it outperforms the current baseline."""
-    new_metric = parse_metric(metrics_file, metric_name)
 
-    baseline_metric = float("inf")
+    new_metrics = parse_metrics(metrics_file)
     baseline_file = CURRENT / "metrics.txt"
-    if baseline_file.exists():
-        try:
-            baseline_metric = parse_metric(baseline_file, metric_name)
-        except ValueError:
-            baseline_metric = float("inf")
+    baseline_metrics = parse_metrics(baseline_file)
 
-    if new_metric < baseline_metric:
+    thresholds = METRIC_THRESHOLDS.copy()
+    thresholds.setdefault(metric_name, {"direction": "lower", "threshold": 0.0})
+
+    regressions: list[str] = []
+    for metric, cfg in thresholds.items():
+        if metric not in new_metrics or metric not in baseline_metrics:
+            continue
+        new_val = new_metrics[metric]
+        base_val = baseline_metrics[metric]
+        direction = cfg["direction"]
+        threshold = float(cfg["threshold"])
+        if direction == "lower":
+            if new_val > base_val + threshold:
+                regressions.append(f"{metric} {new_val:.4f} > {base_val:.4f}")
+        else:
+            if new_val < base_val - threshold:
+                regressions.append(f"{metric} {new_val:.4f} < {base_val:.4f}")
+
+    if not regressions:
         if CURRENT.exists():
             shutil.rmtree(CURRENT)
         shutil.copytree(ARTIFACTS / version, CURRENT)
         print(
-            f"Deployed new model version {version} ({metric_name} {new_metric:.4f})"
+            f"Deployed new model version {version} ({metric_name} {new_metrics.get(metric_name, float('nan')):.4f})",
         )
     else:
-        print(
-            f"Model not deployed: {new_metric:.4f} >= {baseline_metric:.4f}"
+        logger.warning(
+            "Model not deployed due to metric regressions: %s", "; ".join(regressions)
         )
-
+    
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Retrain models on accumulated data")
