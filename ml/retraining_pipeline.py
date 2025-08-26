@@ -7,6 +7,7 @@ cron job).
 """
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 from datetime import datetime
@@ -45,46 +46,67 @@ def accumulate_logs() -> None:
     NEW_LOGS.unlink()
 
 
-def parse_test_mse(metrics_file: Path) -> float:
+def parse_metric(metrics_file: Path, key: str) -> float:
+    """Extract a metric value labelled by ``key`` from ``metrics_file``."""
     with open(metrics_file, "r") as f:
         for line in f:
-            if line.startswith("Test MSE:"):
+            if line.startswith(f"{key}:"):
                 return float(line.split(":", 1)[1].strip())
-    raise ValueError("Test MSE not found in metrics file")
+    raise ValueError(f"{key} not found in metrics file")
 
 
-def train_and_evaluate(version: str) -> Path:
-    """Train a model using the aggregated dataset and return metrics path."""
-    subprocess.run(
-        [
-            sys.executable,
-            "ml/train_models.py",
-            str(DATASET),
-            "--model",
-            "linear",
-            "--version",
-            version,
-        ],
-        check=True,
-    )
-    return ARTIFACTS / version / "metrics.txt"
+def train_and_evaluate(version: str, model: str) -> tuple[Path, str]:
+    """Train a model using the aggregated dataset.
+
+    Returns the metrics file path and the metric label to compare.
+    """
+    if model == "llm":
+        subprocess.run(
+            [
+                sys.executable,
+                "ml/fine_tune_llm.py",
+                str(DATASET),
+                "--version",
+                version,
+            ],
+            check=True,
+        )
+        metric_name = "Perplexity"
+    else:
+        subprocess.run(
+            [
+                sys.executable,
+                "ml/train_models.py",
+                str(DATASET),
+                "--model",
+                model,
+                "--version",
+                version,
+            ],
+            check=True,
+        )
+        metric_name = "Test MSE"
+    return ARTIFACTS / version / "metrics.txt", metric_name
 
 
-def deploy_if_better(version: str, metrics_file: Path) -> None:
+def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> None:
     """Deploy the trained model if it outperforms the current baseline."""
-    new_metric = parse_test_mse(metrics_file)
+    new_metric = parse_metric(metrics_file, metric_name)
 
     baseline_metric = float("inf")
     baseline_file = CURRENT / "metrics.txt"
     if baseline_file.exists():
-        baseline_metric = parse_test_mse(baseline_file)
+        try:
+            baseline_metric = parse_metric(baseline_file, metric_name)
+        except ValueError:
+            baseline_metric = float("inf")
 
     if new_metric < baseline_metric:
         if CURRENT.exists():
             shutil.rmtree(CURRENT)
         shutil.copytree(ARTIFACTS / version, CURRENT)
         print(
-            f"Deployed new model version {version} (Test MSE {new_metric:.4f})"
+            f"Deployed new model version {version} ({metric_name} {new_metric:.4f})"
         )
     else:
         print(
@@ -93,13 +115,18 @@ def deploy_if_better(version: str, metrics_file: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Retrain models on accumulated data")
+    parser.add_argument("--model", default="linear", help="Model type to train (e.g. 'linear' or 'llm')")
+    args = parser.parse_args()
+
     accumulate_logs()
     if not DATASET.exists():
         print("No dataset available for training")
         return
+
     version = datetime.utcnow().strftime("v%Y%m%d%H%M%S")
-    metrics_file = train_and_evaluate(version)
-    deploy_if_better(version, metrics_file)
+    metrics_file, metric_name = train_and_evaluate(version, args.model)
+    deploy_if_better(version, metrics_file, metric_name)
 
 
 if __name__ == "__main__":
