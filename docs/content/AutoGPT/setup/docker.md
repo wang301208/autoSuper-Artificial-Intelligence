@@ -45,14 +45,14 @@
           ## uncomment following lines if you want to make use of these files
           ## you must have them existing in the same folder as this docker-compose.yml
           #- type: bind
-          #  source: ./azure.yaml
-          #  target: /app/azure.yaml
+          #  source: ./config/azure.yaml
+          #  target: /app/config/azure.yaml
           #- type: bind
-          #  source: ./ai_settings.yaml
-          #  target: /app/ai_settings.yaml
+          #  source: ./config/ai_settings.yaml
+          #  target: /app/config/ai_settings.yaml
           #- type: bind
-          #  source: ./prompt_settings.yaml
-          #  target: /app/prompt_settings.yaml
+          #  source: ./config/prompt_settings.yaml
+          #  target: /app/config/prompt_settings.yaml
     ```
     </details>
 
@@ -78,11 +78,11 @@
           ## uncomment following lines if you want to make use of these files
           ## you must have them existing in the same folder as this docker-compose.yml
           #- type: bind
-          #  source: ./ai_settings.yaml
-          #  target: /app/ai_settings.yaml
+          #  source: ./config/ai_settings.yaml
+          #  target: /app/config/ai_settings.yaml
           #- type: bind
-          #  source: ./prompt_settings.yaml
-          #  target: /app/prompt_settings.yaml
+          #  source: ./config/prompt_settings.yaml
+          #  target: /app/config/prompt_settings.yaml
     ```
     </details>
 
@@ -124,7 +124,7 @@ found in the [repository].
     If you want to use GPT on an Azure instance, set `USE_AZURE` to `True` and
     make an Azure configuration file:
 
-    - Rename `azure.yaml.template` to `azure.yaml` and provide the relevant `azure_api_base`, `azure_api_version` and all the deployment IDs for the relevant models in the `azure_model_map` section.
+    - Rename `config/azure.yaml.template` to `config/azure.yaml` and provide the relevant `azure_api_base`, `azure_api_version` and all the deployment IDs for the relevant models in the `azure_model_map` section.
 
     Example:
 
