@@ -90,7 +90,7 @@ sys.modules["monitoring"] = monitoring_mod
 
 import heapq
 from autogpt.core.agent.simple import SimpleAgent
-from autogpt.core.planning.schema import Task, TaskStatus
+from autogpt.core.planning.schema import Task, TaskStatus, TaskType
 from autogpt.core.ability import AbilityResult
 
 
@@ -139,7 +139,7 @@ async def test_tasks_marked_complete_when_acceptance_criteria_met(tmp_path):
 
     current_task = Task(
         objective="Task 1",
-        type="task",
+        type=TaskType.TEST,
         priority=1,
         ready_criteria=["start"],
         acceptance_criteria=["done"],
@@ -147,7 +147,7 @@ async def test_tasks_marked_complete_when_acceptance_criteria_met(tmp_path):
 
     other_task = Task(
         objective="Task 2",
-        type="task",
+        type=TaskType.TEST,
         priority=2,
         ready_criteria=["start"],
         acceptance_criteria=["finish"],

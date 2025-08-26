@@ -5,7 +5,7 @@ import pytest
 
 from autogpt.core.ability.base import AbilityRegistry, AbilityConfiguration
 from autogpt.core.ability.schema import AbilityResult
-from autogpt.core.planning.schema import Task
+from autogpt.core.planning.schema import Task, TaskType
 
 
 def _load_capability_agent():
@@ -85,7 +85,7 @@ async def test_capability_agent_selects_matching_ability():
 
     task = Task(
         objective="Write some code",
-        type="write",
+        type=TaskType.WRITE,
         priority=1,
         ready_criteria=[],
         acceptance_criteria=[],

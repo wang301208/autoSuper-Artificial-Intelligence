@@ -1,10 +1,7 @@
 import enum
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from pydantic import BaseModel, Field
-
-from typing import TYPE_CHECKING
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 
 try:  # pragma: no cover - fallback for lightweight test environments
     from autogpt.core.ability.schema import AbilityResult  # type: ignore
@@ -44,11 +41,22 @@ class TaskContext(BaseModel):
 
 class Task(BaseModel):
     objective: str
-    type: str  # TaskType  FIXME: gpt does not obey the enum parameter in its schema
+    type: TaskType
     priority: int
     ready_criteria: list[str]
     acceptance_criteria: list[str]
     context: TaskContext = Field(default_factory=TaskContext)
+
+    @validator("type", pre=True)
+    def _coerce_type(cls, value):
+        if isinstance(value, TaskType):
+            return value
+        if isinstance(value, str):
+            try:
+                return TaskType(value.lower())
+            except ValueError as e:  # pragma: no cover - defensive
+                raise ValueError(f"Invalid task type: {value}") from e
+        raise TypeError("task type must be a string or TaskType")
 
 
 # Need to resolve the circular dependency between Task and TaskContext

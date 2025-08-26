@@ -8,14 +8,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "autogpts", "autogp
 
 from autogpt.agent_manager import AgentManager
 from autogpt.core.planning.reasoner import ReasoningPlanner
-from autogpt.core.planning.schema import Task, TaskStatus
+from autogpt.core.planning.schema import Task, TaskStatus, TaskType
 from autogpt.file_storage.local import FileStorageConfiguration, LocalFileStorage
 
 
 def make_task(objective: str) -> Task:
     return Task(
         objective=objective,
-        type="plan",
+        type=TaskType.PLAN,
         priority=1,
         ready_criteria=["gather requirements", "outline approach"],
         acceptance_criteria=[],
