@@ -1,4 +1,7 @@
+import importlib
 import logging
+import subprocess
+import sys
 from typing import ClassVar
 
 import inflection
@@ -141,8 +144,27 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
             "configuration": ability_configuration,
         }
         if ability_configuration.packages_required:
-            # TODO: Check packages are installed and maybe install them.
-            pass
+            for package in ability_configuration.packages_required:
+                try:
+                    importlib.import_module(package)
+                except ImportError:
+                    self._logger.warning(
+                        "Required package '%s' is not installed. Attempting installation.",
+                        package,
+                    )
+                    try:
+                        subprocess.run(
+                            [sys.executable, "-m", "pip", "install", package],
+                            check=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                        )
+                    except subprocess.CalledProcessError:
+                        self._logger.warning(
+                            "Failed to install package '%s'. Ability '%s' may not work properly.",
+                            package,
+                            ability_name,
+                        )
         if ability_configuration.memory_provider_required:
             ability_args["memory"] = self._memory
         if ability_configuration.workspace_required:
@@ -170,7 +192,16 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
 
     async def perform(self, ability_name: str, **kwargs) -> AbilityResult:
         ability = self.get_ability(ability_name)
-        return await ability(**kwargs)
+        try:
+            return await ability(**kwargs)
+        except Exception as err:
+            self._logger.exception("Error performing ability '%s'", ability_name)
+            return AbilityResult(
+                ability_name=ability_name,
+                ability_args={k: str(v) for k, v in kwargs.items()},
+                success=False,
+                message=str(err),
+            )
 
     def optimize_ability(self, ability_name: str, metrics: dict[str, float]) -> None:
         current_config = self._configuration.abilities.get(ability_name)
