@@ -25,18 +25,20 @@ CURRENT = ARTIFACTS / "current"
 def accumulate_logs() -> None:
     """Append new logs to the main dataset and clear the buffer file.
 
-    New logs are expected in ``data/new_logs.csv`` with columns ``text`` and
-    ``target``.  They are appended to ``data/dataset.csv`` which serves as the
-    aggregated dataset for training.  The buffer file is removed afterwards.
+    New logs are expected in ``data/new_logs.csv`` with columns
+    ``state, ability, input, output, reward``. They are appended to
+    ``data/dataset.csv`` which serves as the aggregated dataset for training.
+    The buffer file is removed afterwards.
     """
     if not NEW_LOGS.exists():
         return
 
     DATA_DIR.mkdir(exist_ok=True)
+    columns = ["state", "ability", "input", "output", "reward"]
     if DATASET.exists():
         df = pd.read_csv(DATASET)
     else:
-        df = pd.DataFrame(columns=["text", "target"])
+        df = pd.DataFrame(columns=columns)
     new_df = pd.read_csv(NEW_LOGS)
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATASET, index=False)
