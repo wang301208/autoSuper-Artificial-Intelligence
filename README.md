@@ -90,6 +90,14 @@ Commands:
 
 只需克隆仓库，使用 `./run setup` 安装依赖即可开始！
 
+安装完成后，可通过以下命令验证项目能否正常运行：
+
+```bash
+./run agent start <agent-name>    # 启动一个示例代理
+./run benchmark start             # 运行基准测试
+pytest                            # 运行单元测试
+```
+
 ### 🤖 自动代码生成
 
 AutoGPT 包含 `generate_code` 指令，可根据你的提示生成代码并将结果写入代理的工作区。
