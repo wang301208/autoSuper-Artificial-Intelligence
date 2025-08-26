@@ -4,4 +4,4 @@
 # 0 0 * * * /path/to/retrain_cron.sh >> /path/to/retrain.log 2>&1
 set -e
 cd "$(dirname "$0")"
-python -m ml.retraining_pipeline
+python -m ml.retraining_pipeline "$@"
