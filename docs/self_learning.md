@@ -25,3 +25,28 @@ Warnings emitted during failed deployments or rollbacks should be fed into the
 system's monitoring and alerting pipeline. This enables operators to react
 promptly when model quality regresses or automated rollbacks are triggered.
 
+## Automatic Scheduling
+
+AutoGPT can automatically run the retraining pipeline and self-improvement
+routine at fixed intervals. When an agent is started via
+`python cli.py agent start <name>`, a background scheduler is launched.
+
+Intervals are configured through environment variables (values are in seconds):
+
+| Variable | Purpose |
+| --- | --- |
+| `AUTO_RETRAIN_INTERVAL` | Run `ml.retraining_pipeline.main` periodically |
+| `AUTO_SELF_IMPROVE_INTERVAL` | Invoke `SelfImprovement.run` periodically |
+| `AUTO_SCHEDULE_INTERVAL` | Fallback interval if the above are unset |
+
+If none of these variables are set to a positive value the scheduler exits
+immediately.
+
+Example:
+
+```bash
+export AUTO_RETRAIN_INTERVAL=3600           # retrain hourly
+export AUTO_SELF_IMPROVE_INTERVAL=86400     # self-improve daily
+python cli.py agent start forge
+```
+
