@@ -31,10 +31,11 @@ from autogpt.speech import TTSConfig
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(autogpt.__file__).parent.parent
-AI_SETTINGS_FILE = Path("ai_settings.yaml")
-AZURE_CONFIG_FILE = Path("azure.yaml")
-PLUGINS_CONFIG_FILE = Path("plugins_config.yaml")
-PROMPT_SETTINGS_FILE = Path("prompt_settings.yaml")
+CONFIG_DIR = Path("config")
+AI_SETTINGS_FILE = CONFIG_DIR / "ai_settings.yaml"
+AZURE_CONFIG_FILE = CONFIG_DIR / "azure.yaml"
+PLUGINS_CONFIG_FILE = CONFIG_DIR / "plugins_config.yaml"
+PROMPT_SETTINGS_FILE = CONFIG_DIR / "prompt_settings.yaml"
 
 GPT_4_MODEL = OpenAIModelName.GPT4
 GPT_3_MODEL = OpenAIModelName.GPT3
@@ -267,7 +268,12 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
 
 
 class ConfigBuilder(Configurable[Config]):
-    default_settings = Config()
+    default_settings = Config(
+        ai_settings_file=PROJECT_ROOT / AI_SETTINGS_FILE,
+        prompt_settings_file=PROJECT_ROOT / PROMPT_SETTINGS_FILE,
+        plugins_config_file=PROJECT_ROOT / PLUGINS_CONFIG_FILE,
+        azure_config_file=PROJECT_ROOT / AZURE_CONFIG_FILE,
+    )
 
     @classmethod
     def build_config_from_env(cls, project_root: Path = PROJECT_ROOT) -> Config:
@@ -278,17 +284,24 @@ class ConfigBuilder(Configurable[Config]):
 
         # Make relative paths absolute
         for k in {
-            "ai_settings_file",  # TODO: deprecate or repurpose
-            "prompt_settings_file",  # TODO: deprecate or repurpose
-            "plugins_config_file",  # TODO: move from project root
-            "azure_config_file",  # TODO: move from project root
+            "ai_settings_file",
+            "prompt_settings_file",
+            "plugins_config_file",
+            "azure_config_file",
         }:
-            setattr(config, k, project_root / getattr(config, k))
+            v = getattr(config, k)
+            if v and not v.is_absolute():
+                v = project_root / v
+            setattr(config, k, v)
+
+        # Ensure the plugins config directory exists
+        config.plugins_config_file.parent.mkdir(parents=True, exist_ok=True)
 
         if (
             config.openai_credentials
             and config.openai_credentials.api_type == "azure"
             and (config_file := config.azure_config_file)
+            and config_file.is_file()
         ):
             config.openai_credentials.load_azure_config(config_file)
 

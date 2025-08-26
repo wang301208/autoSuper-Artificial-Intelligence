@@ -75,8 +75,8 @@ def cli(ctx: click.Context):
     "-C",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help=(
-        "Specifies which ai_settings.yaml file to use, relative to the AutoGPT"
-        " root directory. Will also automatically skip the re-prompt."
+        "Specifies which ai_settings.yaml file to use, relative to AutoGPT's"
+        " config directory. Will also automatically skip the re-prompt."
     ),
 )
 @click.option(
@@ -93,7 +93,10 @@ def cli(ctx: click.Context):
     "--prompt-settings",
     "-P",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Specifies which prompt_settings.yaml file to use.",
+    help=(
+        "Specifies which prompt_settings.yaml file to use, relative to AutoGPT's"
+        " config directory."
+    ),
 )
 @click.option(
     "--constraint",
@@ -243,7 +246,10 @@ def run(
     "--prompt-settings",
     "-P",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Specifies which prompt_settings.yaml file to use.",
+    help=(
+        "Specifies which prompt_settings.yaml file to use, relative to AutoGPT's"
+        " config directory."
+    ),
 )
 @click.option("--gpt3only", is_flag=True, help="Enable GPT3.5 Only Mode")
 @click.option("--gpt4only", is_flag=True, help="Enable GPT4 Only Mode")

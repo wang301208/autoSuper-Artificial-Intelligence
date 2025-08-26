@@ -67,10 +67,10 @@ Options:
   --autonomous                    Run without requiring user confirmation for
                                   each action
   -C, --ai-settings FILE          Specifies which ai_settings.yaml file to
-                                  use, relative to the AutoGPT root directory.
+                                  use, relative to AutoGPT's config directory.
                                   Will also automatically skip the re-prompt.
   -P, --prompt-settings FILE      Specifies which prompt_settings.yaml file to
-                                  use.
+                                  use, relative to AutoGPT's config directory.
   -l, --continuous-limit INTEGER  Defines the number of times to run in
                                   continuous mode
   --speak                         Enable Speak Mode
@@ -130,7 +130,7 @@ Usage: python -m autogpt serve [OPTIONS]
 
 Options:
   -P, --prompt-settings FILE  Specifies which prompt_settings.yaml file to
-                              use.
+                              use, relative to AutoGPT's config directory.
   --debug                     Enable Debug Mode
   --gpt3only                  Enable GPT3.5 Only Mode
   --gpt4only                  Enable GPT4 Only Mode

@@ -93,7 +93,7 @@ Once you have cloned or downloaded the project, you can find the AutoGPT Agent i
         If you want to use GPT on an Azure instance, set `USE_AZURE` to `True` and
         make an Azure configuration file.
 
-        Rename `azure.yaml.template` to `azure.yaml` and provide the relevant
+        Rename `config/azure.yaml.template` to `config/azure.yaml` and provide the relevant
         `azure_api_base`, `azure_api_version` and deployment IDs for the models that you
         want to use.
 
