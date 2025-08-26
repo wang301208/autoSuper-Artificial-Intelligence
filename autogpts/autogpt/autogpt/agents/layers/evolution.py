@@ -12,6 +12,7 @@ from autogpt.core.agent.layered import LayeredAgent
 from autogpt.core.memory import Memory
 from autogpt.core.planning import SimplePlanner
 from ml.experience_collector import log_interaction
+from evolution.policy_trainer import PolicyTrainer
 
 
 class EvolutionAgent(LayeredAgent):
@@ -50,6 +51,9 @@ class EvolutionAgent(LayeredAgent):
         self._generation_count = 0
 
         self._load_policy()
+
+        dataset = data_dir / "dataset.csv"
+        self._trainer = PolicyTrainer(dataset_path=dataset, learning_rate=self._learning_rate, policy=self._policy)
 
     # ------------------------------------------------------------------
     # Policy management helpers
@@ -108,13 +112,8 @@ class EvolutionAgent(LayeredAgent):
         if self._last_state is None or self._last_action is None:
             return
         reward = self._performance.score(result, cost=0.0, duration=0.0)
-        probs = self._last_prob or {}
-        prefs = self._policy.setdefault(self._last_state, {})
-        for name, prob in probs.items():
-            indicator = 1.0 if name == self._last_action else 0.0
-            prefs[name] = prefs.get(name, 0.0) + self._learning_rate * reward * (
-                indicator - prob
-            )
+
+        self._trainer.push_experience(self._last_state, self._last_action, reward)
 
         self._log_training(self._last_state, self._last_action, reward)
         try:
@@ -123,11 +122,9 @@ class EvolutionAgent(LayeredAgent):
             pass
         self._generation_count += 1
         if self._generation_count >= self._generations:
-            for state_prefs in self._policy.values():
-                for ab in state_prefs:
-                    state_prefs[ab] += random.uniform(-0.1, 0.1)
+            self._policy = self._trainer.update_policy()
+            self._save_policy()
             self._generation_count = 0
-        self._save_policy()
 
     async def determine_next_ability(
         self,
