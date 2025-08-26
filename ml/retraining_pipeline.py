@@ -12,6 +12,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 import subprocess
+import warnings
+from typing import Dict
 
 import pandas as pd
 
@@ -45,12 +47,21 @@ def accumulate_logs() -> None:
     NEW_LOGS.unlink()
 
 
-def parse_test_mse(metrics_file: Path) -> float:
+def parse_metrics(metrics_file: Path) -> Dict[str, float]:
+    """Parse a metrics file into a dictionary of metric values."""
+    metrics: Dict[str, float] = {}
     with open(metrics_file, "r") as f:
         for line in f:
-            if line.startswith("Test MSE:"):
-                return float(line.split(":", 1)[1].strip())
-    raise ValueError("Test MSE not found in metrics file")
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            try:
+                metrics[key.strip().lower().replace(" ", "_")] = float(
+                    value.strip()
+                )
+            except ValueError:
+                continue
+    return metrics
 
 
 def train_and_evaluate(version: str) -> Path:
@@ -72,24 +83,49 @@ def train_and_evaluate(version: str) -> Path:
 
 def deploy_if_better(version: str, metrics_file: Path) -> None:
     """Deploy the trained model if it outperforms the current baseline."""
-    new_metric = parse_test_mse(metrics_file)
 
-    baseline_metric = float("inf")
+    thresholds = {
+        "success_rate": 0.01,  # require at least 1% improvement
+        "reward_mean": 0.0,  # reward must not decrease
+        "test_mse": 0.0,  # error must be lower
+    }
+
+    new_metrics = parse_metrics(metrics_file)
     baseline_file = CURRENT / "metrics.txt"
-    if baseline_file.exists():
-        baseline_metric = parse_test_mse(baseline_file)
+    baseline_metrics = (
+        parse_metrics(baseline_file) if baseline_file.exists() else {}
+    )
 
-    if new_metric < baseline_metric:
-        if CURRENT.exists():
-            shutil.rmtree(CURRENT)
-        shutil.copytree(ARTIFACTS / version, CURRENT)
-        print(
-            f"Deployed new model version {version} (Test MSE {new_metric:.4f})"
+    regressions = []
+    for metric, threshold in thresholds.items():
+        if metric not in new_metrics or metric not in baseline_metrics:
+            continue
+        new_val = new_metrics[metric]
+        base_val = baseline_metrics[metric]
+        if metric == "test_mse":
+            if new_val > base_val * (1 - threshold):
+                regressions.append(
+                    f"{metric} {new_val:.4f} >= {base_val:.4f}"
+                )
+        else:
+            if new_val < base_val * (1 + threshold):
+                regressions.append(
+                    f"{metric} {new_val:.4f} <= {base_val:.4f}"
+                )
+
+    if regressions:
+        msg = (
+            "Model not deployed due to metric regression: "
+            + "; ".join(regressions)
         )
-    else:
-        print(
-            f"Model not deployed: {new_metric:.4f} >= {baseline_metric:.4f}"
-        )
+        warnings.warn(msg)
+        print(msg)
+        return
+
+    if CURRENT.exists():
+        shutil.rmtree(CURRENT)
+    shutil.copytree(ARTIFACTS / version, CURRENT)
+    print(f"Deployed new model version {version} with metrics {new_metrics}")
 
 
 def main() -> None:

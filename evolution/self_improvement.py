@@ -118,6 +118,37 @@ class SelfImprovement:
             for row in history:
                 writer.writerow(row)
 
+    def evaluate_and_rollback(
+        self,
+        thresholds: Dict[str, float] | None = None,
+        rollback_script: Path | str = Path("scripts/rollback.sh"),
+    ) -> bool:
+        """Trigger rollback if latest metrics fall below thresholds.
+
+        Returns ``True`` if the rollback script was executed.
+        """
+
+        metrics = self._load_metrics()
+        if not metrics:
+            return False
+
+        latest = metrics[-1]
+        thresholds = thresholds or {"success_rate": 0.5, "reward_mean": 0.0}
+        failing = [m for m, t in thresholds.items() if latest.get(m, 0.0) < t]
+        if not failing:
+            return False
+
+        script = Path(rollback_script)
+        if not script.exists():
+            print(f"Rollback script not found: {script}")
+            return False
+        try:
+            subprocess.run(["bash", str(script)], check=True)
+            return True
+        except Exception as exc:  # pragma: no cover - execution path
+            print(f"Failed to execute rollback script: {exc}")
+            return False
+
     def run(self) -> Dict[str, List[str]]:
         tickets = self.read_meta_tickets()
         bottlenecks = self.identify_bottlenecks()
