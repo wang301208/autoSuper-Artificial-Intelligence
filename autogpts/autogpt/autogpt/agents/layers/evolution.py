@@ -11,6 +11,7 @@ from ...core.agent.simple import PerformanceEvaluator
 from autogpt.core.agent.layered import LayeredAgent
 from autogpt.core.memory import Memory
 from autogpt.core.planning import SimplePlanner
+from ml.experience_collector import log_interaction
 
 
 class EvolutionAgent(LayeredAgent):
@@ -116,6 +117,10 @@ class EvolutionAgent(LayeredAgent):
             )
 
         self._log_training(self._last_state, self._last_action, reward)
+        try:
+            log_interaction(self._last_state, ability_name, result, reward)
+        except Exception:
+            pass
         self._generation_count += 1
         if self._generation_count >= self._generations:
             for state_prefs in self._policy.values():
