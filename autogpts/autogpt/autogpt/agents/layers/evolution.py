@@ -49,6 +49,8 @@ class EvolutionAgent(LayeredAgent):
         self._last_action: Optional[str] = None
         self._last_prob: dict[str, float] | None = None
         self._generation_count = 0
+        self._experience_batch: list[dict[str, Any]] = []
+        self._policy_mtime: float | None = None
 
         self._load_policy()
 
@@ -62,27 +64,40 @@ class EvolutionAgent(LayeredAgent):
         if self._policy_path.exists():
             try:
                 self._policy = json.loads(self._policy_path.read_text())
+                self._policy_mtime = self._policy_path.stat().st_mtime
             except Exception:
                 self._policy = {}
+                self._policy_mtime = None
 
     def _save_policy(self) -> None:
         try:
             self._policy_path.write_text(json.dumps(self._policy, indent=2))
+            self._policy_mtime = self._policy_path.stat().st_mtime
         except Exception:
             pass
 
-    def _log_training(self, state: str, action: str, reward: float) -> None:
+    def _log_training(self, batch: list[dict[str, Any]]) -> None:
         log: list[Any] = []
         if self._log_path.exists():
             try:
                 log = json.loads(self._log_path.read_text())
             except Exception:
                 log = []
-        log.append({"state": state, "action": action, "reward": reward})
+        log.extend(batch)
         try:
             self._log_path.write_text(json.dumps(log, indent=2))
         except Exception:
             pass
+
+    def _maybe_reload_policy(self) -> None:
+        if not self._policy_path.exists():
+            return
+        try:
+            mtime = self._policy_path.stat().st_mtime
+        except Exception:
+            return
+        if self._policy_mtime is None or mtime != self._policy_mtime:
+            self._load_policy()
 
     # ------------------------------------------------------------------
     # Policy gradient ability selection
@@ -94,6 +109,7 @@ class EvolutionAgent(LayeredAgent):
         return [e / total for e in exps]
 
     def _select_ability(self, state: str, abilities: list[Any]) -> Any:
+        self._maybe_reload_policy()
         ability_names = [getattr(a, "name", str(a)) for a in abilities]
         prefs = self._policy.setdefault(state, {})
         for name in ability_names:
@@ -114,14 +130,18 @@ class EvolutionAgent(LayeredAgent):
         reward = self._performance.score(result, cost=0.0, duration=0.0)
 
         self._trainer.push_experience(self._last_state, self._last_action, reward)
-
-        self._log_training(self._last_state, self._last_action, reward)
+        self._experience_batch.append(
+            {"state": self._last_state, "action": self._last_action, "reward": reward}
+        )
         try:
             log_interaction(self._last_state, ability_name, result, reward)
         except Exception:
             pass
         self._generation_count += 1
         if self._generation_count >= self._generations:
+            if self._experience_batch:
+                self._log_training(self._experience_batch)
+                self._experience_batch.clear()
             self._policy = self._trainer.update_policy()
             self._save_policy()
             self._generation_count = 0
@@ -188,7 +208,15 @@ class EvolutionAgent(LayeredAgent):
                 self._memory.add("EvolutionAgent: removed failed tasks from queue.")
 
         if self.next_layer is not None:
-            return await self.next_layer.determine_next_ability(
+            outcome = await self.next_layer.determine_next_ability(
                 filtered_tasks, filtered_abilities, *args, **kwargs
             )
+            if (
+                isinstance(outcome, tuple)
+                and len(outcome) == 2
+                and isinstance(outcome[0], dict)
+            ):
+                ability_name = outcome[0].get("next_ability")
+                self.record_feedback(ability_name, outcome[1])
+            return outcome
         return filtered_tasks, filtered_abilities
