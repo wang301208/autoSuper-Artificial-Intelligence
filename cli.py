@@ -30,6 +30,7 @@ def setup():
     """Installs dependencies needed for your system. Works with Linux, MacOS and Windows WSL."""
     import os
     import subprocess
+    import sys
 
     click.echo(
         click.style(
@@ -331,6 +332,11 @@ def start(agent_name, no_setup):
         subprocess.Popen(["./run"], cwd=agent_dir)
         click.echo(f"⌛ (Re)starting agent '{agent_name}'...")
         wait_until_conn_ready(8000)
+
+        subprocess.Popen(
+            [sys.executable, "execution/auto_scheduler.py"], cwd=script_dir
+        )
+        click.echo("⌛ Starting auto scheduler...")
         click.echo("✅ Agent application started and available on port 8000")
     elif not os.path.exists(agent_dir):
         click.echo(
