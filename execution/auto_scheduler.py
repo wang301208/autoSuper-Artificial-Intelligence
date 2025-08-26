@@ -67,8 +67,19 @@ def main() -> None:
 
     if retrain_interval > 0:
         from ml import retraining_pipeline
+        import subprocess
+        from pathlib import Path
 
-        scheduler.add_job(retraining_pipeline.main, retrain_interval)
+        def retrain_job() -> None:
+            if not retraining_pipeline.main():
+                script = (
+                    Path(__file__).resolve().parent.parent
+                    / "scripts"
+                    / "rollback.sh"
+                )
+                subprocess.run(["bash", str(script)], check=False)
+
+        scheduler.add_job(retrain_job, retrain_interval)
 
     if self_improve_interval > 0:
         from evolution.self_improvement import SelfImprovement

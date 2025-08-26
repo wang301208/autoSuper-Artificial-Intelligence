@@ -1,6 +1,1 @@
-cpu_percent,memory_percent
-50,40
-60,50
-70,60
-80,70
-90,80
+timestamp,version,Success Rate,Mean Reward,Perplexity,Test MSE,status
