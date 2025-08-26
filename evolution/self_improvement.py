@@ -30,7 +30,14 @@ class SelfImprovement:
             with open(self.metrics_path) as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    data.append({k: float(v) for k, v in row.items()})
+                    numeric: Dict[str, float] = {}
+                    for k, v in row.items():
+                        try:
+                            numeric[k] = float(v)
+                        except (TypeError, ValueError):
+                            continue
+                    if numeric:
+                        data.append(numeric)
         except FileNotFoundError:
             pass
         return data
@@ -120,7 +127,10 @@ class SelfImprovement:
         """Run the parallel GA and record generation/time metrics."""
 
         if fitness_fn is None:
-            fitness_fn = lambda x: -sum((v - 0.5) ** 2 for v in x)
+            def default_fitness(x: List[float]) -> float:
+                return -sum((v - 0.5) ** 2 for v in x)
+
+            fitness_fn = default_fitness
         cfg = config or GAConfig.from_env()
         ga = ParallelGA(fitness_fn, cfg)
         best, best_fit, history = ga.run()

@@ -8,6 +8,7 @@ cron job).
 from __future__ import annotations
 
 import argparse
+import csv
 import logging
 import shutil
 import sys
@@ -17,12 +18,27 @@ import subprocess
 from typing import Dict
 
 import pandas as pd
+from events import create_event_bus, publish
 
 DATA_DIR = Path("data")
 DATASET = DATA_DIR / "dataset.csv"
 NEW_LOGS = DATA_DIR / "new_logs.csv"
 ARTIFACTS = Path("artifacts")
 CURRENT = ARTIFACTS / "current"
+PREVIOUS = ARTIFACTS / "previous"
+
+HISTORY_FILE = Path("evolution/metrics_history.csv")
+HISTORY_FIELDS = [
+    "timestamp",
+    "version",
+    "Success Rate",
+    "Mean Reward",
+    "Perplexity",
+    "Test MSE",
+    "status",
+]
+
+event_bus = create_event_bus("inmemory")
 
 # Additional metrics considered during deployment comparison. ``direction``
 # specifies whether higher values are better ("higher") or lower values are
@@ -84,6 +100,26 @@ def parse_metrics(metrics_file: Path) -> Dict[str, float]:
     return metrics
 
 
+def _log_history(version: str, metrics: Dict[str, float], status: str) -> None:
+    """Append metrics to the history CSV."""
+
+    HISTORY_FILE.parent.mkdir(exist_ok=True)
+    row = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": version,
+        "status": status,
+    }
+    for key in ["Success Rate", "Mean Reward", "Perplexity", "Test MSE"]:
+        row[key] = metrics.get(key, float("nan"))
+
+    write_header = not HISTORY_FILE.exists()
+    with open(HISTORY_FILE, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=HISTORY_FIELDS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def train_and_evaluate(version: str, model: str) -> tuple[Path, str]:
     """Train a model using the aggregated dataset.
 
@@ -118,9 +154,11 @@ def train_and_evaluate(version: str, model: str) -> tuple[Path, str]:
     return ARTIFACTS / version / "metrics.txt", metric_name
 
 
+def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> bool:
+    """Deploy the trained model if it outperforms the current baseline.
 
-def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> None:
-    """Deploy the trained model if it outperforms the current baseline."""
+    Returns ``True`` if deployment succeeded, ``False`` otherwise.
+    """
 
     new_metrics = parse_metrics(metrics_file)
     baseline_file = CURRENT / "metrics.txt"
@@ -146,31 +184,48 @@ def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> None
 
     if not regressions:
         if CURRENT.exists():
+            if PREVIOUS.exists():
+                shutil.rmtree(PREVIOUS)
+            shutil.copytree(CURRENT, PREVIOUS)
             shutil.rmtree(CURRENT)
         shutil.copytree(ARTIFACTS / version, CURRENT)
+        metric_val = new_metrics.get(metric_name, float("nan"))
         print(
-            f"Deployed new model version {version} ({metric_name} {new_metrics.get(metric_name, float('nan')):.4f})",
+            f"Deployed new model version {version} ({metric_name} {metric_val:.4f})",
         )
+        _log_history(version, new_metrics, "deployed")
+        return True
     else:
         logger.warning(
             "Model not deployed due to metric regressions: %s", "; ".join(regressions)
         )
-    
+        _log_history(version, new_metrics, "regression")
+        publish(
+            event_bus,
+            "model.regression",
+            {"version": version, "regressions": regressions},
+        )
+        return False
 
-def main() -> None:
+
+def main() -> bool:
     parser = argparse.ArgumentParser(description="Retrain models on accumulated data")
-    parser.add_argument("--model", default="linear", help="Model type to train (e.g. 'linear' or 'llm')")
+    parser.add_argument(
+        "--model",
+        default="linear",
+        help="Model type to train (e.g. 'linear' or 'llm')",
+    )
     args = parser.parse_args()
 
     accumulate_logs()
     if not DATASET.exists():
         print("No dataset available for training")
-        return
+        return True
 
     version = datetime.utcnow().strftime("v%Y%m%d%H%M%S")
     metrics_file, metric_name = train_and_evaluate(version, args.model)
-    deploy_if_better(version, metrics_file, metric_name)
+    return deploy_if_better(version, metrics_file, metric_name)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(0 if main() else 1)
