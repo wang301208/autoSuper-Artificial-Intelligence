@@ -6,12 +6,12 @@ import time
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / "autogpts" / "autogpt"))
-from autogpt.core.planning.schema import Task
+from autogpt.core.planning.schema import Task, TaskType
 
 
 def _make_tasks(n: int) -> list[Task]:
     return [
-        Task(objective=f"task {i}", type="test", priority=random.randint(1, 100), ready_criteria=[], acceptance_criteria=[])
+        Task(objective=f"task {i}", type=TaskType.TEST, priority=random.randint(1, 100), ready_criteria=[], acceptance_criteria=[])
         for i in range(n)
     ]
 

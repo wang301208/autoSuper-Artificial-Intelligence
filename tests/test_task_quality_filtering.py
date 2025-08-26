@@ -59,7 +59,7 @@ monitoring_mod.ActionLogger = _ActionLogger
 sys.modules["monitoring"] = monitoring_mod
 
 from autogpt.core.agent.simple import SimpleAgent
-from autogpt.core.planning.schema import TaskStatus
+from autogpt.core.planning.schema import TaskStatus, TaskType
 
 
 class DummyPlan:
@@ -98,14 +98,14 @@ async def test_low_quality_tasks_filtered_and_prioritized():
         "task_list": [
             {
                 "objective": "Good task",
-                "type": "task",
+                "type": TaskType.TEST,
                 "priority": 1,
                 "ready_criteria": ["do it"],
                 "acceptance_criteria": ["done"],
             },
             {
                 "objective": "Bad task",
-                "type": "task",
+                "type": TaskType.TEST,
                 "priority": 1,
                 "ready_criteria": [],
                 "acceptance_criteria": [],
@@ -118,7 +118,7 @@ async def test_low_quality_tasks_filtered_and_prioritized():
         logger=logging.getLogger("test"),
         ability_registry=DummyAbilityRegistry(),
         memory=DummyMemory(),
-        openai_provider=DummyOpenAIProvider(),
+        model_providers={},
         planning=DummyPlanner(plan),
         workspace=DummyWorkspace(),
     )

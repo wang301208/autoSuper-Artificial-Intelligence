@@ -1,6 +1,6 @@
 import heapq
 from autogpt.core.agent.simple import SimpleAgent
-from autogpt.core.planning.schema import Task
+from autogpt.core.planning.schema import Task, TaskType
 
 
 def _dummy_agent() -> SimpleAgent:
@@ -12,7 +12,7 @@ def _dummy_agent() -> SimpleAgent:
 def _make_task(priority: int) -> Task:
     return Task(
         objective=f"task {priority}",
-        type="test",
+        type=TaskType.TEST,
         priority=priority,
         ready_criteria=[],
         acceptance_criteria=[],
