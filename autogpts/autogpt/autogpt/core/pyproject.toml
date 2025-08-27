@@ -19,17 +19,7 @@ cli = "autogpt.core.runner.cli_app.cli:autogpt"
 cli-web = "autogpt.core.runner.cli_web_app.cli:autogpt"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-agent-protocol = "^0.3.0"
-click = "^8.1.7"
-colorama = "^0.4.6"
-distro = "^1.8.0"
-inflection = "^0.5.1"
-jsonschema = "^4.19.1"
-openai = "^0.28.0"
-pydantic = "^1.10.12"
-pyyaml = "^6.0.0"
-tiktoken = "^0.5.1"
+python = { workspace = true }
 
 [build-system]
 requires = ["poetry-core"]

@@ -88,7 +88,7 @@ Commands:
   setup      Installs dependencies needed for your system.
 ```
 
-只需克隆仓库，使用 `./run setup` 安装依赖即可开始！
+克隆仓库后在根目录运行 `poetry install` 安装所有依赖，再使用 `./run setup` 开始！
 
 安装完成后，可通过以下命令验证项目能否正常运行：
 
