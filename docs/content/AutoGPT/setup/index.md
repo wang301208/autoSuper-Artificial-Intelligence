@@ -116,8 +116,7 @@ Once you have cloned or downloaded the project, you can find the AutoGPT Agent i
         To activate and adjust a setting, remove the `# ` prefix.
 
 7. Save and close the `.env` file.
-8. _Optional: run `poetry install` to install all required dependencies._ The
-    application also checks for and installs any required dependencies when it starts.
+8. Run `poetry install` in the repository root to install all required dependencies.
 
 You should now be able to explore the CLI (`./autogpt.sh --help`) and run the application.
 
