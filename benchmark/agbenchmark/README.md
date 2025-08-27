@@ -19,7 +19,7 @@
 2. `pip install poetry`
 3. `poetry shell`
 4. `poetry install`
-5. `cp .env_example .env`
+5. From the repository root, copy `.env.example` to `.env`
 6. `git submodule update --init --remote --recursive`
 7. `uvicorn server:app --reload`
 8. `agbenchmark --mock`
@@ -29,7 +29,7 @@
 
 1. Navigate to `auto-gpt-benchmarks/agent/mini-agi`
 2. `pip install -r requirements.txt`
-3. `cp .env_example .env`, set `PROMPT_USER=false` and add your `OPENAI_API_KEY=`. Sset `MODEL="gpt-3.5-turbo"` if you don't have access to `gpt-4` yet. Also make sure you have Python 3.10^ installed
+3. From the repository root, copy `.env.example` to `.env`, set `PROMPT_USER=false` and add your `OPENAI_API_KEY=`. Set `MODEL="gpt-3.5-turbo"` if you don't have access to `gpt-4` yet. Also make sure you have Python 3.10^ installed
 4. set `AGENT_NAME=mini-agi` in `.env` file and where you want your `REPORTS_FOLDER` to be
 5. Make sure to follow the commands above, and remove mock flag `agbenchmark`
 

@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from agbenchmark.config import AgentBenchmarkConfig
 from agbenchmark.utils.logging import configure_logging
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # try:
 #     if os.getenv("HELICONE_API_KEY"):

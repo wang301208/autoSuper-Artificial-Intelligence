@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
@@ -37,7 +38,7 @@ if __name__ == "__main__":
     print(logo)
     port = os.getenv("PORT", 8000)
     LOG.info(f"Agent server starting on http://localhost:{port}")
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parents[3] / ".env")
     forge.sdk.forge_log.setup_logger()
 
     uvicorn.run(

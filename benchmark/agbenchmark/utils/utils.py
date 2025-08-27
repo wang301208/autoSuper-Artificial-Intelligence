@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from agbenchmark.reports.processing.report_types import Test
 from agbenchmark.utils.data_types import DIFFICULTY_MAP, DifficultyLevel
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 AGENT_NAME = os.getenv("AGENT_NAME")
 

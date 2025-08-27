@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from agbenchmark.challenges import get_unique_categories
 from agbenchmark.config import AgentBenchmarkConfig
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 logger = logging.getLogger(__name__)
 

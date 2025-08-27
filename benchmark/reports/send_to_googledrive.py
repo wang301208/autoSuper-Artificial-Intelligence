@@ -3,14 +3,15 @@ import json
 import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import gspread
 import pandas as pd
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from the repository root .env file
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 # Get the base64 string from the environment variable
 base64_creds = os.getenv("GDRIVE_BASE64")

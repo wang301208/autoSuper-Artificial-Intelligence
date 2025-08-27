@@ -25,7 +25,7 @@ Demo made by <a href=https://twitter.com/BlakeWerlinger>Blake Werlinger</a>
 
 ## Setting up AutoGPT
 1. Get an OpenAI [API Key](https://platform.openai.com/account/api-keys)
-2. Copy `.env.template` to `.env` and set `OPENAI_API_KEY`
+2. From the repository root, copy `.env.example` to `.env` and set `OPENAI_API_KEY`
 3. Make sure you have Poetry [installed](https://python-poetry.org/docs/#installation)
 
 For more ways to run AutoGPT, more detailed instructions, and more configuration options,
