@@ -89,6 +89,7 @@ Commands:
 ```
 
 克隆仓库后在根目录运行 `poetry install` 安装所有依赖，再使用 `./run setup` 开始！
+Windows 用户请先在 PowerShell 中执行 `./setup.ps1`（或 `powershell -ExecutionPolicy Bypass -File setup.ps1`），该脚本会检测并安装 Python 与 Poetry，然后再运行上述命令。
 
 安装完成后，可通过以下命令验证项目能否正常运行：
 
