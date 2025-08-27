@@ -114,5 +114,9 @@ Once you have cloned or downloaded the project:
 
 You should now be able to explore the CLI (`./autogpt.sh --help`) and run the application.
 
+### Configuration validation
+
+On startup AutoGPT validates that required environment variables are present and correctly typed. Missing values, such as a missing `OPENAI_API_KEY`, cause the CLI to print an error and exit. Double-check your `.env` file for misspelled keys or empty values if validation fails.
+
 See the [user guide](../usage.md) for further instructions.
 

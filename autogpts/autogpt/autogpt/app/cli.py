@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Optional
 
 import click
+from pydantic import ValidationError
+
+from autogpt.config.validation import validate_env
 
 from autogpt.logs.config import LogFormatName
 
@@ -14,6 +17,14 @@ from .telemetry import setup_telemetry
 @click.pass_context
 def cli(ctx: click.Context):
     setup_telemetry()
+    try:
+        validate_env()
+    except ValidationError as err:
+        missing = ", ".join(e["loc"][0] for e in err.errors())
+        click.echo(
+            f"Missing required environment variables: {missing}", err=True
+        )
+        raise SystemExit(1) from err
 
     # Invoke `run` by default
     if ctx.invoked_subcommand is None:
