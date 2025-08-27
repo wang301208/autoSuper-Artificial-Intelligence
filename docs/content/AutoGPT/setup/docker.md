@@ -87,7 +87,7 @@
     </details>
 
 
-4. Download [`.env.template`][.env.template] and save it as `.env` in the AutoGPT folder.
+4. In the repository root, copy `.env.example` to `.env`.
 5. Follow the [configuration](#configuration) steps.
 6. Pull the latest image from [Docker Hub]
 
@@ -99,7 +99,6 @@
     AutoGPT uses a browser in headless mode by default: `HEADLESS_BROWSER=True`.
     Please do not change this setting in combination with Docker, or AutoGPT will crash.
 
-[.env.template]: https://github.com/Significant-Gravitas/AutoGPT/tree/master/autogpts/autogpt/.env.template
 [Docker Hub]: https://hub.docker.com/r/significantgravitas/auto-gpt
 
 ## Configuration
@@ -153,7 +152,7 @@ found in the [repository].
     Use this setup if you have cloned the repository and have made (or want to make)
     changes to the codebase.
 
-1. Copy `.env.template` to `.env`.
+1. Copy `.env.example` to `.env`.
 2. Follow the standard [configuration](#configuration) steps above.
 
 ## Running AutoGPT with Docker

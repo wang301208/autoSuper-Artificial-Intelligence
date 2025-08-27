@@ -117,7 +117,7 @@ The SDK is the main directory for the Forge. Here's a breakdown:
 
 #### Configurations and Environment
 
-Configuration is key to ensuring our agent runs seamlessly. The .env.example file provides a template for setting up the necessary environment variables. Before diving into the Forge, developers need to copy this to a new .env file and adjust the settings:  
+Configuration is key to ensuring our agent runs seamlessly. The root `.env.example` file provides a template for setting up the necessary environment variables. Before diving into the Forge, developers need to copy this to a new `.env` file in the repository root and adjust the settings:
 - **API Key**: `OPENAI_API_KEY` is where you plug in your OpenAI API key.  
 - **Log Level**: With `LOG_LEVEL`, control the verbosity of the logs.  
 - **Database Connection**: `DATABASE_STRING` determines where and how the agent's data gets stored.  

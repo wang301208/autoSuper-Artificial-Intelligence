@@ -70,21 +70,15 @@ Since we don't ship AutoGPT as a desktop application, you'll need to download th
 
 ### Completing the Setup
 
-Once you have cloned or downloaded the project, you can find the AutoGPT Agent in the
-`autogpts/autogpt/` folder. In this folder:
+Once you have cloned or downloaded the project:
 
-1. Find the file named `.env.template`. This file may
-    be hidden by default in some operating systems due to the dot prefix. To reveal
-    hidden files, follow the instructions for your specific operating system:
-    [Windows][show hidden files/Windows] and [macOS][show hidden files/macOS].
-2. Create a copy of `.env.template` and call it `.env`;
-    if you're already in a command prompt/terminal window:
+1. In the repository root, copy `.env.example` to `.env`.
     ```shell
-    cp .env.template .env
+    cp .env.example .env
     ```
-3. Open the `.env` file in a text editor.
-4. Find the line that says `OPENAI_API_KEY=`.
-5. Insert your OpenAI API Key directly after = without quotes or spaces..
+2. Open the `.env` file in a text editor.
+3. Find the line that says `OPENAI_API_KEY=`.
+4. Insert your OpenAI API Key directly after = without quotes or spaces..
     ```yaml
     OPENAI_API_KEY=sk-qwertykeys123456
     ```
@@ -122,5 +116,3 @@ You should now be able to explore the CLI (`./autogpt.sh --help`) and run the ap
 
 See the [user guide](../usage.md) for further instructions.
 
-[show hidden files/Windows]: https://support.microsoft.com/en-us/windows/view-hidden-files-and-folders-in-windows-97fbc472-c603-9d90-91d0-1166d1d9f4b5
-[show hidden files/macOS]: https://www.pcmag.com/how-to/how-to-access-your-macs-hidden-files
