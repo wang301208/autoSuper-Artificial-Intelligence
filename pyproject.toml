@@ -6,10 +6,10 @@ authors = ["AutoGPT Contributors <support@agpt.co>"]
 
 [tool.poetry.workspace]
 members = [
-  "autogpts/autogpt",
-  "autogpts/autogpt/autogpt/core",
-  "autogpts/forge",
-  "benchmark"
+  "backend/autogpts/autogpt",
+  "backend/autogpts/autogpt/autogpt/core", 
+  "backend/autogpts/forge",
+  "modules/benchmark"
 ]
 
 [tool.poetry.dependencies]
