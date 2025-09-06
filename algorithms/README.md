@@ -14,17 +14,32 @@ and difficulty.
 - Module and package names use `snake_case`.
 
 ## Directory Structure
-Algorithms are grouped by their function (e.g., `sorting`, `searching`)
-and then by difficulty (`basic`, `advanced`).
+Algorithms are grouped by their function (e.g., `sorting`, `searching`,
+`data_structures`) and then by difficulty (`basic`, `advanced`).
 
 ```
 algorithms/
 ├── sorting/
 │   ├── basic/
 │   └── advanced/
-└── searching/
+├── searching/
+│   ├── basic/
+│   └── advanced/
+└── data_structures/
     ├── basic/
     └── advanced/
 ```
 
 Use `template.py` as a starting point for new algorithm implementations.
+
+## Data Structures
+
+Basic examples:
+
+- `algorithms/data_structures/basic/stack.py`
+- `algorithms/data_structures/basic/queue.py`
+- `algorithms/data_structures/basic/linked_list.py`
+
+Advanced example:
+
+- `algorithms/data_structures/advanced/binary_tree.py`
