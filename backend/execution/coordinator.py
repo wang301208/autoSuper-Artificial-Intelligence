@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 from events import EventBus
 from events.coordination import TaskDispatchEvent, TaskStatus
+from algorithms.neuro_symbolic.logic_engine import LogicEngine
 
 
 class AgentCoordinator:
@@ -18,6 +19,13 @@ class AgentCoordinator:
     def dispatch_task(
         self, task_id: str, payload: Dict[str, Any], agent_id: str | None = None
     ) -> None:
+        payload = dict(payload)
+        logic_cfg = payload.get("logic")
+        if logic_cfg:
+            engine = LogicEngine(logic_cfg.get("rules"))
+            nn_output = logic_cfg.get("nn_output", {})
+            payload["logic_result"] = engine.evaluate(nn_output)
+
         event = TaskDispatchEvent(task_id=task_id, payload=payload, assigned_to=agent_id)
         self._bus.publish("task.dispatch", event.to_dict())
 
