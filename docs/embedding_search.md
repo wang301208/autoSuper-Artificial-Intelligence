@@ -8,7 +8,7 @@ approaches:
 * **Weighted-average** – compute embeddings for each chunk of a document and use
   the token-length weighted average as the document representation.
 
-The benchmark (see `benchmark/embedding_search_benchmark.py`) evaluated retrieval
+The benchmark (see `modules/benchmark/embedding_search_benchmark.py`) evaluated retrieval
 accuracy on a small corpus of animal facts. Results:
 
 ```
