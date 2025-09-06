@@ -4,6 +4,8 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from typing import Deque, Dict
 
+from .intrinsic_reward import compute_intrinsic_reward
+
 
 class Analytics:
     """Maintain rolling metric history and compute simple trends."""
@@ -29,3 +31,7 @@ class Analytics:
             elif values:
                 trends[key] = 0.0
         return trends
+
+    def get_intrinsic_reward(self) -> float:
+        """Calculate an intrinsic reward based on current metric trends."""
+        return compute_intrinsic_reward(self.get_trends())
