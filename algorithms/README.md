@@ -15,7 +15,7 @@ and difficulty.
 
 ## Directory Structure
 Algorithms are grouped by their function (e.g., `sorting`, `searching`,
-`data_structures`) and then by difficulty (`basic`, `advanced`).
+`data_structures`, `storage`) and then by difficulty (`basic`, `advanced`).
 
 ```
 algorithms/
@@ -25,7 +25,10 @@ algorithms/
 ├── searching/
 │   ├── basic/
 │   └── advanced/
-└── data_structures/
+├── data_structures/
+│   ├── basic/
+│   └── advanced/
+└── storage/
     ├── basic/
     └── advanced/
 ```
@@ -43,3 +46,14 @@ Basic examples:
 Advanced example:
 
 - `algorithms/data_structures/advanced/binary_tree.py`
+
+## Storage
+
+Basic examples:
+
+- `algorithms/storage/basic/lru_cache.py`
+- `algorithms/storage/basic/lfu_cache.py`
+
+Advanced example:
+
+- `algorithms/storage/advanced/btree_index.py`
