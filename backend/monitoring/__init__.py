@@ -5,6 +5,7 @@ from .storage import TimeSeriesStorage
 from .system_metrics import SystemMetricsCollector
 from .metrics_collector import MetricsCollector
 from .performance_monitor import PerformanceMonitor, email_alert, dashboard_alert
+from .reflection import Reflection
 
 __all__ = [
     "TimeSeriesStorage",
@@ -14,4 +15,5 @@ __all__ = [
     "PerformanceMonitor",
     "email_alert",
     "dashboard_alert",
+    "Reflection",
 ]

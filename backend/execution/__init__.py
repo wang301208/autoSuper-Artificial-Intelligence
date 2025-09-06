@@ -3,6 +3,7 @@ from .task_graph import Task, TaskGraph
 from .scheduler import Scheduler
 from .coordinator import AgentCoordinator
 from .auto_scheduler import AutoScheduler
+from .strategy_search import StrategySearch
 
 __all__ = [
     "Executor",
@@ -11,4 +12,5 @@ __all__ = [
     "Scheduler",
     "AgentCoordinator",
     "AutoScheduler",
+    "StrategySearch",
 ]
