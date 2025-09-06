@@ -1,0 +1,9 @@
+tasks:
+  - name: task1
+    dataset: data/task1.csv
+  - name: task2
+    dataset: data/task2.csv
+adapt_steps: 5
+inner_lr: 0.01
+meta_lr: 0.001
+epochs: 3
