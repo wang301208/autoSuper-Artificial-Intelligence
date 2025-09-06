@@ -2,13 +2,13 @@
 
 [[package]]
 name = "agent-protocol"
-version = "0.3.0"
+version = "1.0.2"
 description = "API for interacting with Agent"
 optional = false
 python-versions = ">=3.7,<4.0.0"
 files = [
-    {file = "agent_protocol-0.3.0-py3-none-any.whl", hash = "sha256:717d0fdad2e105968120fa0a99f0b29e08890951e9cbd74740dd10abf4cfe6dc"},
-    {file = "agent_protocol-0.3.0.tar.gz", hash = "sha256:6239820753246bbc69f7f531293b32c69f23284158d58873ee55fe9916cd6028"},
+    {file = "agent_protocol-1.0.2-py3-none-any.whl", hash = "sha256:883914cd4dbcd2641d2634d13b5bd6049a18d26c7c528b4d7809e529f4de464e"},
+    {file = "agent_protocol-1.0.2.tar.gz", hash = "sha256:cc767ac6534fd73699d81b9f2101a57a03d9b2e65c9cf17c0cff36b958237691"},
 ]
 
 [package.dependencies]
