@@ -20,8 +20,9 @@ autogpt-v0.5.1/
 ## 🚀 快速开始
 
 ### 环境要求
-- Python 3.8+
-- Node.js 16+
+- Python 3.10+
+- Flutter 3.x（包含 Dart 3.x）
+- Node.js 16+（仅在运行基准测试前端等 Node.js 工具时需要）
 - Docker (可选)
 
 ### 安装步骤
@@ -49,7 +50,7 @@ autogpt-v0.5.1/
 - 🏆 [排行榜](https://leaderboard.agpt.co)
 
 ### 💻 用户界面
-用户友好的Web界面，通过agent protocol与代理连接，支持多种代理兼容。
+基于 Flutter 构建的用户友好 Web 界面，通过 agent protocol 与代理连接，支持多种代理兼容。
 - 📘 [前端文档](https://github.com/Significant-Gravitas/AutoGPT/tree/master/frontend)
 
 ### ⌨️ 命令行工具
