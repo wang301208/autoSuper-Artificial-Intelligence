@@ -39,6 +39,8 @@ class NextAbility(PromptStrategy):
         "{action_history}\n\n"
         "Here is additional information that may be useful to you:\n"
         "{additional_info}\n\n"
+        "Your current self state is:\n"
+        "{self_state}\n\n"
         "Additionally, you should consider the following:\n"
         "{user_input}\n\n"
         "Your task of {task_objective} is complete when the following acceptance"
@@ -138,6 +140,12 @@ class NextAbility(PromptStrategy):
             no_items_response=(
                 "There is no additional information available at this time."
             ),
+            **template_kwargs,
+        )
+        state_context = kwargs.get("state_context") or {}
+        template_kwargs["self_state"] = to_numbered_list(
+            [f"{k}: {v}" for k, v in state_context.items()],
+            no_items_response="No self state available.",
             **template_kwargs,
         )
         template_kwargs["user_input"] = to_numbered_list(
