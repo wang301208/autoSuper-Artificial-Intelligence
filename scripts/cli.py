@@ -226,6 +226,28 @@ def execute(goal):
     click.echo(results)
 
 
+@cli.command()
+@click.option('--multitask', is_flag=True, help='Enable multi-task training mode')
+@click.option('--modules', multiple=True, help='Modules to include in training')
+def train(multitask, modules):
+    """Train models with optional multi-task support."""
+    from capability import register_module, combine_modules
+    from ml.multitask_trainer import MultiTaskTrainer
+
+    for name in modules:
+        register_module(name, lambda path=f'data/{name}.csv': path)
+
+    datasets = dict(zip(modules, combine_modules(list(modules))))
+
+    if multitask:
+        trainer = MultiTaskTrainer(datasets)
+        trainer.load_datasets()
+        results = trainer.train()
+        for name, (_, mse) in results.items():
+            click.echo(f'{name}: MSE {mse:.4f}')
+    else:
+        click.echo('Multi-task mode disabled; no training executed.')
+
 @cli.command(name="meta-tickets")
 def list_meta_tickets():
     """List pending meta-upgrade tickets."""
