@@ -20,6 +20,7 @@ Options:
 
 Commands:
   agent      Commands to create, start and stop agents
+  arena      Commands to enter the arena
   benchmark  Commands to start the benchmark and list tests and categories
   setup      Installs dependencies needed for your system.
 ```
@@ -180,3 +181,33 @@ TestWriteFile
 ```
 
 显示 `my_agent` 的 Benchmark 测试结果。
+
+### 5. Arena 命令
+
+**a. 进入 Arena**
+
+```sh
+./run arena enter my_agent
+```
+
+**输出**：
+
+```
+🚀 my_agent has entered the arena! Please edit your PR description at the following URL: <PR_URL>
+```
+
+将指定代理提交到 Arena，参与排行榜挑战。
+
+**b. 更新 Arena 提交**
+
+```sh
+./run arena update my_agent <commit_hash> --branch main
+```
+
+**输出**：
+
+```
+🚀 The file for agent 'my_agent' has been updated in the arena directory.
+```
+
+更新已参赛代理的提交信息，例如新的提交哈希或分支。
