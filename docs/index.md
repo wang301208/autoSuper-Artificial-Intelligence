@@ -8,6 +8,7 @@ AutoGPT 项目包含四个主要组件：
 * [Benchmark](#benchmark) - 性能测试工具
 * [Forge](#forge) - 代理开发框架
 * [Frontend](#frontend) - 用户界面
+* [Algorithms](#algorithms) - 常见算法与数据结构实现
 
 ## 🤖 Agent
 
@@ -32,6 +33,12 @@ AutoGPT 项目包含四个主要组件：
 **[📘 说明文档](../frontend/README.md)**
 
 开源的用户界面，兼容任何支持 Agent Protocol 的代理。
+
+## 📚 Algorithms
+
+**[📘 使用说明](../algorithms/README.md)**
+
+提供排序、搜索、数据结构以及存储与缓存等常见算法实现，例如 `LRUCache`、`LFUCache`、`BTreeIndex` 等。
 
 ## 🔧 CLI
 
