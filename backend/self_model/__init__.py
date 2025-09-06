@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 from backend.reflection.reflection import ReflectionModule
 from backend.memory.long_term import LongTermMemory
@@ -13,6 +13,11 @@ class SelfModel:
         self._reflection = ReflectionModule()
         self._history: List[str] = []
         self._memory = memory
+        self._self_state: Dict[str, Any] = {
+            "goals": [],
+            "capabilities": [],
+            "mood": "neutral",
+        }
 
     def estimate(self, data: Dict[str, float], env_pred: Dict[str, float]) -> Dict[str, float]:
         """Return corrected CPU and memory predictions.
@@ -28,6 +33,20 @@ class SelfModel:
             "memory": max(data.get("memory", 0.0) - adjustment_mem, 0.0),
         }
 
+    def update_state(self, events: List[str]) -> None:
+        """Update the internal ``self_state`` based on ``events``."""
+
+        for event in events:
+            e = event.lower()
+            if "goal" in e and ":" in event:
+                self._self_state["goals"].append(event.split(":", 1)[1].strip())
+            if "capability" in e and ":" in event:
+                self._self_state["capabilities"].append(event.split(":", 1)[1].strip())
+            if any(word in e for word in ("error", "fail")):
+                self._self_state["mood"] = "frustrated"
+            elif any(word in e for word in ("success", "completed", "done")):
+                self._self_state["mood"] = "satisfied"
+
     def assess_state(
         self,
         data: Dict[str, float],
@@ -40,6 +59,7 @@ class SelfModel:
         results are stored for future reference.
         """
 
+        self.update_state([last_action])
         metrics = self.estimate(data, env_pred)
         base = (
             f"cpu={metrics['cpu']:.2f}, memory={metrics['memory']:.2f}; "
@@ -47,10 +67,21 @@ class SelfModel:
         )
         evaluation, revised = self._reflection.reflect(base)
         summary = f"{evaluation} | {revised}"
+
+        narrative_base = (
+            f"mood={self._self_state['mood']}; goals="
+            f"{', '.join(self._self_state['goals']) or 'none'}; capabilities="
+            f"{', '.join(self._self_state['capabilities']) or 'none'}"
+        )
+        n_eval, n_revised = self._reflection.reflect(narrative_base)
+        narrative = f"{n_eval} | {n_revised}"
+        summary = f"{summary} | {narrative}"
+
         self._history.append(summary)
         self._history = self._history[-5:]
         if self._memory:
             self._memory.add("self_awareness", summary)
+            self._memory.add("self_narrative", narrative)
         return metrics, summary
 
     @property
