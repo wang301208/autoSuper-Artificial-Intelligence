@@ -13,6 +13,7 @@ class SelfModel:
         self._reflection = ReflectionModule()
         self._history: List[str] = []
         self._memory = memory
+        self._last_summary: str | None = None
         self._self_state: Dict[str, Any] = {
             "goals": [],
             "capabilities": [],
@@ -79,11 +80,27 @@ class SelfModel:
 
         self._history.append(summary)
         self._history = self._history[-5:]
+        self._last_summary = summary
         if self._memory:
             self._memory.add("self_awareness", summary)
             self._memory.add("self_narrative", narrative)
         return metrics, summary
 
+    # ------------------------------------------------------------------
+    def introspect(
+        self, data: Dict[str, float], env_pred: Dict[str, float], last_action: str
+    ) -> Dict[str, float | str]:
+        """Return CPU/memory estimates together with a reflection summary."""
+
+        metrics, summary = self.assess_state(data, env_pred, last_action)
+        return {"cpu": metrics["cpu"], "memory": metrics["memory"], "summary": summary}
+
     @property
     def history(self) -> List[str]:
         return list(self._history)
+
+    @property
+    def last_summary(self) -> str | None:
+        """Return the most recent introspection summary."""
+
+        return self._last_summary

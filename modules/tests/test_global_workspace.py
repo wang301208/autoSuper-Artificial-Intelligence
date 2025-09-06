@@ -23,3 +23,11 @@ def test_broadcast_propagates_state() -> None:
     assert b.received == [("a", {"value": 1}, 0.5)]
     assert gw.state("a") == {"value": 1}
     assert gw.attention("a") == 0.5
+
+
+def test_subscribe_state_receives_updates() -> None:
+    gw = GlobalWorkspace()
+    received = []
+    gw.subscribe_state("self_model", lambda s: received.append(s))
+    gw.broadcast("self_model", {"agent": "a", "summary": "hi"})
+    assert received == [{"agent": "a", "summary": "hi"}]

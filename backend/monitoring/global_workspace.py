@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Shared global workspace for broadcasting state between modules."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Callable, List
 
 
 class GlobalWorkspace:
@@ -12,6 +12,7 @@ class GlobalWorkspace:
         self._modules: Dict[str, Any] = {}
         self._state: Dict[str, Any] = {}
         self._attention: Dict[str, float] = {}
+        self._state_subs: Dict[str, List[Callable[[Any], None]]] = {}
 
     # ------------------------------------------------------------------
     def register_module(self, name: str, module: Any) -> None:
@@ -29,6 +30,13 @@ class GlobalWorkspace:
             handler = getattr(module, "receive_broadcast", None)
             if callable(handler):
                 handler(sender, state, attention)
+        for handler in self._state_subs.get(sender, []):
+            handler(state)
+
+    def subscribe_state(self, name: str, handler: Callable[[Any], None]) -> None:
+        """Invoke *handler* whenever *name* publishes new state."""
+
+        self._state_subs.setdefault(name, []).append(handler)
 
     # ------------------------------------------------------------------
     def state(self, name: str) -> Any:
