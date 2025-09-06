@@ -37,3 +37,19 @@ def test_assess_state_and_event():
     bus.publish("agent.self_awareness", {"agent": "test", "summary": summary})
 
     assert received and received[0]["summary"] == summary
+
+    narratives = list(self_model._memory.get("self_narrative"))
+    assert narratives and any("mood=" in n for n in narratives)
+
+
+def test_update_state_from_events():
+    model = SelfModel()
+    model.update_state([
+        "goal: build features",
+        "capability: planning",
+        "success",
+    ])
+
+    assert "build features" in model._self_state["goals"]
+    assert "planning" in model._self_state["capabilities"]
+    assert model._self_state["mood"] == "satisfied"
