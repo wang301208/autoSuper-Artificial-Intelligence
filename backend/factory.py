@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from autogpt.config import Config
 from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 
 from agent_factory import create_agent_from_blueprint
+from concept_alignment import ConceptAligner
+from creative_engine import CrossModalCreativeEngine
+from modules.common.concepts import ConceptNode
 
 
 def spawn_agent(
@@ -39,4 +42,15 @@ def spawn_agent(
     )
 
 
-__all__ = ["spawn_agent"]
+def create_creative_engine(
+    aligner: ConceptAligner,
+    encoders: Dict[str, Callable[[str], List[float]]],
+    generators: Optional[Dict[str, Callable[[str, List[ConceptNode]], Any]]] = None,
+) -> CrossModalCreativeEngine:
+    """Instantiate a :class:`CrossModalCreativeEngine` for creative synthesis."""
+    return CrossModalCreativeEngine(
+        aligner=aligner, encoders=encoders, generators=generators
+    )
+
+
+__all__ = ["spawn_agent", "create_creative_engine"]
