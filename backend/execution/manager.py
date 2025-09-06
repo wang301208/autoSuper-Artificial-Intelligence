@@ -23,6 +23,8 @@ from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.agents.agent import Agent
 from .scheduler import Scheduler
+from world_model import WorldModel
+from self_model import SelfModel
 
 
 class AgentState(Enum):
@@ -75,6 +77,8 @@ class AgentLifecycleManager:
         self._resource_thread.start()
         self._watcher = BlueprintWatcher(self._on_blueprint_change)
         self._watcher.start()
+        self._world_model = WorldModel()
+        self._self_model = SelfModel()
 
     # ------------------------------------------------------------------
     # State helpers
@@ -212,9 +216,12 @@ class AgentLifecycleManager:
                     self._set_state(name, AgentState.SLEEPING)
 
             # Predictive resource checks and idleness
+            env_pred = self._world_model.predict(self._resources)
             for name, data in list(self._resources.items()):
                 cpu = data.get("cpu", 0.0)
                 mem = data.get("memory", 0.0)
+                sim = self._self_model.estimate({"cpu": cpu, "memory": mem}, env_pred)
+                cpu, mem = sim["cpu"], sim["memory"]
                 data["cpu_pred"] = alpha * cpu + (1 - alpha) * data.get("cpu_pred", cpu)
                 data["memory_pred"] = alpha * mem + (1 - alpha) * data.get("memory_pred", mem)
                 quota = data.get("quota", self._default_quota)
