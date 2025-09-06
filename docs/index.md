@@ -51,6 +51,10 @@ AutoGPT 项目包含四个主要组件：
 ./run setup                      # 安装依赖
 ```
 
+## 🌅 未来展望
+
+想了解 AutoGPT 的长期研究方向，请参阅 [未来展望](agi_vision_cn.md)。
+
 ## 💬 支持
 
 加入 Discord 社区获取帮助：[discord.gg/autogpt](https://discord.gg/autogpt)

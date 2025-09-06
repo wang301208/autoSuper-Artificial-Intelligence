@@ -4,6 +4,7 @@ repo_url: https://github.com/Significant-Gravitas/AutoGPT
 docs_dir: content
 nav:
   - Home: index.md
+  - 未来展望: agi_vision_cn.md
 
   - AutoGPT Agent:
     - Introduction: AutoGPT/index.md
