@@ -137,11 +137,13 @@ class SimplePlanner(Configurable):
         self,
         task: Task,
         ability_specs: list[CompletionModelFunction],
+        state_context: dict | None = None,
     ):
         return await self.chat_with_model(
             self._prompt_strategies["next_ability"],
             task=task,
             ability_specs=ability_specs,
+            state_context=state_context,
         )
 
     async def chat_with_model(

@@ -37,6 +37,7 @@ from autogpt.config import Config
 from autogpt.core.knowledge_extractor import extract
 from autogpt.core.knowledge_conflict import resolve_conflicts
 from monitoring import ActionLogger
+from autogpt.core.global_workspace import GlobalWorkspace
 
 
 class AgentSystems(SystemConfiguration):
@@ -185,6 +186,8 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._action_logger = ActionLogger(
             self._workspace.root / "logs" / "actions.jsonl"
         )
+        self._global_workspace = GlobalWorkspace()
+        self._memory_pointer = 0
 
     @classmethod
     def from_workspace(
@@ -312,9 +315,18 @@ class SimpleAgent(LayeredAgent, Configurable):
 
         task = await self._evaluate_task_and_add_context(task)
         ability_specs = self._ability_registry.dump_abilities()
-        next_ability = await self._choose_next_ability(task, ability_specs)
+        self._global_workspace.update_state(
+            goal=self._configuration.goals[0] if self._configuration.goals else "",
+            memory_pointer=self._memory_pointer,
+        )
+        next_ability = await self._choose_next_ability(
+            task, ability_specs, self._global_workspace.get_context()
+        )
         self._current_task = task
         self._next_ability = next_ability.parsed_result
+        self._global_workspace.update_state(
+            action=self._next_ability["next_ability"]
+        )
         task_desc = getattr(task, "description", task.objective)
         task_id = str(getattr(task, "id", id(task)))
         self._action_logger.log(
@@ -334,6 +346,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         if user_input == "y":
             ability_name = self._next_ability["next_ability"]
             ability_args = self._next_ability["ability_arguments"]
+            predicted_action = ability_name
             ability = self._ability_registry.get_ability(ability_name)
 
             filename = (
@@ -482,6 +495,8 @@ class SimpleAgent(LayeredAgent, Configurable):
                 ability=ability_name,
                 score=score,
             )
+            self._global_workspace.reflect(predicted_action, ability_name)
+            self._memory_pointer += 1
             self._action_logger.log(
                 {
                     "event": "action_executed",
@@ -554,6 +569,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         self,
         task: Task,
         ability_specs: list[CompletionModelFunction],
+        state_context: dict[str, Any] | None = None,
     ):
         """Choose the next ability to use for the task."""
         self._logger.debug(f"Choosing next ability for task {task}.")
@@ -586,7 +602,7 @@ class SimpleAgent(LayeredAgent, Configurable):
                 reverse=True,
             )
             next_ability = await self._planning.determine_next_ability(
-                task, ability_specs
+                task, ability_specs, state_context=state_context
             )
             return next_ability
 
