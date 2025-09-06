@@ -1,0 +1,19 @@
+site_name: Algorithm Library
+nav:
+  - Home: index.md
+  - Sorting:
+      - Bubble Sort: sorting/bubble_sort.md
+      - Quick Sort: sorting/quick_sort.md
+  - Searching:
+      - Linear Search: searching/linear_search.md
+      - Binary Search: searching/binary_search.md
+  - Dynamic Programming:
+      - Fibonacci: dynamic_programming/fibonacci.md
+      - Longest Common Subsequence: dynamic_programming/lcs.md
+  - Graph:
+      - Breadth-First Search: graph/bfs.md
+      - Depth-First Search: graph/dfs.md
+plugins:
+  - search
+theme:
+  name: mkdocs
