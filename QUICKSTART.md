@@ -6,7 +6,10 @@
 
 ## 系统要求
 
-本项目支持 Linux（基于 Debian）、Mac 和 Windows Subsystem for Linux (WSL)。如果你使用 Windows 系统，需要安装 WSL。WSL 的安装说明见[此处](https://learn.microsoft.com/en-us/windows/wsl/)。
+本项目支持 Linux（基于 Debian）、Mac 和 Windows Subsystem for Linux (WSL)。如果你使用 Windows 系统，需要安装 WSL，安装说明见[此处](https://learn.microsoft.com/en-us/windows/wsl/)。
+
+- Python 版本：3.10 及以上
+- 前端（可选）：需要 Flutter 3.x，可按照 [Flutter 官方安装文档](https://docs.flutter.dev/get-started/install) 安装
 
 ## 开始设置
 1. **Fork 仓库**
@@ -31,6 +34,9 @@
    - 然后在你的 IDE 中打开项目。
 
    ![Open the Project in your IDE](docs/content/imgs/quickstart/004_ide.png)
+
+3. **进入仓库目录**
+   - 在终端中运行 `cd AutoGPT`（或你克隆的仓库名称）以进入项目根目录。
 
 4. **设置项目**
     接下来我们需要安装所需依赖。我们提供了一个工具帮助你完成仓库中的所有任务。在终端输入 `./run` 即可访问。
