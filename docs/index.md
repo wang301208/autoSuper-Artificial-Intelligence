@@ -23,13 +23,13 @@ AutoGPT 项目包含四个主要组件：
 
 ## 🏗️ Forge
 
-**[📖 介绍](forge/get-started.md)** | **[🚀 快速开始](https://github.com/Significant-Gravitas/AutoGPT/blob/master/QUICKSTART.md)**
+**[📖 介绍](forge/get-started.md)** | **[🚀 快速开始](../QUICKSTART.md)**
 
 即用型的代理应用模板，提供完整的样板代码，让你专注于代理的核心功能开发。
 
 ## 💻 Frontend
 
-**[📘 说明文档](https://github.com/Significant-Gravitas/AutoGPT/blob/master/frontend/README.md)**
+**[📘 说明文档](../frontend/README.md)**
 
 开源的用户界面，兼容任何支持 Agent Protocol 的代理。
 
