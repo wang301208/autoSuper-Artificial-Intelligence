@@ -220,10 +220,17 @@ class AgentLifecycleManager:
             for name, data in list(self._resources.items()):
                 cpu = data.get("cpu", 0.0)
                 mem = data.get("memory", 0.0)
-                sim = self._self_model.estimate({"cpu": cpu, "memory": mem}, env_pred)
-                cpu, mem = sim["cpu"], sim["memory"]
+                metrics, summary = self._self_model.assess_state(
+                    {"cpu": cpu, "memory": mem},
+                    env_pred,
+                    data.get("last_action", ""),
+                )
+                cpu, mem = metrics["cpu"], metrics["memory"]
                 data["cpu_pred"] = alpha * cpu + (1 - alpha) * data.get("cpu_pred", cpu)
                 data["memory_pred"] = alpha * mem + (1 - alpha) * data.get("memory_pred", mem)
+                self._event_bus.publish(
+                    "agent.self_awareness", {"agent": name, "summary": summary}
+                )
                 quota = data.get("quota", self._default_quota)
                 if (
                     data["cpu_pred"] > quota.get("cpu", 100.0)
