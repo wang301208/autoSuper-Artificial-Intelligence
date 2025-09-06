@@ -36,6 +36,7 @@ from autogpts.autogpt.autogpt.core.errors import (
 
 from capability.librarian import Librarian
 from org_charter import io as charter_io
+from backend.monitoring.global_workspace import global_workspace
 
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,16 @@ def create_agent_from_blueprint(
         app_config=config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+    )
+
+    # Register core components with the global workspace so they can
+    # exchange state and attention with other modules.
+    global_workspace.register_module(agent.settings.agent_id, agent)
+    global_workspace.register_module(
+        f"{agent.settings.agent_id}.command_registry", agent.command_registry
+    )
+    global_workspace.register_module(
+        f"{agent.settings.agent_id}.llm_provider", agent.llm_provider
     )
 
     # Restrict commands to authorised tools
