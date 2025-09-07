@@ -5,6 +5,7 @@ from .coordinator import AgentCoordinator
 from .auto_scheduler import AutoScheduler
 from .strategy_search import StrategySearch
 from .planner import Planner
+from .goal_generator import GoalGenerator
 
 __all__ = [
     "Executor",
@@ -15,4 +16,5 @@ __all__ = [
     "AutoScheduler",
     "StrategySearch",
     "Planner",
+    "GoalGenerator",
 ]

@@ -23,6 +23,8 @@ from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.agents.agent import Agent
 from .scheduler import Scheduler
+from .planner import Planner
+from .goal_generator import GoalGenerator
 from world_model import WorldModel
 from self_model import SelfModel
 
@@ -79,6 +81,8 @@ class AgentLifecycleManager:
         self._watcher.start()
         self._world_model = WorldModel()
         self._self_model = SelfModel()
+        self._planner = Planner()
+        self._goal_generator = GoalGenerator()
 
     # ------------------------------------------------------------------
     # State helpers
@@ -254,6 +258,14 @@ class AgentLifecycleManager:
                         self._set_state(name, AgentState.IDLE)
 
             self._cleanup_sleeping_agents(now)
+
+            # If no tasks are queued and agents are idle, generate new goals
+            if self._task_count == 0 and any(
+                state == AgentState.IDLE for state in self._states.values()
+            ):
+                goal = self._goal_generator.generate()
+                if goal:
+                    self._planner.decompose(goal, source="auto")
 
             # Scale agents based on pending tasks
             if self._task_count > len(self._agents):
