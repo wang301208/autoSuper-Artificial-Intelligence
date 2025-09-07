@@ -3,9 +3,14 @@ from __future__ import annotations
 
 from typing import List
 
+from backend.creative_engine.problem_solver import DivergentConvergentSolver
+
 
 class Planner:
     """Decompose high level goals into ordered sub-tasks."""
+
+    def __init__(self, solver: DivergentConvergentSolver | None = None) -> None:
+        self.solver = solver
 
     def decompose(self, goal: str, source: str | None = None) -> List[str]:
         """Return a list of sub-tasks derived from a high level goal.
@@ -34,3 +39,22 @@ class Planner:
         if source:
             tasks = [f"{task} [{source}]" for task in tasks]
         return tasks
+
+    def solve(self, goal: str | dict) -> List[str]:
+        """Return a plan for ``goal``.
+
+        When ``goal`` specifies multiple strategies via a mapping with
+        ``start``, ``goal`` and ``strategies`` keys, the
+        :class:`DivergentConvergentSolver` is used to pick the best path.
+        Otherwise the goal string is simply decomposed into sub-tasks.
+        """
+
+        if isinstance(goal, dict) and goal.get("strategies"):
+            if not self.solver:
+                raise ValueError("No solver configured")
+            start = goal.get("start", "")
+            target = goal.get("goal", "")
+            strategies = goal.get("strategies", [])
+            best_path, _ = self.solver.solve(start, target, strategies)
+            return best_path
+        return self.decompose(goal if isinstance(goal, str) else "")
