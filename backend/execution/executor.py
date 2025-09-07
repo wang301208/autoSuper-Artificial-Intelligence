@@ -4,7 +4,7 @@ import ast
 import hashlib
 import re
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence, Tuple
 
 from autogpts.autogpt.autogpt.core.errors import (
     SkillExecutionError,
@@ -73,7 +73,17 @@ class Executor:
         return graph
 
     # Task scheduling and execution
-    def execute(self, goal: str) -> Dict[str, Any]:
+    def execute(self, plans: Sequence[Tuple[str, float]] | str) -> Dict[str, Any]:
+        """Execute the best plan from ``plans``.
+
+        ``plans`` may be a single goal string or a sequence of ``(goal, score)``
+        tuples. The plan with the highest score is selected for execution.
+        """
+
+        if isinstance(plans, str):
+            goal = plans
+        else:
+            goal, _ = max(plans, key=lambda p: p[1]) if plans else ("", 0)
         graph = self.decompose_goal(goal)
         return self.scheduler.submit(
             graph, lambda agent, skill: run_async(self._call_skill(agent, skill))
