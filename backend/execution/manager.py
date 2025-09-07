@@ -184,6 +184,95 @@ class AgentLifecycleManager:
         self._resources.clear()
 
     # ------------------------------------------------------------------
+    def pause_agent(self, name: str, reason: str | None = None) -> None:
+        """Pause *name* if running and mark it sleeping."""
+        agent = self._agents.pop(name, None)
+        if agent is not None:
+            _shutdown_agent(agent)
+            self._metrics.unregister(name)
+            if self._scheduler:
+                self._scheduler.remove_agent(name)
+            self._resources.pop(name, None)
+        # Reset heartbeat so termination is based on sleep timeout
+        self._heartbeats[name] = time.time()
+        self._set_state(name, AgentState.SLEEPING)
+        self._event_bus.publish(
+            "agent.lifecycle",
+            {"agent": name, "action": "paused", "reason": reason} if reason else {"agent": name, "action": "paused"},
+        )
+
+    def resume_agent(self, name: str) -> bool:
+        """Resume a previously paused agent."""
+        if self._states.get(name) != AgentState.SLEEPING:
+            return False
+        path = self._paths.get(name)
+        if not path:
+            return False
+        try:
+            agent = create_agent_from_blueprint(
+                path, self._config, self._llm_provider, self._file_storage
+            )
+            self._agents[name] = agent
+            self._metrics.register(name, getattr(agent, "pid", os.getpid()))
+            self._resources[name] = {
+                "cpu": 0.0,
+                "memory": 0.0,
+                "cpu_pred": 0.0,
+                "memory_pred": 0.0,
+                "quota": dict(self._default_quota),
+                "last_active": time.time(),
+            }
+            self._heartbeats[name] = time.time()
+            if self._scheduler:
+                self._scheduler.add_agent(name)
+            self._set_state(name, AgentState.RUNNING)
+            self._event_bus.publish(
+                "agent.lifecycle", {"agent": name, "action": "resumed"}
+            )
+            return True
+        except AutoGPTException as exc:
+            self._event_bus.publish(
+                "agent.lifecycle",
+                {
+                    "agent": name,
+                    "action": "failed",
+                    **log_and_format_exception(exc),
+                },
+            )
+            self._set_state(name, AgentState.TERMINATED)
+            return False
+        except Exception as exc:  # pragma: no cover - unexpected
+            self._event_bus.publish(
+                "agent.lifecycle",
+                {
+                    "agent": name,
+                    "action": "failed",
+                    **log_and_format_exception(exc),
+                },
+            )
+            self._set_state(name, AgentState.TERMINATED)
+            return False
+
+    def terminate_agent(self, name: str, reason: str | None = None) -> None:
+        """Completely remove *name* and mark it terminated."""
+        agent = self._agents.pop(name, None)
+        if agent is not None:
+            _shutdown_agent(agent)
+        self._metrics.unregister(name)
+        if self._scheduler:
+            self._scheduler.remove_agent(name)
+        self._resources.pop(name, None)
+        self._paths.pop(name, None)
+        self._heartbeats.pop(name, None)
+        self._set_state(name, AgentState.TERMINATED)
+        self._event_bus.publish(
+            "agent.lifecycle",
+            {"agent": name, "action": "terminated", "reason": reason}
+            if reason
+            else {"agent": name, "action": "terminated"},
+        )
+
+    # ------------------------------------------------------------------
     def _on_resource_event(self, event: Dict[str, float]) -> None:
         name = event.get("agent")
         if name not in self._resources:
@@ -220,14 +309,7 @@ class AgentLifecycleManager:
             for name in list(self._agents.keys()):
                 hb = self._heartbeats.get(name, 0.0)
                 if now - hb > self._heartbeat_timeout:
-                    agent = self._agents.pop(name, None)
-                    if agent is not None:
-                        _shutdown_agent(agent)
-                        self._metrics.unregister(name)
-                        if self._scheduler:
-                            self._scheduler.remove_agent(name)
-                    self._resources.pop(name, None)
-                    self._set_state(name, AgentState.SLEEPING)
+                    self.pause_agent(name, reason="heartbeat_timeout")
 
             # Predictive resource checks and idleness
             env_pred = self._world_model.predict(self._resources)
@@ -280,14 +362,7 @@ class AgentLifecycleManager:
             hb = self._heartbeats.get(name, 0.0)
             if now - hb <= self._sleep_timeout:
                 continue
-            self._metrics.unregister(name)
-            if self._scheduler:
-                self._scheduler.remove_agent(name)
-            self._agents.pop(name, None)
-            self._resources.pop(name, None)
-            self._paths.pop(name, None)
-            self._heartbeats.pop(name, None)
-            self._set_state(name, AgentState.TERMINATED)
+            self.terminate_agent(name, reason="sleep_timeout")
             self._states.pop(name, None)
 
     def _wake_sleeping_agents(self, count: int) -> None:
@@ -324,14 +399,7 @@ class AgentLifecycleManager:
     def _release_idle_agents(self, count: int) -> None:
         idle = [n for n, s in self._states.items() if s == AgentState.IDLE]
         for name in idle[:count]:
-            agent = self._agents.pop(name, None)
-            if agent is not None:
-                _shutdown_agent(agent)
-                self._metrics.unregister(name)
-                if self._scheduler:
-                    self._scheduler.remove_agent(name)
-            self._resources.pop(name, None)
-            self._set_state(name, AgentState.SLEEPING)
+            self.pause_agent(name)
 
 
 def _shutdown_agent(agent: Agent) -> None:
