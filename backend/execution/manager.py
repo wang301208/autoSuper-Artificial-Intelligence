@@ -15,7 +15,7 @@ from enum import Enum
 
 from agent_factory import create_agent_from_blueprint
 from events import EventBus
-from monitoring import SystemMetricsCollector
+from monitoring import SystemMetricsCollector, global_workspace
 from common import AutoGPTException, log_and_format_exception
 from org_charter.watchdog import BlueprintWatcher
 from autogpt.config import Config
@@ -190,11 +190,21 @@ class AgentLifecycleManager:
         quota = event.get("quota")
         if quota:
             data.setdefault("quota", dict(self._default_quota)).update(quota)
+        if "last_action" in event:
+            data["last_action"] = event["last_action"]
         if self._scheduler:
             self._scheduler.update_agent(name, data["cpu"], data["memory"])
         if data["cpu"] > 1.0:
             data["last_active"] = time.time()
             self._set_state(name, AgentState.RUNNING)
+
+        env_pred = self._world_model.predict(self._resources)
+        metrics, summary = self._self_model.assess_state(
+            {"cpu": data.get("cpu", 0.0), "memory": data.get("memory", 0.0)},
+            env_pred,
+            event.get("last_action", data.get("last_action", "")),
+        )
+        global_workspace.broadcast("self_model", {"agent": name, "summary": summary})
 
     def _resource_manager(self) -> None:
         idle_timeout = 30.0

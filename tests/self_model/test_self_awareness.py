@@ -53,3 +53,12 @@ def test_update_state_from_events():
     assert "build features" in model._self_state["goals"]
     assert "planning" in model._self_state["capabilities"]
     assert model._self_state["mood"] == "satisfied"
+
+
+def test_introspect_exposes_last_summary():
+    data = {"cpu": 1.0, "memory": 2.0}
+    env_pred = {"avg_cpu": 0.5, "avg_memory": 1.0}
+    model = SelfModel()
+    result = model.introspect(data, env_pred, "idle")
+    assert "summary" in result
+    assert model.last_summary == result["summary"]
