@@ -1,4 +1,24 @@
-"""Commands to search the web with"""
+"""AutoGPT 网络搜索命令模块。
+
+本模块提供了网络搜索功能，支持 DuckDuckGo 和 Google 两种搜索引擎。
+为 AutoGPT 代理提供获取实时网络信息的能力。
+
+支持的搜索引擎:
+    - DuckDuckGo: 默认搜索引擎，无需 API 密钥
+    - Google: 需要 API 密钥和自定义搜索引擎 ID
+
+主要功能:
+    - 网络搜索查询
+    - 搜索结果格式化
+    - 错误处理和重试机制
+    - 安全的结果返回
+
+设计特点:
+    - 支持多种搜索引擎
+    - 自动重试机制
+    - 结果安全编码
+    - 灵活的配置选项
+"""
 
 from __future__ import annotations
 
@@ -12,10 +32,11 @@ from autogpt.agents.utils.exceptions import ConfigurationError
 from autogpt.command_decorator import command
 from autogpt.core.utils.json_schema import JSONSchema
 
+# 命令分类标识
 COMMAND_CATEGORY = "web_search"
 COMMAND_CATEGORY_TITLE = "Web Search"
 
-
+# DuckDuckGo 搜索的最大重试次数
 DUCKDUCKGO_MAX_ATTEMPTS = 3
 
 

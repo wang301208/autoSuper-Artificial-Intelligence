@@ -1,3 +1,24 @@
+"""AutoGPT 文件操作能力实现。
+
+本模块提供了 AutoGPT 系统的核心文件操作能力，包括文件读取和写入功能。
+这些能力允许 AI 代理与文件系统进行交互，读取和创建文件内容。
+
+主要能力:
+    - ReadFile: 读取并解析文件内容
+    - WriteFile: 写入文本内容到文件
+
+技术特点:
+    - 使用 unstructured 库进行智能文件解析
+    - 支持多种文件格式的自动识别和处理
+    - 集成工作空间安全机制
+    - 提供详细的错误处理和状态反馈
+
+安全考虑:
+    - 所有文件操作都限制在指定的工作空间内
+    - 包含完整的前置条件检查
+    - 提供详细的操作日志和错误信息
+"""
+
 import logging
 import os
 from typing import ClassVar
@@ -10,6 +31,23 @@ from autogpt.core.workspace import Workspace
 
 
 class ReadFile(Ability):
+    """文件读取能力。
+    
+    提供智能文件读取功能，能够自动解析多种文件格式并提取文本内容。
+    使用 unstructured 库进行文档解析，支持 PDF、Word、HTML 等多种格式。
+    
+    功能特性:
+        - 自动文件格式识别
+        - 智能文本提取
+        - 结构化内容解析
+        - 安全的工作空间限制
+        
+    使用场景:
+        - 读取配置文件
+        - 解析文档内容
+        - 提取数据文件信息
+        - 分析代码文件
+    """
     default_configuration = AbilityConfiguration(
         location=PluginLocation(
             storage_format=PluginStorageFormat.INSTALLED_PACKAGE,

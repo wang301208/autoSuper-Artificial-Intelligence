@@ -1,5 +1,25 @@
-"""
-The FileStorage class provides an interface for interacting with a file storage.
+"""AutoGPT 文件存储基础模块。
+
+本模块定义了文件存储系统的抽象接口，提供了统一的文件操作API。
+支持本地文件系统、云存储等多种存储后端的抽象化访问。
+
+核心功能:
+    - 统一的文件操作接口
+    - 路径安全性验证
+    - 存储根目录限制
+    - 事件钩子支持
+
+设计模式:
+    - 抽象基类模式
+    - 模板方法模式
+    - 策略模式（不同存储后端）
+    - 观察者模式（事件钩子）
+
+安全特性:
+    - 路径遍历攻击防护
+    - 根目录访问限制
+    - 空字节注入防护
+    - 绝对路径验证
 """
 
 from __future__ import annotations
@@ -17,19 +37,51 @@ logger = logging.getLogger(__name__)
 
 
 class FileStorageConfiguration(SystemConfiguration):
-    restrict_to_root: bool = True
-    root: Path = Path("/")
+    """文件存储配置类。
+
+    定义了文件存储系统的基本配置参数，包括根目录限制和根路径设置。
+
+    属性:
+        restrict_to_root: 是否限制文件访问在根目录内
+        root: 存储系统的根目录路径
+    """
+    restrict_to_root: bool = True  # 是否限制访问根目录
+    root: Path = Path("/")  # 存储根目录
 
 
 class FileStorage(ABC):
-    """A class that represents a file storage."""
+    """文件存储抽象基类。
 
-    on_write_file: Callable[[Path], Any] | None = None
+    定义了文件存储系统的统一接口，支持多种存储后端的实现。
+    提供了完整的文件操作功能，包括读写、列表、删除等操作。
+
+    核心特性:
+        - 抽象化的存储接口
+        - 路径安全性保障
+        - 事件钩子机制
+        - 类型安全的文件操作
+
+    安全机制:
+        - 路径遍历防护
+        - 根目录限制
+        - 输入验证
+        - 权限控制
+
+    扩展性:
+        - 支持多种存储后端
+        - 可插拔的实现
+        - 灵活的配置选项
     """
-    Event hook, executed after writing a file.
 
-    Params:
-        Path: The path of the file that was written, relative to the storage root.
+    # 文件写入事件钩子，在文件写入后执行
+    on_write_file: Callable[[Path], Any] | None = None
+    """文件写入事件钩子。
+
+    在文件成功写入后执行的回调函数，可用于日志记录、
+    缓存更新、通知发送等后续处理。
+
+    参数:
+        Path: 相对于存储根目录的文件路径
     """
 
     @property

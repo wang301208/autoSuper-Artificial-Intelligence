@@ -1,3 +1,28 @@
+"""AutoGPT 文件操作工具模块。
+
+本模块提供了多种文件格式的解析和处理功能，支持文本、PDF、Word、JSON、XML、YAML、HTML 和 LaTeX 等格式。
+使用策略模式实现不同文件类型的解析器，提供统一的文件内容提取接口。
+
+支持的文件格式:
+    - 文本文件: .txt, .md, .csv
+    - PDF 文档: .pdf
+    - Word 文档: .docx
+    - 数据格式: .json, .xml, .yaml, .yml
+    - 网页格式: .html, .htm, .xhtml
+    - 学术格式: .tex (LaTeX)
+
+设计模式:
+    - 策略模式：不同文件格式的解析策略
+    - 上下文模式：文件解析上下文管理
+    - 工厂模式：解析器的创建和选择
+
+核心功能:
+    - 自动文件格式检测
+    - 字符编码自动识别
+    - 二进制文件检测
+    - 统一的文本提取接口
+"""
+
 import json
 import logging
 from abc import ABC, abstractmethod
@@ -14,8 +39,30 @@ logger = logging.getLogger(__name__)
 
 
 class ParserStrategy(ABC):
+    """文件解析策略抽象基类。
+
+    定义了所有文件解析器必须实现的接口，使用策略模式
+    允许在运行时选择不同的解析算法。
+
+    设计原则:
+        - 单一职责：每个解析器只处理一种文件格式
+        - 开闭原则：易于扩展新的文件格式支持
+        - 接口隔离：提供简洁统一的解析接口
+    """
+
     @abstractmethod
     def read(self, file: BinaryIO) -> str:
+        """从文件中读取并解析内容为文本。
+
+        Args:
+            file: 二进制文件对象
+
+        Returns:
+            str: 解析后的文本内容
+
+        Raises:
+            具体的解析异常由子类实现定义
+        """
         ...
 
 

@@ -1,3 +1,27 @@
+"""AutoGPT 向量内存工具模块。
+
+本模块提供了文本嵌入向量的生成和处理功能，支持多种输入格式和嵌入提供者。
+是 AutoGPT 向量内存系统的核心工具模块。
+
+主要功能:
+    - 文本嵌入向量生成
+    - 多种输入格式支持
+    - 插件系统集成
+    - 批量处理优化
+
+支持的输入格式:
+    - 单个文本字符串
+    - 标记化文本序列
+    - 文本列表（批量处理）
+    - 标记序列列表
+
+设计特点:
+    - 类型安全的重载函数
+    - 插件优先的处理策略
+    - 灵活的嵌入提供者支持
+    - 高效的批量处理
+"""
+
 import logging
 from contextlib import suppress
 from typing import Any, Sequence, overload
@@ -9,11 +33,13 @@ from autogpt.core.resource.model_providers import EmbeddingModelProvider
 
 logger = logging.getLogger(__name__)
 
+# 嵌入向量类型定义，支持多种数值格式
 Embedding = list[float] | list[np.float32] | np.ndarray[Any, np.dtype[np.float32]]
-"""Embedding vector"""
+"""嵌入向量类型，可以是浮点数列表或 NumPy 数组"""
 
+# 标记化文本类型定义
 TText = Sequence[int]
-"""Tokenized text"""
+"""标记化文本类型，表示为整数序列"""
 
 
 @overload

@@ -1,8 +1,24 @@
-"""
-This is a minimal file intended to be run by users to help them manage the autogpt projects.
+"""AutoGPT 项目管理命令行工具。
 
-If you want to contribute, please use only libraries that come as part of Python.
-To ensure efficiency, add the imports to the functions so only what is needed is imported.
+这是一个为用户提供的 AutoGPT 项目管理工具，帮助用户创建、启动、停止和管理 AutoGPT 代理，
+以及运行基准测试和进入竞技场等功能。
+
+主要功能:
+    - 系统环境设置和依赖安装
+    - 代理的创建、启动、停止和列表管理
+    - 基准测试的运行和结果查看
+    - 竞技场参与和提交管理
+    - 训练模式和多任务支持
+
+设计原则:
+    - 使用 Python 标准库以确保兼容性
+    - 按需导入以提高效率
+    - 提供友好的用户界面和错误提示
+    - 支持跨平台操作（Linux、MacOS、Windows WSL）
+
+贡献指南:
+    如果您想要贡献代码，请仅使用 Python 标准库中的模块。
+    为了确保效率，请在函数内部添加导入语句，只导入需要的模块。
 """
 try:
     import click

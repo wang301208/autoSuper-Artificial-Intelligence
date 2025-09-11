@@ -1,3 +1,20 @@
+"""AutoGPT 代理能力层模块。
+
+本模块实现了 AutoGPT 代理的能力选择和执行层，负责根据任务需求选择合适的能力，
+并将执行结果传递给下一层或反馈处理器。
+
+主要功能:
+    - 能力注册表管理
+    - 任务与能力的智能匹配
+    - 执行计划的生成和路由
+    - 性能反馈的收集和处理
+
+设计模式:
+    - 分层代理架构
+    - 策略模式（能力选择）
+    - 责任链模式（层级传递）
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,14 +26,22 @@ from autogpt.core.agent.layered import LayeredAgent
 
 
 class CapabilityAgent(LayeredAgent):
-    """Layer that selects abilities for a task and delegates execution.
+    """能力代理层，负责选择和委托执行任务能力。
 
-    This layer inspects the available abilities provided by an ability registry
-    and chooses the one that best matches the incoming task. The selected ability
-    is wrapped into an execution plan and routed to the next layer, typically an
-    execution layer responsible for actually running the ability. After
-    execution, performance data is optionally forwarded to a feedback handler so
-    that an evolution layer can learn from the outcome.
+    该层检查能力注册表中的可用能力，选择最匹配传入任务的能力。
+    选中的能力被包装成执行计划并路由到下一层（通常是执行层）。
+    执行后，性能数据可选择性地转发给反馈处理器，以便进化层学习结果。
+
+    核心职责:
+        - 能力发现和匹配
+        - 执行计划生成
+        - 结果路由和反馈
+        - 性能数据收集
+
+    架构特点:
+        - 支持能力注册表的动态管理
+        - 提供可选的反馈机制
+        - 与其他代理层无缝集成
     """
 
     def __init__(
@@ -25,9 +50,20 @@ class CapabilityAgent(LayeredAgent):
         next_layer: Optional[LayeredAgent] = None,
         feedback_handler: Optional[Callable[[str, AbilityResult], None]] = None,
     ) -> None:
+        """初始化能力代理层。
+
+        Args:
+            ability_registry: 能力注册表，包含所有可用的能力
+            next_layer: 下一层代理，通常是执行层
+            feedback_handler: 可选的反馈处理器，用于收集性能数据
+
+        注意:
+            能力注册表是必需的，它定义了代理可以执行的所有操作。
+            反馈处理器用于支持进化学习和性能优化。
+        """
         super().__init__(next_layer=next_layer)
-        self._ability_registry = ability_registry
-        self._feedback_handler = feedback_handler
+        self._ability_registry = ability_registry  # 能力注册表
+        self._feedback_handler = feedback_handler  # 反馈处理器
 
     @classmethod
     def from_workspace(

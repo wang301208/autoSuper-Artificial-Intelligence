@@ -1,4 +1,32 @@
-"""Logging module for Auto-GPT."""
+"""AutoGPT 日志配置模块。
+
+本模块提供了 AutoGPT 系统的完整日志配置功能，支持多种日志格式、
+输出目标和特殊功能（如语音输出、打字效果等）。
+
+主要功能:
+    - 多种日志格式支持（简单、调试、结构化）
+    - 控制台和文件输出配置
+    - 语音输出集成
+    - 打字效果模拟
+    - 插件系统集成
+
+支持的日志格式:
+    - SIMPLE: 简单格式，适合生产环境
+    - DEBUG: 调试格式，包含文件名和行号
+    - STRUCTURED: 结构化格式，适合云环境
+
+特殊功能:
+    - 语音输出：将日志内容转换为语音
+    - 打字效果：模拟打字机效果的控制台输出
+    - 插件集成：支持聊天插件的日志报告
+
+设计特点:
+    - 灵活的配置选项
+    - 环境变量支持
+    - 多输出目标
+    - 性能优化
+"""
+
 from __future__ import annotations
 
 import enum
@@ -21,26 +49,40 @@ from autogpt.core.runner.client_lib.logging import BelowLevelFilter
 from .formatters import AutoGptFormatter, StructuredLoggingFormatter
 from .handlers import TTSHandler, TypingConsoleHandler
 
-LOG_DIR = Path(__file__).parent.parent.parent / "logs"
-LOG_FILE = "activity.log"
-DEBUG_LOG_FILE = "debug.log"
-ERROR_LOG_FILE = "error.log"
+# 日志文件路径配置
+LOG_DIR = Path(__file__).parent.parent.parent / "logs"  # 日志目录
+LOG_FILE = "activity.log"  # 活动日志文件
+DEBUG_LOG_FILE = "debug.log"  # 调试日志文件
+ERROR_LOG_FILE = "error.log"  # 错误日志文件
 
-SIMPLE_LOG_FORMAT = "%(asctime)s %(levelname)s  %(title)s%(message)s"
-DEBUG_LOG_FORMAT = (
+# 日志格式模板
+SIMPLE_LOG_FORMAT = "%(asctime)s %(levelname)s  %(title)s%(message)s"  # 简单格式
+DEBUG_LOG_FORMAT = (  # 调试格式，包含文件信息
     "%(asctime)s %(levelname)s %(filename)s:%(lineno)d" "  %(title)s%(message)s"
 )
 
-SPEECH_OUTPUT_LOGGER = "VOICE"
-USER_FRIENDLY_OUTPUT_LOGGER = "USER_FRIENDLY_OUTPUT"
+# 特殊日志记录器名称
+SPEECH_OUTPUT_LOGGER = "VOICE"  # 语音输出日志记录器
+USER_FRIENDLY_OUTPUT_LOGGER = "USER_FRIENDLY_OUTPUT"  # 用户友好输出日志记录器
 
+# 聊天插件列表，用于日志报告功能
 _chat_plugins: list[AutoGPTPluginTemplate] = []
 
 
 class LogFormatName(str, enum.Enum):
-    SIMPLE = "simple"
-    DEBUG = "debug"
-    STRUCTURED = "structured_google_cloud"
+    """日志格式名称枚举。
+
+    定义了 AutoGPT 支持的所有日志格式类型，每种格式
+    适用于不同的使用场景和环境需求。
+
+    格式说明:
+        SIMPLE: 简洁格式，适合生产环境和用户查看
+        DEBUG: 详细格式，包含文件名和行号，适合开发调试
+        STRUCTURED: 结构化格式，适合云环境和日志分析系统
+    """
+    SIMPLE = "simple"  # 简单格式
+    DEBUG = "debug"  # 调试格式
+    STRUCTURED = "structured_google_cloud"  # 结构化格式（Google Cloud 兼容）
 
 
 TEXT_LOG_FORMAT_MAP = {

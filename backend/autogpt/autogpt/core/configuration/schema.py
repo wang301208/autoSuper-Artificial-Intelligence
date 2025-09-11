@@ -1,3 +1,22 @@
+"""AutoGPT 系统配置架构定义。
+
+本模块定义了 AutoGPT 系统的配置架构，包括用户可配置字段、
+系统配置基类和配置处理工具函数。提供了灵活的配置管理机制，
+支持从环境变量、配置文件等多种来源加载配置。
+
+主要组件:
+    - UserConfigurable: 用户可配置字段装饰器
+    - SystemConfiguration: 系统配置基类
+    - SystemSettings: 系统设置基类
+    - Configurable: 可配置对象基类
+
+设计特点:
+    - 基于 Pydantic 的类型安全配置
+    - 支持环境变量自动映射
+    - 递归配置处理
+    - 配置验证和错误处理
+"""
+
 import abc
 import os
 import typing
@@ -7,8 +26,9 @@ from pydantic import BaseModel, Field, ValidationError
 from pydantic.fields import ModelField, Undefined, UndefinedType
 from pydantic.main import ModelMetaclass
 
-T = TypeVar("T")
-M = TypeVar("M", bound=BaseModel)
+# 泛型类型变量定义
+T = TypeVar("T")  # 通用类型变量
+M = TypeVar("M", bound=BaseModel)  # 绑定到 BaseModel 的类型变量
 
 
 def UserConfigurable(
@@ -19,7 +39,29 @@ def UserConfigurable(
     description: str = "",
     **kwargs,
 ) -> T:
-    # TODO: use this to auto-generate docs for the application configuration
+    """创建用户可配置的字段。
+    
+    这是一个装饰器函数，用于标记字段为用户可配置，
+    支持从环境变量、默认值或工厂函数获取配置值。
+    
+    参数:
+        default: 字段的默认值
+        *args: 传递给 Field 的位置参数
+        default_factory: 默认值工厂函数
+        from_env: 环境变量名或获取函数
+        description: 字段描述信息
+        **kwargs: 传递给 Field 的关键字参数
+        
+    返回:
+        T: 配置字段值
+        
+    注意:
+        标记为 user_configurable=True 的字段会被配置系统特殊处理，
+        可以通过环境变量、配置文件等方式进行配置。
+        
+    TODO: 
+        使用此信息自动生成应用程序配置文档
+    """
     return Field(
         default,
         *args,
@@ -27,7 +69,7 @@ def UserConfigurable(
         from_env=from_env,
         description=description,
         **kwargs,
-        user_configurable=True,
+        user_configurable=True,  # 标记为用户可配置字段
     )
 
 
