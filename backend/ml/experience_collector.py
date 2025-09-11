@@ -4,7 +4,13 @@ import csv
 from pathlib import Path
 from typing import Any
 
+from .continual_trainer import ContinualTrainer
+from . import DEFAULT_TRAINING_CONFIG
+
 LOG_FILE = Path("data") / "new_logs.csv"
+
+# Single trainer instance used to schedule periodic fine-tuning
+TRAINER = ContinualTrainer(DEFAULT_TRAINING_CONFIG, LOG_FILE)
 
 
 def log_interaction(task: Any, ability: str, result: Any, reward: float) -> None:
@@ -49,3 +55,12 @@ def log_interaction(task: Any, ability: str, result: Any, reward: float) -> None
                 "reward": reward,
             }
         )
+    TRAINER.add_sample(
+        {
+            "state": state,
+            "ability": ability,
+            "input": input_data,
+            "output": output_data,
+            "reward": reward,
+        }
+    )
