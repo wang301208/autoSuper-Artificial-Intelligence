@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from .vision import VisionStore
+
 
 class WorldModel:
     """Maintain a structured state of the environment.
@@ -31,6 +33,7 @@ class WorldModel:
         self.resources: Dict[str, Dict[str, float]] = {}
         self.actions: List[Dict[str, str]] = []
         self._predictions: Dict[str, Dict[str, float]] = {}
+        self.vision = VisionStore()
 
     # ------------------------------------------------------------------
     # State management APIs
@@ -75,7 +78,30 @@ class WorldModel:
             "tasks": dict(self.tasks),
             "resources": {k: dict(v) for k, v in self.resources.items()},
             "actions": list(self.actions),
+            "vision": self.vision.all(),
         }
+
+    def add_visual_observation(
+        self, agent_id: str, image: Any | None = None, features: Any | None = None
+    ) -> None:
+        """Store visual data for ``agent_id``.
+
+        Parameters
+        ----------
+        agent_id:
+            Identifier of the agent that produced the observation.
+        image:
+            Optional raw image tensor or array.
+        features:
+            Optional feature vector representing the image.
+        """
+
+        self.vision.ingest(agent_id, image=image, features=features)
+
+    def get_visual_observation(self, agent_id: str) -> Dict[str, Any]:
+        """Retrieve the latest visual observation for ``agent_id``."""
+
+        return self.vision.get(agent_id)
 
     # ------------------------------------------------------------------
     # Prediction APIs
@@ -100,5 +126,5 @@ class WorldModel:
         return {"avg_cpu": total_cpu / count, "avg_memory": total_mem / count}
 
 
-__all__ = ["WorldModel"]
+__all__ = ["WorldModel", "VisionStore"]
 
