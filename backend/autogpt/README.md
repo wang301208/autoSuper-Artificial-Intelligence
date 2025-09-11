@@ -21,7 +21,23 @@ Demo made by <a href=https://twitter.com/BlakeWerlinger>Blake Werlinger</a>
 - 🔗 Access to popular websites and platforms
 - 🗃️ File generation and editing capabilities
 - 🔌 Extensibility with Plugins
+- 🖼️ Multimodal input support via a ``MultimodalInput`` dataclass
 <!-- - 💾 Long-term and short-term memory management -->
+
+## Multimodal inputs
+
+AutoGPT ships with a `MultimodalInput` dataclass for carrying text alongside
+optional image data and metadata. Planning and execution stages merge the
+embeddings of these modalities before producing prompts.
+
+A sample plugin at `autogpt/plugins/image_loader` shows how to acquire an image
+and wrap it in a `MultimodalInput`:
+
+```python
+from autogpt.plugins.image_loader import load_image
+
+mm_input = load_image("path/to/image.png", text="Describe this image")
+```
 
 ## Setting up AutoGPT
 1. Get an OpenAI [API Key](https://platform.openai.com/account/api-keys)

@@ -13,13 +13,14 @@ from autogpt.core.configuration import Configurable, SystemConfiguration, System
 from autogpt.core.memory.base import Memory
 from autogpt.core.plugin.base import PluginLocation, PluginStorageFormat
 from autogpt.core.plugin.simple import SimplePluginService
-from autogpt.core.resource.model_providers import (
+from autogpt.core.resource.model_providers.schema import (
     ChatModelProvider,
     CompletionModelFunction,
     ModelProviderName,
 )
 from autogpt.core.utils.json_schema import JSONSchema
 from autogpt.core.workspace.base import Workspace
+from autogpt.core.multimodal import MultimodalInput, embed_multimodal_input
 
 
 class SelfAssess(Ability):
@@ -190,8 +191,20 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
                 return ability
         raise ValueError(f"Ability '{ability_name}' not found.")
 
-    async def perform(self, ability_name: str, **kwargs) -> AbilityResult:
+    async def perform(
+        self,
+        ability_name: str,
+        multimodal_input: MultimodalInput | None = None,
+        **kwargs,
+    ) -> AbilityResult:
         ability = self.get_ability(ability_name)
+        if multimodal_input is not None:
+            def _embed(data: str | bytes) -> list[float]:
+                if isinstance(data, (bytes, bytearray)):
+                    return [float(b) for b in data]
+                return [float(ord(c)) for c in str(data)]
+
+            kwargs["embedding"] = embed_multimodal_input(multimodal_input, _embed)
         try:
             return await ability(**kwargs)
         except Exception as err:
