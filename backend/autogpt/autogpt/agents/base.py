@@ -47,6 +47,8 @@ from autogpt.file_storage.base import FileStorage
 from autogpt.llm.providers.openai import get_openai_command_specs
 from autogpt.models.action_history import ActionResult, EpisodicActionHistory
 from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
+from autogpt.core.brain.config import TransformerBrainConfig
+from autogpt.core.brain.transformer_brain import TransformerBrain
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,8 @@ class BaseAgentConfiguration(SystemConfiguration):
     Whether this agent uses the configured smart LLM (default) to think,
     as opposed to the configured fast LLM. Enabling this disables hybrid mode.
     """
+
+    brain: TransformerBrainConfig = Field(default_factory=TransformerBrainConfig)
 
     cycle_budget: Optional[int] = 1
     """
@@ -197,6 +201,10 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
 
         self._prompt_scratchpad: PromptScratchpad | None = None
 
+        self.brain: TransformerBrain | None = None
+        if self.config.big_brain:
+            self.brain = TransformerBrain(self.config.brain)
+
         # Support multi-inheritance and mixins for subclasses
         super(BaseAgent, self).__init__()
         logger.debug(f"Created {__class__} '{self.ai_profile.ai_name}'")
@@ -260,6 +268,21 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         try:
             # Scratchpad as surrogate PromptGenerator for plugin hooks
             self._prompt_scratchpad = PromptScratchpad()
+            if self.config.big_brain and self.brain is not None:
+                observation = [0.0] * self.config.brain.dim
+                memory_ctx = [0.0] * self.config.brain.dim
+                thought = self.brain.think(observation, memory_ctx)
+                result = self.brain.propose_action(thought)
+                self.config.cycle_count += 1
+                self.event_client.publish(
+                    "agent.cycle.end",
+                    {
+                        "agent": self.state.agent_id,
+                        "cycle": self.config.cycle_count,
+                        "metrics": {"duration": perf_counter() - start_time},
+                    },
+                )
+                return result
 
             prompt: ChatPrompt = self.build_prompt(scratchpad=self._prompt_scratchpad)
             prompt = self.on_before_think(prompt, scratchpad=self._prompt_scratchpad)
