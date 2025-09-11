@@ -14,7 +14,7 @@ from autogpt.core.planning import prompt_strategies
 from autogpt.core.planning.schema import Task
 from autogpt.core.prompting import PromptStrategy
 from autogpt.core.prompting.schema import LanguageModelClassification
-from autogpt.core.resource.model_providers import (
+from autogpt.core.resource.model_providers.schema import (
     ChatModelProvider,
     ChatModelResponse,
     CompletionModelFunction,
@@ -23,6 +23,10 @@ from autogpt.core.resource.model_providers import (
 )
 from autogpt.core.runner.client_lib.logging.helpers import dump_prompt
 from autogpt.core.workspace import Workspace
+from autogpt.core.multimodal import (
+    MultimodalInput,
+    embed_multimodal_input,
+)
 
 
 class LanguageModelConfiguration(SystemConfiguration):
@@ -149,6 +153,7 @@ class SimplePlanner(Configurable):
     async def chat_with_model(
         self,
         prompt_strategy: PromptStrategy,
+        multimodal_input: MultimodalInput | None = None,
         **kwargs,
     ) -> ChatModelResponse:
         model_classification = prompt_strategy.model_classification
@@ -158,6 +163,16 @@ class SimplePlanner(Configurable):
         provider = self._providers[model_classification]
 
         template_kwargs = self._make_template_kwargs_for_strategy(prompt_strategy)
+        if multimodal_input is not None:
+            # Simple embedding function used for merging text and image inputs.
+            def _embed(data: str | bytes) -> list[float]:
+                if isinstance(data, (bytes, bytearray)):
+                    return [float(b) for b in data]
+                return [float(ord(c)) for c in str(data)]
+
+            template_kwargs["embedding"] = embed_multimodal_input(
+                multimodal_input, _embed
+            )
         template_kwargs.update(kwargs)
         prompt = prompt_strategy.build_prompt(**template_kwargs)
 

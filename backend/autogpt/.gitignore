@@ -37,6 +37,7 @@ build/
 develop-eggs/
 dist/
 /plugins/*
+!plugins/image_loader/
 plugins_config.yaml
 downloads/
 eggs/
