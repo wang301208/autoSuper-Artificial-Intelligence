@@ -131,6 +131,22 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
         from_env=lambda: os.getenv("WIPE_REDIS_ON_START", "True") == "True",
     )
 
+    #####################
+    # Cognitive Modules #
+    #####################
+    use_transformer_brain: bool = UserConfigurable(
+        default=False,
+        from_env=lambda: os.getenv("USE_TRANSFORMER_BRAIN", "False") == "True",
+    )
+    use_knowledge_base: bool = UserConfigurable(
+        default=False,
+        from_env=lambda: os.getenv("USE_KNOWLEDGE_BASE", "False") == "True",
+    )
+    use_decision_engine: bool = UserConfigurable(
+        default=False,
+        from_env=lambda: os.getenv("USE_DECISION_ENGINE", "False") == "True",
+    )
+
     ############
     # Commands #
     ############

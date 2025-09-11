@@ -56,6 +56,9 @@ from .utils.exceptions import (
 if TYPE_CHECKING:
     from autogpt.config import Config
     from autogpt.models.command_registry import CommandRegistry
+    from autogpt.core.brain.transformer_brain import TransformerBrain
+    from knowledge import UnifiedKnowledgeBase
+    from reasoning import DecisionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +104,9 @@ class Agent(
         command_registry: CommandRegistry,
         file_storage: FileStorage,
         legacy_config: Config,
+        brain: TransformerBrain | None = None,
+        knowledge_base: "UnifiedKnowledgeBase" | None = None,
+        decision_engine: "DecisionEngine" | None = None,
     ):
         prompt_strategy = OneShotAgentPromptStrategy(
             configuration=settings.prompt_config,
@@ -113,6 +119,9 @@ class Agent(
             command_registry=command_registry,
             file_storage=file_storage,
             legacy_config=legacy_config,
+            brain=brain,
+            knowledge_base=knowledge_base,
+            decision_engine=decision_engine,
         )
         self._experience_learner = ExperienceLearner(
             memory=self.event_history,
