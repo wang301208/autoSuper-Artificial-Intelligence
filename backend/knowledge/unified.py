@@ -10,8 +10,7 @@ work.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
 
@@ -21,6 +20,7 @@ except Exception:  # pragma: no cover - handled gracefully
     SentenceTransformer = None  # type: ignore
 
 from ..memory.long_term import LongTermMemory
+from .vector_store import LocalVectorStore
 
 
 @dataclass
@@ -51,35 +51,13 @@ class UnifiedKnowledgeBase:
     sources: Dict[str, KnowledgeSource] = field(default_factory=dict)
     embedder: Any | None = None
     memory: Optional[LongTermMemory] = None
-    _index_embeddings: np.ndarray = field(init=False, default_factory=lambda: np.empty((0, 0)))
-    _index_meta: List[Tuple[str, str, str]] = field(init=False, default_factory=list)
+    vector_store: Optional[LocalVectorStore] = None
 
     # ------------------------------------------------------------------
     # Internal helpers for persistence
     # ------------------------------------------------------------------
     def _embed_key(self, source_name: str, concept: str) -> str:
         return f"{source_name}:{concept}"
-
-    def _save_embedding(self, source_name: str, concept: str, embedding: List[float]) -> None:
-        if self.memory is None:
-            return
-        payload = {"key": self._embed_key(source_name, concept), "embedding": embedding}
-        self.memory.add("knowledge_embedding", json.dumps(payload))
-
-    def _load_embedding(self, source_name: str, concept: str) -> Optional[List[float]]:
-        if self.memory is None:
-            return None
-        key = self._embed_key(source_name, concept)
-        for content in self.memory.get("knowledge_embedding"):
-            try:
-                payload = json.loads(content)
-            except Exception:  # pragma: no cover - defensive
-                continue
-            if payload.get("key") == key:
-                emb = payload.get("embedding")
-                if isinstance(emb, list):
-                    return emb
-        return None
 
     # ------------------------------------------------------------------
     # Public API
@@ -93,30 +71,30 @@ class UnifiedKnowledgeBase:
         if source.embeddings is None:
             source.embeddings = {}
         for concept, description in source.data.items():
-            emb: Optional[List[float]] = self._load_embedding(source.name, concept)
-            if emb is None:
+            key = self._embed_key(source.name, concept)
+            stored = self.memory.get_embedding(key) if self.memory else None
+            emb: List[float]
+            if stored is not None:
+                emb = stored[0]
+            else:
                 emb = self.embedder.encode(description)
-                # ``SentenceTransformer.encode`` can return numpy arrays or lists
                 if isinstance(emb, np.ndarray):
                     emb = emb.tolist()
-                self._save_embedding(source.name, concept, emb)
+                if self.memory is not None:
+                    self.memory.add_embedding(
+                        key, emb, {"source": source.name, "concept": concept}
+                    )
             source.embeddings[concept] = np.asarray(emb, dtype=float)
-        self._rebuild_index()
-
-    def _rebuild_index(self) -> None:
-        embeddings: List[np.ndarray] = []
-        meta: List[Tuple[str, str, str]] = []
-        for source_name, source in self.sources.items():
-            if not source.embeddings:
-                continue
-            for concept, emb in source.embeddings.items():
-                embeddings.append(np.asarray(emb, dtype=float))
-                meta.append((source_name, concept, source.data[concept]))
-        if embeddings:
-            self._index_embeddings = np.vstack(embeddings)
-        else:
-            self._index_embeddings = np.empty((0, 0))
-        self._index_meta = meta
+            if self.vector_store is None:
+                self.vector_store = LocalVectorStore(len(emb))
+            self.vector_store.add(
+                source.embeddings[concept],
+                {
+                    "source": source.name,
+                    "concept": concept,
+                    "description": description,
+                },
+            )
 
     def query(self, concept: str, *, semantic: bool = False, top_k: int = 5) -> Dict[str, str]:
         """Retrieve concept descriptions.
@@ -139,7 +117,7 @@ class UnifiedKnowledgeBase:
                     results[name] = source.data[concept]
             return results
 
-        if self.embedder is None or self._index_embeddings.size == 0:
+        if self.embedder is None or self.vector_store is None:
             return {}
 
         query_emb = self.embedder.encode(concept)
@@ -147,14 +125,12 @@ class UnifiedKnowledgeBase:
             query_emb = np.asarray(query_emb, dtype=float)
         query_emb = np.asarray(query_emb, dtype=float)
 
-        norms = np.linalg.norm(self._index_embeddings, axis=1) * np.linalg.norm(query_emb)
-        norms = np.where(norms == 0, 1e-10, norms)
-        sims = self._index_embeddings @ query_emb / norms
-        best_idx = np.argsort(sims)[::-1][:top_k]
-
+        hits = self.vector_store.search(query_emb, top_k=top_k)
         results: Dict[str, str] = {}
-        for idx in best_idx:
-            source_name, concept_name, description = self._index_meta[idx]
+        for hit in hits:
+            source_name = hit.get("source", "")
+            concept_name = hit.get("concept", "")
+            description = hit.get("description", "")
             results[f"{source_name}:{concept_name}"] = description
         return results
 
