@@ -7,7 +7,7 @@ from backend.reasoning.multi_hop import MultiHopAssociator
 from backend.knowledge import UnifiedKnowledgeBase
 from backend.knowledge.unified import KnowledgeSource
 from backend.memory import LongTermMemory
-from backend.reflection import ReflectionModule
+from backend.reflection import ReflectionModule, ReflectionResult
 
 
 def test_unified_knowledge_base():
@@ -41,7 +41,7 @@ def test_multi_hop_associator():
 def test_reflection_module():
     module = ReflectionModule(max_passes=2, quality_threshold=2.0)
     evaluation, revised = module.reflect("test response")
-    # Ensure an evaluation string is produced and history logs both passes
-    assert isinstance(evaluation, str) and evaluation
+    # Ensure structured evaluation is produced and history logs both passes
+    assert isinstance(evaluation, ReflectionResult)
     assert isinstance(revised, str) and revised
     assert len(module.history) == 2

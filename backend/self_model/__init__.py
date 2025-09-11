@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
-from backend.reflection.reflection import ReflectionModule
+import json
+
+from backend.reflection.reflection import ReflectionModule, ReflectionResult
 from backend.memory.long_term import LongTermMemory
 
 
@@ -10,7 +12,7 @@ class SelfModel:
     """Estimate the agent's own state using environment predictions."""
 
     def __init__(self, memory: LongTermMemory | None = None) -> None:
-        self._reflection = ReflectionModule()
+        self._reflection = ReflectionModule(max_passes=2, quality_threshold=2.0)
         self._history: List[str] = []
         self._memory = memory
         self._last_summary: str | None = None
@@ -97,7 +99,11 @@ class SelfModel:
         if past_context:
             base += f"; past={past_context}"
         evaluation, revised = self._reflection.reflect(base)
-        summary = f"{evaluation} | {revised}"
+        if last_action in self._self_state["capabilities"] and evaluation.sentiment == "negative":
+            self._self_state["capabilities"][last_action] *= evaluation.confidence
+        summary = (
+            f"conf={evaluation.confidence:.2f},sent={evaluation.sentiment} | {revised}"
+        )
 
         goals_str = ", ".join(g["goal"] for g in self._self_state["goals"]) or "none"
         caps_str = ", ".join(
@@ -109,7 +115,9 @@ class SelfModel:
         if past_context:
             narrative_base += f"; past={past_context}"
         n_eval, n_revised = self._reflection.reflect(narrative_base)
-        narrative = f"{n_eval} | {n_revised}"
+        narrative = (
+            f"conf={n_eval.confidence:.2f},sent={n_eval.sentiment} | {n_revised}"
+        )
         summary = f"{summary} | {narrative}"
 
         self._history.append(summary)
@@ -122,6 +130,8 @@ class SelfModel:
                 "decision_outcome",
                 f"{last_action}:{metrics['cpu']:.2f}/{metrics['memory']:.2f}",
             )
+            self._memory.add("reflection_scores", json.dumps(evaluation.__dict__))
+            self._memory.add("reflection_scores", json.dumps(n_eval.__dict__))
         return metrics, summary
 
     # ------------------------------------------------------------------
