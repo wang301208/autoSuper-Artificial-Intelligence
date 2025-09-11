@@ -6,8 +6,8 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
-from typing import Callable, Tuple
+from dataclasses import asdict, dataclass, field
+from typing import Callable, Iterable, Tuple
 
 
 @dataclass
@@ -60,12 +60,16 @@ class ReflectionModule:
     quality_threshold: float = 0.0
     model: str = "gpt-3.5-turbo"
     history: list[Tuple[ReflectionResult, str]] = field(default_factory=list)
+    logger: logging.Logger | None = None
+    callback: Callable[[ReflectionResult, str], None] | None = None
 
     def __post_init__(self) -> None:
         if self.evaluate is None:
             self.evaluate = self._llm_evaluate
         if self.rewrite is None:
             self.rewrite = self._llm_rewrite
+        if self.logger is None:
+            self.logger = logging.getLogger(__name__)
 
     # --- Default LLM-backed implementations ---------------------------------
 
@@ -152,13 +156,56 @@ class ReflectionModule:
 
         for i in range(self.max_passes):
             evaluation = self.evaluate(revised)
-            logger.info("reflection_evaluation_pass_%d: %s", i, evaluation)
+            if self.logger:
+                self.logger.info("reflection_evaluation_pass_%d: %s", i, evaluation)
             score = evaluation.confidence
             if score >= self.quality_threshold or i == self.max_passes - 1:
                 self.history.append((evaluation, revised))
+                if self.callback:
+                    self.callback(evaluation, revised)
                 return evaluation, revised
             revised = self.rewrite(revised)
-            logger.info("reflection_revision_pass_%d: %s", i, revised)
+            if self.logger:
+                self.logger.info("reflection_revision_pass_%d: %s", i, revised)
             self.history.append((evaluation, revised))
+            if self.callback:
+                self.callback(evaluation, revised)
 
         return evaluation, revised  # pragma: no cover - loop always returns
+
+
+def history_to_json(history: list[Tuple[ReflectionResult, str]]) -> str:
+    """Serialize a reflection history to JSON."""
+
+    return json.dumps(
+        [{"evaluation": asdict(ev), "revision": rev} for ev, rev in history]
+    )
+
+
+def save_history(
+    memory: "LongTermMemory", history: list[Tuple[ReflectionResult, str]], *, category: str = "reflection"
+) -> None:
+    """Persist ``history`` to ``memory`` under ``category``."""
+
+    from ..memory.long_term import LongTermMemory  # Local import to avoid cycles
+
+    if not isinstance(memory, LongTermMemory):  # pragma: no cover - defensive
+        raise TypeError("memory must be a LongTermMemory instance")
+    memory.add(category, history_to_json(history))
+
+
+def load_histories(
+    memory: "LongTermMemory", *, category: str = "reflection"
+) -> Iterable[list[Tuple[ReflectionResult, str]]]:
+    """Yield histories stored in ``memory`` under ``category``."""
+
+    from ..memory.long_term import LongTermMemory  # Local import to avoid cycles
+
+    if not isinstance(memory, LongTermMemory):  # pragma: no cover - defensive
+        raise TypeError("memory must be a LongTermMemory instance")
+    for item in memory.get(category=category):
+        data = json.loads(item)
+        yield [
+            (ReflectionResult(**entry["evaluation"]), entry["revision"])
+            for entry in data
+        ]
