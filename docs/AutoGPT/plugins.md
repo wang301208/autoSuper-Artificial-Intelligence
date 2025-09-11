@@ -18,3 +18,35 @@ See our [Plugins Repo](https://github.com/Significant-Gravitas/Auto-GPT-Plugins)
 
 Alternatively, developers can use the [AutoGPT Plugin Template](https://github.com/Significant-Gravitas/Auto-GPT-Plugin-Template) as a starting point for creating your own plugins.
 
+
+### Runtime module management
+
+AutoGPT now supports loading and unloading capability modules while the system
+is running.  Modules are registered via ``module_registry`` and can be managed
+through the :class:`RuntimeModuleManager`.
+
+- **Add a module**
+
+  ```http
+  POST /modules {"module": "name"}
+  ```
+  or, in Python:
+  ```python
+  from capability.runtime_loader import RuntimeModuleManager
+  RuntimeModuleManager().load("name")
+  ```
+
+- **Remove a module**
+
+  ```http
+  DELETE /modules/name
+  ```
+  or in Python:
+  ```python
+  RuntimeModuleManager().unload("name")
+  ```
+
+The manager keeps track of loaded modules and releases those no longer
+required by incoming goals, allowing agents to extend their abilities
+dynamically without a restart.
+
