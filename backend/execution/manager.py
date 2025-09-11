@@ -27,6 +27,7 @@ from .planner import Planner
 from .goal_generator import GoalGenerator
 from world_model import WorldModel
 from self_model import SelfModel
+from capability.runtime_loader import RuntimeModuleManager
 
 
 class AgentState(Enum):
@@ -83,6 +84,8 @@ class AgentLifecycleManager:
         self._self_model = SelfModel()
         self._planner = Planner()
         self._goal_generator = GoalGenerator()
+        # Manage capability modules requested at runtime by agents
+        self._module_manager = RuntimeModuleManager(event_bus)
 
     # ------------------------------------------------------------------
     # State helpers
@@ -347,7 +350,9 @@ class AgentLifecycleManager:
             ):
                 goal = self._goal_generator.generate()
                 if goal:
-                    self._planner.decompose(goal, source="auto")
+                    tasks = self._planner.decompose(goal, source="auto")
+                    # Load modules required for new tasks and release others
+                    self._module_manager.update(tasks)
 
             # Scale agents based on pending tasks
             if self._task_count > len(self._agents):
