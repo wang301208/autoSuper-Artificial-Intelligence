@@ -39,7 +39,9 @@ def test_multi_hop_associator():
 
 
 def test_reflection_module():
-    module = ReflectionModule()
+    module = ReflectionModule(max_passes=2, quality_threshold=2.0)
     evaluation, revised = module.reflect("test response")
-    assert "response_length" in evaluation
-    assert revised.endswith("[revised]")
+    # Ensure an evaluation string is produced and history logs both passes
+    assert isinstance(evaluation, str) and evaluation
+    assert isinstance(revised, str) and revised
+    assert len(module.history) == 2
