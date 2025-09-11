@@ -21,4 +21,16 @@ properties:
     description: Message bus topics the agent listens to.
     items:
       type: string
+  use_transformer_brain:
+    type: boolean
+    description: Enable the optional Transformer-based brain module.
+    default: false
+  use_knowledge_base:
+    type: boolean
+    description: Attach a unified knowledge base to the agent.
+    default: false
+  use_decision_engine:
+    type: boolean
+    description: Initialize the decision engine for action selection.
+    default: false
 additionalProperties: false

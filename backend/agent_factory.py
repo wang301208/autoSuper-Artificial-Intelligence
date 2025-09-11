@@ -37,6 +37,9 @@ from autogpts.autogpt.autogpt.core.errors import (
 from capability.librarian import Librarian
 from org_charter import io as charter_io
 from backend.monitoring.global_workspace import global_workspace
+from knowledge import UnifiedKnowledgeBase
+from reasoning import DecisionEngine
+from autogpt.core.brain.transformer_brain import TransformerBrain
 
 if TYPE_CHECKING:  # pragma: no cover - for type checkers only
     from backend.world_model import WorldModel
@@ -156,6 +159,13 @@ def create_agent_from_blueprint(
     )
 
     directives = AIDirectives.from_file(config.prompt_settings_file)
+    enable_brain = blueprint.get("use_transformer_brain", config.use_transformer_brain)
+    enable_kb = blueprint.get("use_knowledge_base", config.use_knowledge_base)
+    enable_de = blueprint.get("use_decision_engine", config.use_decision_engine)
+
+    brain = TransformerBrain() if enable_brain else None
+    knowledge_base = UnifiedKnowledgeBase() if enable_kb else None
+    decision_engine = DecisionEngine() if enable_de else None
 
     agent = create_agent(
         agent_id=blueprint["role_name"],
@@ -165,6 +175,9 @@ def create_agent_from_blueprint(
         app_config=config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        brain=brain,
+        knowledge_base=knowledge_base,
+        decision_engine=decision_engine,
     )
 
     if world_model is not None:

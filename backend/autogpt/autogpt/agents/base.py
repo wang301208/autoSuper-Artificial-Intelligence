@@ -22,6 +22,8 @@ if TYPE_CHECKING:
         ChatModelResponse,
     )
     from autogpt.models.command_registry import CommandRegistry
+    from knowledge import UnifiedKnowledgeBase
+    from reasoning import DecisionEngine
 
 from autogpt.agents.utils.prompt_scratchpad import PromptScratchpad
 from autogpt.config import ConfigBuilder
@@ -74,6 +76,16 @@ class BaseAgentConfiguration(SystemConfiguration):
     """
 
     brain: TransformerBrainConfig = Field(default_factory=TransformerBrainConfig)
+    """Configuration for the optional Transformer-based brain module."""
+
+    use_transformer_brain: bool = UserConfigurable(default=False)
+    """Whether to initialize the ``TransformerBrain`` component."""
+
+    use_knowledge_base: bool = UserConfigurable(default=False)
+    """Whether to attach a ``UnifiedKnowledgeBase`` instance."""
+
+    use_decision_engine: bool = UserConfigurable(default=False)
+    """Whether to provide a ``DecisionEngine`` for reasoning."""
 
     cycle_budget: Optional[int] = 1
     """
@@ -173,6 +185,9 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         file_storage: FileStorage,
         legacy_config: Config,
         event_bus: EventBus | None = None,
+        brain: TransformerBrain | None = None,
+        knowledge_base: "UnifiedKnowledgeBase" | None = None,
+        decision_engine: "DecisionEngine" | None = None,
     ):
         self.state = settings
         self.config = settings.config
@@ -201,9 +216,18 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
 
         self._prompt_scratchpad: PromptScratchpad | None = None
 
-        self.brain: TransformerBrain | None = None
-        if self.config.big_brain:
+        # Optional cognitive modules
+        self.brain: TransformerBrain | None = brain
+        if self.brain is None and self.config.use_transformer_brain:
             self.brain = TransformerBrain(self.config.brain)
+
+        self.knowledge_base = knowledge_base
+        self.decision_engine = decision_engine
+
+        # Reflect presence of optional modules in configuration
+        self.config.use_transformer_brain = self.brain is not None
+        self.config.use_knowledge_base = self.knowledge_base is not None
+        self.config.use_decision_engine = self.decision_engine is not None
 
         # Support multi-inheritance and mixins for subclasses
         super(BaseAgent, self).__init__()

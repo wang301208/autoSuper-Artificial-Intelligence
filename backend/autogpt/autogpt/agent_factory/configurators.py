@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
 from autogpt.commands import COMMAND_CATEGORIES
@@ -10,6 +10,12 @@ from autogpt.models.command_registry import CommandRegistry
 from autogpt.plugins import scan_plugins
 
 
+if TYPE_CHECKING:
+    from autogpt.core.brain.transformer_brain import TransformerBrain
+    from knowledge import UnifiedKnowledgeBase
+    from reasoning import DecisionEngine
+
+
 def create_agent(
     agent_id: str,
     task: str,
@@ -18,6 +24,9 @@ def create_agent(
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
     directives: Optional[AIDirectives] = None,
+    brain: "TransformerBrain" | None = None,
+    knowledge_base: "UnifiedKnowledgeBase" | None = None,
+    decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
     if not task:
         raise ValueError("No task specified for new agent")
@@ -32,6 +41,9 @@ def create_agent(
         app_config=app_config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        brain=brain,
+        knowledge_base=knowledge_base,
+        decision_engine=decision_engine,
     )
 
     return agent
@@ -42,12 +54,18 @@ def configure_agent_with_state(
     app_config: Config,
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
+    brain: "TransformerBrain" | None = None,
+    knowledge_base: "UnifiedKnowledgeBase" | None = None,
+    decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
     return _configure_agent(
         state=state,
         app_config=app_config,
         file_storage=file_storage,
         llm_provider=llm_provider,
+        brain=brain,
+        knowledge_base=knowledge_base,
+        decision_engine=decision_engine,
     )
 
 
@@ -60,6 +78,9 @@ def _configure_agent(
     ai_profile: Optional[AIProfile] = None,
     directives: Optional[AIDirectives] = None,
     state: Optional[AgentSettings] = None,
+    brain: "TransformerBrain" | None = None,
+    knowledge_base: "UnifiedKnowledgeBase" | None = None,
+    decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
     if not (state or agent_id and task and ai_profile and directives):
         raise TypeError(
@@ -92,6 +113,9 @@ def _configure_agent(
         command_registry=command_registry,
         file_storage=file_storage,
         legacy_config=app_config,
+        brain=brain,
+        knowledge_base=knowledge_base,
+        decision_engine=decision_engine,
     )
 
 
@@ -118,6 +142,9 @@ def create_agent_state(
             allow_fs_access=not app_config.restrict_to_workspace,
             use_functions_api=app_config.openai_functions,
             plugins=app_config.plugins,
+            use_transformer_brain=app_config.use_transformer_brain,
+            use_knowledge_base=app_config.use_knowledge_base,
+            use_decision_engine=app_config.use_decision_engine,
         ),
         prompt_config=agent_prompt_config,
         history=Agent.default_settings.history.copy(deep=True),
