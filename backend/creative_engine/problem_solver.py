@@ -43,10 +43,7 @@ class DivergentConvergentSolver:
         candidates = []
         for path in self._generate_paths(start, goal, strategies):
             evaluation, _ = self.reflection.reflect(" ".join(path))
-            try:
-                score = int(evaluation.split("=")[-1])
-            except ValueError:
-                score = 0
+            score = int(evaluation.confidence * len(path)) or len(path)
             candidates.append((score, path))
         if not candidates:
             return [], 0

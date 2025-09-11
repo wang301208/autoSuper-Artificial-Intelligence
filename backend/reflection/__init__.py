@@ -1,5 +1,5 @@
 """Post-generation reflection utilities."""
 
-from .reflection import ReflectionModule
+from .reflection import ReflectionModule, ReflectionResult
 
-__all__ = ["ReflectionModule"]
+__all__ = ["ReflectionModule", "ReflectionResult"]

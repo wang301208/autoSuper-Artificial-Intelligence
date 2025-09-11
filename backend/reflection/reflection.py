@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Tuple
 
-EvaluationFn = Callable[[str], str]
+
+@dataclass
+class ReflectionResult:
+    """Structured output of a reflection evaluation."""
+
+    confidence: float
+    sentiment: str
+    raw: str = ""
+
+
+EvaluationFn = Callable[[str], ReflectionResult]
 RewriteFn = Callable[[str], str]
 
 try:  # pragma: no cover - optional dependency
@@ -48,7 +59,7 @@ class ReflectionModule:
     max_passes: int = 1
     quality_threshold: float = 0.0
     model: str = "gpt-3.5-turbo"
-    history: list[Tuple[str, str]] = field(default_factory=list)
+    history: list[Tuple[ReflectionResult, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.evaluate is None:
@@ -58,8 +69,8 @@ class ReflectionModule:
 
     # --- Default LLM-backed implementations ---------------------------------
 
-    def _llm_evaluate(self, text: str) -> str:
-        """Return a quality assessment for ``text`` using an LLM.
+    def _llm_evaluate(self, text: str) -> ReflectionResult:
+        """Return a structured assessment for ``text`` using an LLM.
 
         Falls back to a trivial heuristic if the API is unavailable.
         """
@@ -72,18 +83,32 @@ class ReflectionModule:
                         {
                             "role": "user",
                             "content": (
-                                "Score the quality of the following response "
-                                "between 0 and 1 and explain briefly:\n" + text
+                                "Provide JSON with keys confidence (0-1) and "
+                                "sentiment ('positive','negative','neutral') "
+                                "evaluating the quality of: \n" + text
                             ),
                         }
                     ],
                 )
-                return response["choices"][0]["message"]["content"].strip()
+                content = response["choices"][0]["message"]["content"].strip()
+                try:
+                    data = json.loads(content)
+                    return ReflectionResult(
+                        confidence=float(data.get("confidence", 0.0)),
+                        sentiment=data.get("sentiment", "neutral"),
+                        raw=content,
+                    )
+                except Exception:
+                    return ReflectionResult(0.0, "neutral", raw=content)
             except Exception as exc:  # pragma: no cover - network failure
                 logger.warning("LLM evaluation failed: %s", exc)
+
         # Fallback heuristic
+        sentiment = "negative" if re.search(r"fail|error", text, re.I) else (
+            "positive" if re.search(r"success|done|complete", text, re.I) else "neutral"
+        )
         length = len(text.split())
-        return f"score=0.0 reason=unavailable length={length}"
+        return ReflectionResult(0.0, sentiment, raw=f"unavailable length={length}")
 
     def _llm_rewrite(self, text: str) -> str:
         """Improve ``text`` using an LLM.
@@ -113,7 +138,7 @@ class ReflectionModule:
 
     # ------------------------------------------------------------------------
 
-    def reflect(self, text: str) -> Tuple[str, str]:
+    def reflect(self, text: str) -> Tuple[ReflectionResult, str]:
         """Evaluate ``text`` and return ``(evaluation, revised_text)``.
 
         The method performs up to ``max_passes`` reflection cycles. After each
@@ -128,7 +153,7 @@ class ReflectionModule:
         for i in range(self.max_passes):
             evaluation = self.evaluate(revised)
             logger.info("reflection_evaluation_pass_%d: %s", i, evaluation)
-            score = self._parse_score(evaluation)
+            score = evaluation.confidence
             if score >= self.quality_threshold or i == self.max_passes - 1:
                 self.history.append((evaluation, revised))
                 return evaluation, revised
@@ -137,12 +162,3 @@ class ReflectionModule:
             self.history.append((evaluation, revised))
 
         return evaluation, revised  # pragma: no cover - loop always returns
-
-    def _parse_score(self, evaluation: str) -> float:
-        """Extract a numeric score from an evaluation string."""
-
-        match = re.search(r"([0-9]*\.?[0-9]+)", evaluation)
-        try:
-            return float(match.group(1)) if match else 0.0
-        except (TypeError, ValueError):  # pragma: no cover - defensive
-            return 0.0
