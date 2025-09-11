@@ -10,7 +10,7 @@ tools.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TYPE_CHECKING
 
 import ast
 import hashlib
@@ -37,6 +37,9 @@ from autogpts.autogpt.autogpt.core.errors import (
 from capability.librarian import Librarian
 from org_charter import io as charter_io
 from backend.monitoring.global_workspace import global_workspace
+
+if TYPE_CHECKING:  # pragma: no cover - for type checkers only
+    from backend.world_model import WorldModel
 
 
 logger = logging.getLogger(__name__)
@@ -125,6 +128,7 @@ def create_agent_from_blueprint(
     config: Config,
     llm_provider: ChatModelProvider,
     file_storage: FileStorage,
+    world_model: "WorldModel | None" = None,
 ) -> Agent:
     """Instantiate an :class:`Agent` from a blueprint file.
 
@@ -138,6 +142,9 @@ def create_agent_from_blueprint(
         Model provider used for prompting.
     file_storage:
         File storage backend for the agent.
+    world_model:
+        Optional world model used to record visual observations produced by
+        the agent during execution.
     """
     path = Path(blueprint_path)
     blueprint = _parse_blueprint(path)
@@ -159,6 +166,12 @@ def create_agent_from_blueprint(
         file_storage=file_storage,
         llm_provider=llm_provider,
     )
+
+    if world_model is not None:
+        def record_visual(image=None, features=None, *, _wm=world_model, _aid=agent.settings.agent_id):
+            _wm.add_visual_observation(_aid, image=image, features=features)
+
+        setattr(agent, "record_visual_observation", record_visual)
 
     # Register core components with the global workspace so they can
     # exchange state and attention with other modules.
