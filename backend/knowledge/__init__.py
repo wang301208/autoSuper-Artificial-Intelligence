@@ -6,5 +6,6 @@ system.
 """
 
 from .unified import UnifiedKnowledgeBase
+from .vector_store import LocalVectorStore
 
-__all__ = ["UnifiedKnowledgeBase"]
+__all__ = ["UnifiedKnowledgeBase", "LocalVectorStore"]

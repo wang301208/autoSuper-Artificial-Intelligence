@@ -47,3 +47,17 @@ def test_large_dataset_performance(tmp_path):
         assert duration < 1.0
     finally:
         mem.close()
+
+
+def test_embedding_storage(tmp_path):
+    db = tmp_path / "mem.db"
+    mem = LongTermMemory(db)
+    try:
+        mem.add_embedding("key", [0.1, 0.2, 0.3], {"tag": "test"})
+        stored = mem.get_embedding("key")
+        assert stored is not None
+        vector, meta = stored
+        assert vector == [0.1, 0.2, 0.3]
+        assert meta == {"tag": "test"}
+    finally:
+        mem.close()

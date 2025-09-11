@@ -9,6 +9,7 @@ and retrieve them later.
 from __future__ import annotations
 
 import sqlite3
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -48,6 +49,16 @@ class LongTermMemory:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_memory_category ON memory(category)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_memory_timestamp ON memory(timestamp)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_memory_tags ON memory(tags)")
+        # Table for embedding vectors
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                key TEXT PRIMARY KEY,
+                vector TEXT NOT NULL,
+                metadata TEXT
+            )
+            """
+        )
         self.conn.commit()
 
     def add(
@@ -114,6 +125,45 @@ class LongTermMemory:
         cur.execute(query, params)
         for (content,) in cur.fetchall():
             yield content
+
+    # ------------------------------------------------------------------
+    # Embedding specific helpers
+    # ------------------------------------------------------------------
+    def add_embedding(
+        self, key: str, vector: Sequence[float], metadata: Optional[dict] = None
+    ) -> None:
+        """Store an embedding vector and optional metadata."""
+
+        cur = self.conn.cursor()
+        cur.execute(
+            "INSERT OR REPLACE INTO embeddings (key, vector, metadata) VALUES (?, ?, ?)",
+            (
+                key,
+                json.dumps(list(map(float, vector))),
+                json.dumps(metadata) if metadata is not None else None,
+            ),
+        )
+        self.conn.commit()
+
+    def get_embedding(self, key: str) -> Optional[tuple[list[float], Optional[dict]]]:
+        """Retrieve an embedding and metadata for ``key``."""
+
+        cur = self.conn.cursor()
+        cur.execute("SELECT vector, metadata FROM embeddings WHERE key = ?", (key,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        vector = json.loads(row[0])
+        metadata = json.loads(row[1]) if row[1] is not None else None
+        return vector, metadata
+
+    def iter_embeddings(self) -> Iterable[tuple[str, list[float], Optional[dict]]]:
+        """Iterate over all stored embeddings."""
+
+        cur = self.conn.cursor()
+        cur.execute("SELECT key, vector, metadata FROM embeddings")
+        for key, vec, meta in cur.fetchall():
+            yield key, json.loads(vec), json.loads(meta) if meta is not None else None
 
     def close(self) -> None:
         self.conn.close()
