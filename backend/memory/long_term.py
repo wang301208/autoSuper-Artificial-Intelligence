@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sqlite3
 import json
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -18,9 +19,43 @@ from typing import Iterable, Optional, Sequence
 class LongTermMemory:
     """Light‑weight long-term memory based on SQLite."""
 
-    def __init__(self, path: str | Path):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        max_entries: Optional[int] = None,
+        vacuum_interval: int = 1000,
+        cache_pages: int = 1000,
+    ) -> None:
+        """Parameters
+
+        path:
+            Location of the sqlite database.
+        max_entries:
+            Optional upper bound for stored memories. When exceeded the oldest
+            entries are purged.  ``None`` disables the limit.
+        vacuum_interval:
+            Perform a ``VACUUM`` after this many insert operations. ``0``
+            disables automatic vacuuming.
+        cache_pages:
+            Page count for the SQLite cache.  Smaller values keep the memory
+            footprint low.
+        """
+
         self.path = Path(path)
         self.conn = sqlite3.connect(self.path)
+
+        # Tune the database for a small memory footprint and concurrent access
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute(f"PRAGMA cache_size={int(cache_pages)}")
+
+        self.max_entries = max_entries
+        self.vacuum_interval = vacuum_interval
+        self._pending_adds = 0
+        self._total_adds = 0
+        self._in_batch = False
+
         self._init_db()
 
     def _init_db(self) -> None:
@@ -79,7 +114,10 @@ class LongTermMemory:
             "INSERT INTO memory (category, content, timestamp, tags) VALUES (?, ?, ?, ?)",
             (category, content, timestamp, tags_str),
         )
-        self.conn.commit()
+        self._pending_adds += 1
+        if not self._in_batch:
+            self.conn.commit()
+            self._post_commit()
 
     def get(
         self,
@@ -167,3 +205,57 @@ class LongTermMemory:
 
     def close(self) -> None:
         self.conn.close()
+
+    # ------------------------------------------------------------------
+    # Transaction helpers and maintenance
+    # ------------------------------------------------------------------
+    @contextmanager
+    def batch(self):
+        """Group multiple ``add`` calls into a single transaction."""
+
+        self._in_batch = True
+        try:
+            yield self
+            self.conn.commit()
+            self._post_commit()
+        except Exception:  # pragma: no cover - rollback path
+            self.conn.rollback()
+            self._pending_adds = 0
+            raise
+        finally:
+            self._in_batch = False
+
+    def _post_commit(self) -> None:
+        """Run housekeeping tasks after committing new entries."""
+
+        self._total_adds += self._pending_adds
+        self._pending_adds = 0
+
+        if self.max_entries is not None:
+            self._trim_to_limit()
+
+        if self.vacuum_interval and self._total_adds % self.vacuum_interval == 0:
+            self.vacuum()
+
+    def _trim_to_limit(self) -> None:
+        cur = self.conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM memory")
+        (count,) = cur.fetchone()
+        if count <= self.max_entries:
+            return
+        remove = count - self.max_entries
+        cur.execute(
+            "DELETE FROM memory WHERE id IN ("
+            "SELECT id FROM memory ORDER BY timestamp ASC LIMIT ?"
+            ")",
+            (remove,),
+        )
+        self.conn.commit()
+
+    def vacuum(self) -> None:
+        """Reclaim unused space in the database."""
+
+        cur = self.conn.cursor()
+        cur.execute("VACUUM")
+        self.conn.commit()
+
