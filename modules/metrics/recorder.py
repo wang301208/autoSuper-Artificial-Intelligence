@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 import json
 import csv
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 @dataclass
@@ -21,6 +21,7 @@ class RunMetrics:
     time: float
     iter_limit_reached: bool
     time_limit_reached: bool
+    extra: Optional[Any] = None
 
 
 class MetricsRecorder:
@@ -40,6 +41,7 @@ class MetricsRecorder:
         elapsed_time: float,
         max_iters: Optional[int] = None,
         max_time: Optional[float] = None,
+        extra: Optional[Any] = None,
     ) -> None:
         """Record metrics for a single run.
 
@@ -65,24 +67,51 @@ class MetricsRecorder:
                 time=float(elapsed_time),
                 iter_limit_reached=iter_limit_reached,
                 time_limit_reached=time_limit_reached,
+                extra=extra,
             )
         )
 
     def save(self, path: str) -> None:
-        """Save all recorded metrics to ``path`` as JSON or CSV."""
-        if path.lower().endswith(".json"):
+        """Save all recorded metrics to ``path`` as JSON, CSV, or YAML."""
+        records = [asdict(r) for r in self.records]
+        lower = path.lower()
+        if lower.endswith(".json"):
             with open(path, "w") as f:
-                json.dump([asdict(r) for r in self.records], f, indent=2)
-        elif path.lower().endswith(".csv"):
-            fieldnames = list(RunMetrics.__annotations__.keys())
+                json.dump(records, f, indent=2)
+        elif lower.endswith(".csv"):
+            flattened = [_flatten_dict(r) for r in records]
+            fieldnames: List[str] = sorted({k for rec in flattened for k in rec.keys()})
             with open(path, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
                 writer.writeheader()
-                for r in self.records:
-                    writer.writerow(asdict(r))
+                for rec in flattened:
+                    writer.writerow({fn: rec.get(fn, "") for fn in fieldnames})
+        elif lower.endswith(".yaml") or lower.endswith(".yml"):
+            try:
+                import yaml  # type: ignore
+            except Exception as e:  # pragma: no cover - handled in tests
+                raise ValueError("PyYAML is required for YAML serialization") from e
+            with open(path, "w") as f:
+                yaml.safe_dump(records, f)
         else:
-            raise ValueError("Unsupported file format: expected .json or .csv")
+            raise ValueError("Unsupported file format: expected .json, .csv, or .yaml")
 
     def to_list(self) -> List[dict]:
         """Return recorded metrics as list of dictionaries."""
         return [asdict(r) for r in self.records]
+
+
+def _flatten_dict(data: Any, parent_key: str = "", sep: str = ".") -> dict[str, Any]:
+    """Flatten a nested ``dict``/``list`` using dot-separated keys."""
+    items: dict[str, Any] = {}
+    if isinstance(data, dict):
+        for k, v in data.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else str(k)
+            items.update(_flatten_dict(v, new_key, sep=sep))
+    elif isinstance(data, list):
+        for i, v in enumerate(data):
+            new_key = f"{parent_key}{sep}{i}" if parent_key else str(i)
+            items.update(_flatten_dict(v, new_key, sep=sep))
+    else:
+        items[parent_key] = data
+    return items
