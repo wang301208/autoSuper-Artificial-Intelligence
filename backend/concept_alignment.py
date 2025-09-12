@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import yaml
 
 from capability.librarian import Librarian
-from modules.common import ConceptNode
+from modules.common import CausalRelation, ConceptNode
 
 
 class ConceptAligner:
@@ -62,6 +62,8 @@ class ConceptAligner:
                 continue
             similarity = self._cosine_similarity(query_embedding, embedding)
             node.metadata["similarity"] = similarity
+            if node.causal_links:
+                node.metadata["causal_relations"] = node.causal_links
             results.append(node)
         results.sort(key=lambda n: n.metadata.get("similarity", 0.0), reverse=True)
         return results

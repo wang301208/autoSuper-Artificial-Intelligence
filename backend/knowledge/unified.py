@@ -19,6 +19,8 @@ try:  # Optional dependency
 except Exception:  # pragma: no cover - handled gracefully
     SentenceTransformer = None  # type: ignore
 
+from modules.common import CausalRelation
+
 from ..memory.long_term import LongTermMemory
 from .vector_store import LocalVectorStore
 
@@ -38,6 +40,7 @@ class KnowledgeSource:
     name: str
     data: Dict[str, str]
     embeddings: Optional[Dict[str, np.ndarray]] = None
+    causal_relations: List[CausalRelation] = field(default_factory=list)
 
 
 @dataclass
@@ -96,8 +99,8 @@ class UnifiedKnowledgeBase:
                 },
             )
 
-    def query(self, concept: str, *, semantic: bool = False, top_k: int = 5) -> Dict[str, str]:
-        """Retrieve concept descriptions.
+    def query(self, concept: str, *, semantic: bool = False, top_k: int = 5) -> Dict[str, Any]:
+        """Retrieve concept descriptions and related causal relations.
 
         Parameters
         ----------
@@ -111,10 +114,14 @@ class UnifiedKnowledgeBase:
         """
 
         if not semantic:
-            results: Dict[str, str] = {}
+            results: Dict[str, Any] = {}
+            causal: List[CausalRelation] = []
             for name, source in self.sources.items():
                 if concept in source.data:
                     results[name] = source.data[concept]
+                    causal.extend([r for r in source.causal_relations if r.cause == concept])
+            if causal:
+                results["causal_relations"] = causal
             return results
 
         if self.embedder is None or self.vector_store is None:
@@ -126,12 +133,18 @@ class UnifiedKnowledgeBase:
         query_emb = np.asarray(query_emb, dtype=float)
 
         hits = self.vector_store.search(query_emb, top_k=top_k)
-        results: Dict[str, str] = {}
+        results: Dict[str, Any] = {}
+        causal: List[CausalRelation] = []
         for hit in hits:
             source_name = hit.get("source", "")
             concept_name = hit.get("concept", "")
             description = hit.get("description", "")
             results[f"{source_name}:{concept_name}"] = description
+            source = self.sources.get(source_name)
+            if source:
+                causal.extend([r for r in source.causal_relations if r.cause == concept_name])
+        if causal:
+            results["causal_relations"] = causal
         return results
 
     def concepts(self) -> Iterable[str]:
