@@ -16,6 +16,7 @@ class SelfModel:
         self._history: List[str] = []
         self._memory = memory
         self._last_summary: str | None = None
+        self._dataset: List[Tuple[str, float]] = []
         self._self_state: Dict[str, Any] = {
             "goals": [],  # list of {"goal": str, "subgoals": List[str]}
             "capabilities": {},  # name -> confidence
@@ -42,6 +43,49 @@ class SelfModel:
 
     def set_capability(self, name: str, confidence: float) -> None:
         self._self_state["capabilities"][name] = confidence
+
+    def record_outcome(self, action: str, reward: float, lr: float = 0.1) -> None:
+        """Record ``action`` and its ``reward`` then update capability confidence.
+
+        Parameters
+        ----------
+        action
+            Name of the capability or action performed.
+        reward
+            Observed reward or success metric for the action.
+        lr
+            Learning rate for the exponential moving average update.
+        """
+
+        self._dataset.append((action, reward))
+        current = self._self_state["capabilities"].get(action, 0.0)
+        updated = current + lr * (reward - current)
+        self._self_state["capabilities"][action] = updated
+
+    def generate_subgoals(self, goal_index: int = -1, threshold: float = 0.4) -> List[str]:
+        """Generate new subgoals from high-confidence capabilities.
+
+        The most recent goal is used by default. Capabilities with confidence
+        above ``threshold`` are turned into subgoals of the form ``"use X"``.
+        """
+
+        if not self._self_state["goals"]:
+            return []
+        goal = self._self_state["goals"][goal_index]
+        new_subgoals: List[str] = []
+        for cap, conf in self._self_state["capabilities"].items():
+            if conf >= threshold:
+                sg = f"use {cap}"
+                if sg not in goal["subgoals"]:
+                    goal["subgoals"].append(sg)
+                    new_subgoals.append(sg)
+        return new_subgoals
+
+    @property
+    def dataset(self) -> List[Tuple[str, float]]:
+        """Return the recorded ``(action, reward)`` pairs."""
+
+        return list(self._dataset)
 
     def update_state(self, events: List[str]) -> None:
         """Update the internal ``self_state`` based on ``events``."""
