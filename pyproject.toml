@@ -75,6 +75,7 @@ autogpt-forge = { path = "autogpts/forge" }
 agbenchmark = { path = "benchmark", optional = true }
 pytest-benchmark = "^3.4.1"
 coverage = "^7.2.7"
+cachetools = "^5.3.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

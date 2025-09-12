@@ -159,3 +159,4 @@ def test_agent_factory_and_executor(tmp_path: Path, caplog: pytest.LogCaptureFix
             executor.execute("fail")
     assert "boom" in str(exc_info.value)
     assert any("fail" in r.message and "boom" in r.message for r in caplog.records)
+    lib.close()
