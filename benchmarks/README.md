@@ -23,3 +23,16 @@ The suite is exercised in continuous integration by
 ```
 pytest benchmarks/tests/test_cross_domain.py
 ```
+
+## PSO comparison
+
+`pso_benchmark.py` contrasts the default static PSO parameters with an adaptive
+schedule for the inertia, cognitive and social coefficients. It reports the
+best objective value achieved by both configurations and logs the parameter
+trajectory for the adaptive run.
+
+### Running the benchmark
+
+```
+python benchmarks/pso_benchmark.py
+```
