@@ -15,7 +15,7 @@ and difficulty.
 
 ## Directory Structure
 Algorithms are grouped by their function (e.g., `sorting`, `searching`,
-`data_structures`, `storage`) and then by difficulty (`basic`, `advanced`).
+`data_structures`, `storage`, `causal`) and then by difficulty (`basic`, `advanced`).
 
 ```
 algorithms/
@@ -28,9 +28,10 @@ algorithms/
 ├── data_structures/
 │   ├── basic/
 │   └── advanced/
-└── storage/
-    ├── basic/
-    └── advanced/
+├── storage/
+│   ├── basic/
+│   └── advanced/
+└── causal/
 ```
 
 Use `template.py` as a starting point for new algorithm implementations.
@@ -57,3 +58,11 @@ Basic examples:
 Advanced example:
 
 - `algorithms/storage/advanced/btree_index.py`
+
+## Causal
+
+Basic example:
+
+- `algorithms/causal/causal_graph.py` - build causal graphs, perform interventions,
+  and infer downstream values. See `algorithms/examples.py` for a usage
+  demonstration.
