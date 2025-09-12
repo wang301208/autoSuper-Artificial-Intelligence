@@ -62,6 +62,10 @@ autogpt-v0.5.1/
 ./run setup                       # 安装依赖
 ```
 
+### 🎤 音频能力
+
+内置 `text_to_speech` 与 `speech_to_text` 命令，可在代理任务或技能中调用，实现文本与语音之间的互相转换。
+
 ## 💬 支持与反馈
 
 - **Discord社区**: [加入讨论](https://discord.gg/autogpt)
