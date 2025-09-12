@@ -14,6 +14,7 @@ from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .interfaces import KnowledgeSource, Solver
 from .decision_engine import ActionPlan, DecisionEngine
+from .solvers import NeuroSymbolicSolver, RuleProbabilisticSolver
 
 
 class ReasoningPlanner:
@@ -23,9 +24,19 @@ class ReasoningPlanner:
         self,
         knowledge_sources: List[KnowledgeSource] | None = None,
         solver: Solver | None = None,
+        solver_config: Dict[str, object] | None = None,
         decision_engine: DecisionEngine | None = None,
     ):
         self.knowledge_sources = knowledge_sources or []
+
+        if solver is None and solver_config:
+            name = str(solver_config.get("name"))
+            params = solver_config.get("params", {})
+            if name == "neuro_symbolic":
+                solver = NeuroSymbolicSolver(**params)
+            elif name == "rule_probabilistic":
+                solver = RuleProbabilisticSolver(**params)
+
         self.solver = solver
         self.decision_engine = decision_engine
         self.cache: Dict[str, Tuple[str, float]] = {}
