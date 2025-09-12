@@ -11,6 +11,7 @@ from algorithms.graph.basic.dfs import DepthFirstSearch
 from algorithms.storage.basic.lru_cache import LRUCache
 from algorithms.storage.basic.lfu_cache import LFUCache
 from algorithms.storage.advanced.btree_index import BTreeIndex
+from algorithms.causal.causal_graph import CausalGraph
 from algorithms.utils import Graph
 
 
@@ -43,6 +44,15 @@ def run_examples() -> None:
     index.insert(10, "foo")
     index.insert(20, "bar")
     print("BTreeIndex search:", index.search(20))
+
+    cg = CausalGraph()
+    cg.add_node("X")
+    cg.add_node("Y", lambda x: x + 1)
+    cg.add_node("Z", lambda y: y * 2)
+    cg.add_edge("X", "Y")
+    cg.add_edge("Y", "Z")
+    cg.intervene("X", 2)
+    print("CausalGraph infer Z:", cg.infer("Z"))
 
 
 if __name__ == "__main__":
