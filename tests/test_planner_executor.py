@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from backend.reasoning import MultiHopAssociator
 from backend.reflection import ReflectionModule
 import importlib.util
-from pathlib import Path
 
 
 def _load(name: str, path: str):
@@ -118,5 +121,5 @@ def test_executor_selects_best_plan():
     lib = DummySkillLibrary()
     executor = Executor(lib)
     plans = [("plan_a", 0.1), ("plan_b", 0.9)]
-    result = executor.execute(plans)
+    result = executor.execute_sync(plans)
     assert result["plan_b"] == "B"

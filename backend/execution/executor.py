@@ -73,7 +73,7 @@ class Executor:
         return graph
 
     # Task scheduling and execution
-    def execute(self, plans: Sequence[Tuple[str, float]] | str) -> Dict[str, Any]:
+    async def execute(self, plans: Sequence[Tuple[str, float]] | str) -> Dict[str, Any]:
         """Execute the best plan from ``plans``.
 
         ``plans`` may be a single goal string or a sequence of ``(goal, score)``
@@ -85,9 +85,11 @@ class Executor:
         else:
             goal, _ = max(plans, key=lambda p: p[1]) if plans else ("", 0)
         graph = self.decompose_goal(goal)
-        return self.scheduler.submit(
-            graph, lambda agent, skill: run_async(self._call_skill(agent, skill))
-        )
+        return await self.scheduler.submit(graph, self._call_skill)
+
+    def execute_sync(self, plans: Sequence[Tuple[str, float]] | str) -> Dict[str, Any]:
+        """Synchronous wrapper around :meth:`execute` for legacy callers."""
+        return run_async(self.execute(plans))
 
     async def _call_skill(self, agent: str, name: str) -> Any:
         """Execute ``name`` skill for ``agent``.
