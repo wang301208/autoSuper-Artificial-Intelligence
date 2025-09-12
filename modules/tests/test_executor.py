@@ -43,6 +43,7 @@ def test_executor_flow(tmp_path: Path) -> None:
     assert list(results.keys()) == ["hello", "goodbye"]
     assert results["hello"] == "hi"
     assert results["goodbye"] == "bye"
+    lib.close()
 
 
 def test_call_skill_logs_exception(tmp_path: Path, caplog) -> None:
@@ -67,3 +68,4 @@ def test_call_skill_logs_exception(tmp_path: Path, caplog) -> None:
         "fail" in record.message and "boom" in record.message
         for record in caplog.records
     )
+    lib.close()

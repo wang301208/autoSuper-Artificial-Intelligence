@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 import asyncio
+import time
 
 import pytest
 
@@ -33,6 +34,7 @@ def test_add_and_get_skill(tmp_path: Path) -> None:
         ["git", "log", "--oneline"], cwd=repo, capture_output=True, text=True, check=True
     )
     assert "Add skill hello" in log.stdout
+    lib.close()
 
 
 def test_meta_skill_requires_activation(tmp_path: Path) -> None:
@@ -52,3 +54,42 @@ def test_meta_skill_requires_activation(tmp_path: Path) -> None:
     asyncio.run(lib.activate_meta_skill("MetaSkill_Test"))
     _, meta = asyncio.run(lib.get_skill("MetaSkill_Test"))
     assert meta["active"] is True
+    lib.close()
+
+
+def test_cache_eviction_and_reload(tmp_path: Path) -> None:
+    repo = tmp_path
+    init_repo(repo)
+    persist = repo / "cache.sqlite"
+    lib = SkillLibrary(repo, cache_size=2, persist_path=persist)
+    for i in range(3):
+        code = f"def s{i}():\n    return {i}\n"
+        lib.add_skill(f"skill{i}", code, {"i": i})
+        asyncio.run(lib.get_skill(f"skill{i}"))
+    stats = lib.cache_stats()
+    assert stats["misses"] == 3
+    lib.close()
+
+    lib2 = SkillLibrary(repo, cache_size=2, persist_path=persist)
+    asyncio.run(lib2.get_skill("skill1"))
+    asyncio.run(lib2.get_skill("skill2"))
+    stats = lib2.cache_stats()
+    assert stats["hits"] == 2
+    asyncio.run(lib2.get_skill("skill0"))
+    stats = lib2.cache_stats()
+    assert stats["misses"] == 1
+    lib2.close()
+
+
+def test_cache_ttl_expiration(tmp_path: Path) -> None:
+    repo = tmp_path
+    init_repo(repo)
+    lib = SkillLibrary(repo, cache_ttl=1)
+    code = "def hello():\n    return 'hi'\n"
+    lib.add_skill("hello", code, {})
+    asyncio.run(lib.get_skill("hello"))
+    time.sleep(1.1)
+    asyncio.run(lib.get_skill("hello"))
+    stats = lib.cache_stats()
+    assert stats["misses"] == 2
+    lib.close()
