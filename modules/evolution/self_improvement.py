@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import csv
+import json
 import subprocess
-from typing import Dict, List, Tuple, Callable
+from typing import Dict, List, Tuple, Callable, Any
+
+import yaml
 
 from .ga_config import GAConfig
 from .parallel_ga import ParallelGA
@@ -24,22 +27,58 @@ class SelfImprovement:
         self.metrics_path = Path(metrics_path)
         self.ga_metrics_path = Path(ga_metrics_path)
 
+    def _flatten(self, value: Any, parent: str = "", sep: str = ".") -> Dict[str, Any]:
+        items: Dict[str, Any] = {}
+        if isinstance(value, dict):
+            for k, v in value.items():
+                new_key = f"{parent}{sep}{k}" if parent else k
+                items.update(self._flatten(v, new_key, sep))
+        elif isinstance(value, list):
+            for i, v in enumerate(value):
+                new_key = f"{parent}{sep}{i}" if parent else str(i)
+                items.update(self._flatten(v, new_key, sep))
+        else:
+            items[parent] = value
+        return items
+
     def _load_metrics(self) -> List[Dict[str, float]]:
         data: List[Dict[str, float]] = []
+        suffix = self.metrics_path.suffix.lower()
         try:
-            with open(self.metrics_path) as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    numeric: Dict[str, float] = {}
-                    for k, v in row.items():
-                        try:
-                            numeric[k] = float(v)
-                        except (TypeError, ValueError):
-                            continue
-                    if numeric:
-                        data.append(numeric)
-        except FileNotFoundError:
-            pass
+            if suffix == ".json":
+                with open(self.metrics_path) as f:
+                    raw = json.load(f)
+            elif suffix in {".yaml", ".yml"}:
+                with open(self.metrics_path) as f:
+                    raw = yaml.safe_load(f) or []
+            else:
+                with open(self.metrics_path) as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        numeric: Dict[str, float] = {}
+                        for k, v in row.items():
+                            try:
+                                numeric[k] = float(v)
+                            except (TypeError, ValueError):
+                                continue
+                        if numeric:
+                            data.append(numeric)
+                return data
+        except (FileNotFoundError, json.JSONDecodeError, yaml.YAMLError):
+            return data
+
+        if isinstance(raw, dict):
+            raw = [raw]
+        for item in raw or []:
+            flat = self._flatten(item)
+            numeric: Dict[str, float] = {}
+            for k, v in flat.items():
+                try:
+                    numeric[k] = float(v)
+                except (TypeError, ValueError):
+                    continue
+            if numeric:
+                data.append(numeric)
         return data
 
     def identify_bottlenecks(self) -> List[str]:
@@ -139,18 +178,30 @@ class SelfImprovement:
         return {"best_individual": best, "best_fitness": best_fit}
 
     def _record_ga_history(self, history: List[Dict[str, float]]) -> None:
-        """Append GA generation/time metrics to CSV."""
+        """Append GA generation/time metrics to CSV or JSON."""
 
         self.ga_metrics_path.parent.mkdir(parents=True, exist_ok=True)
-        write_header = not self.ga_metrics_path.exists()
-        with open(self.ga_metrics_path, "a", newline="") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=["generation", "elapsed_time", "best_fitness"]
-            )
-            if write_header:
-                writer.writeheader()
-            for row in history:
-                writer.writerow(row)
+        if self.ga_metrics_path.suffix.lower() == ".json":
+            existing: List[Dict[str, float]] = []
+            if self.ga_metrics_path.exists():
+                try:
+                    with open(self.ga_metrics_path) as f:
+                        existing = json.load(f) or []
+                except json.JSONDecodeError:
+                    existing = []
+            existing.extend(history)
+            with open(self.ga_metrics_path, "w") as f:
+                json.dump(existing, f)
+        else:
+            write_header = not self.ga_metrics_path.exists()
+            with open(self.ga_metrics_path, "a", newline="") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=["generation", "elapsed_time", "best_fitness"]
+                )
+                if write_header:
+                    writer.writeheader()
+                for row in history:
+                    writer.writerow(row)
 
     def run(self) -> Dict[str, List[str]]:
         tickets = self.read_meta_tickets()

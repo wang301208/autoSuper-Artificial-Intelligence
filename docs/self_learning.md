@@ -14,10 +14,14 @@ is skipped and a warning is logged.
 
 ## Rollback Strategy
 
-The `SelfImprovement.evaluate_and_rollback` method checks the latest metrics
-recorded in `evolution/metrics_history.csv`. When a metric falls below its
+Metrics can be recorded in CSV, JSON, or YAML format. Nested structures are
+flattened so that downstream logic receives simple key/value pairs. The
+`SelfImprovement.evaluate_and_rollback` method checks the latest metrics
+recorded in `evolution/metrics_history.*`. When a metric falls below its
 configured threshold the method executes a rollback script to restore the last
-known good model.
+known good model. The genetic algorithm history file (`ga_metrics_history.*`)
+supports the same formats and will emit JSON when the filename ends with
+`.json`.
 
 ## Monitoring and Alerts
 
