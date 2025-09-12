@@ -7,6 +7,14 @@ stored under `skills/MetaSkill_StrategyEvolution`:
 - `policy.json` – current policy weights for each state and ability
 - `training_log.json` – history of state/action/reward tuples used during training
 
+## Dataset formats
+
+Training data can also be loaded from external datasets. The `PolicyTrainer`
+accepts CSV, JSON, or JSONL files where each record defines a state, action, and
+reward. Records may be nested, and a custom `experience_transform` function can
+be supplied to map arbitrary schemas into the required `(state, action, reward)`
+tuples.
+
 ## Configuration
 
 The agent can be tuned with environment variables:
