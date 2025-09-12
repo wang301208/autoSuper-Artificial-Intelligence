@@ -14,14 +14,16 @@ is skipped and a warning is logged.
 
 ## Rollback Strategy
 
-Metrics can be recorded in CSV, JSON, or YAML format. Nested structures are
-flattened so that downstream logic receives simple key/value pairs. The
-`SelfImprovement.evaluate_and_rollback` method checks the latest metrics
-recorded in `evolution/metrics_history.*`. When a metric falls below its
-configured threshold the method executes a rollback script to restore the last
-known good model. The genetic algorithm history file (`ga_metrics_history.*`)
-supports the same formats and will emit JSON when the filename ends with
-`.json`.
+Metrics can be recorded in CSV, JSON, or YAML format. Nested dictionaries or
+lists are preserved when writing JSON or YAML files. CSV output flattens nested
+keys using dot notation (for example, ``parent.child``) so downstream logic
+receives simple key/value pairs. YAML serialization requires the optional
+``pyyaml`` dependency. The `SelfImprovement.evaluate_and_rollback` method checks
+the latest metrics recorded in `evolution/metrics_history.*`. When a metric
+falls below its configured threshold the method executes a rollback script to
+restore the last known good model. The genetic algorithm history file
+(`ga_metrics_history.*`) supports the same formats and will emit JSON when the
+filename ends with `.json`.
 
 ## Monitoring and Alerts
 
