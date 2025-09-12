@@ -1,5 +1,10 @@
 """Tests for the cross-domain benchmark suite."""
 
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 from benchmarks.run_cross_domain import CrossDomainBenchmark
 
 
