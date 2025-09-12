@@ -1,8 +1,16 @@
 from __future__ import annotations
 
-"""Planning utilities for chaining reasoning steps."""
+"""Planning utilities for chaining reasoning steps.
 
-from typing import Dict, Iterable, List, Tuple
+This module exposes :class:`ReasoningPlanner` which can infer conclusions for
+single statements via :meth:`infer` or perform batched inference over multiple
+statements with :meth:`infer_batch`. Batched inference gathers evidence for all
+statements concurrently and populates the planner's cache, serving as the
+backend for :meth:`chain`.
+"""
+
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 from .interfaces import KnowledgeSource, Solver
 from .decision_engine import ActionPlan, DecisionEngine
@@ -45,9 +53,68 @@ class ReasoningPlanner:
         )
         return conclusion, probability
 
+    def infer_batch(self, statements: Sequence[str]) -> List[Tuple[str, float]]:
+        """Infer conclusions for ``statements`` concurrently.
+
+        Evidence for all uncached statements is gathered in parallel from all
+        knowledge sources. Inference is then performed (also in parallel if a
+        solver is available) and results are stored in the planner cache and
+        history.
+        """
+
+        ordered = list(statements)
+        to_process: List[str] = []
+        for stmt in ordered:
+            if stmt not in self.cache:
+                to_process.append(stmt)
+
+        if to_process:
+            evidence_map: Dict[str, List[str]] = {s: [] for s in to_process}
+
+            with ThreadPoolExecutor() as executor:
+                futures = {
+                    executor.submit(source.query, stmt): (source, stmt)
+                    for source in self.knowledge_sources
+                    for stmt in to_process
+                }
+                for future, (_, stmt) in futures.items():
+                    evidence_map[stmt].extend(list(future.result()))
+
+            if self.solver:
+                with ThreadPoolExecutor() as executor:
+                    inf_futures = {
+                        executor.submit(self.solver.infer, stmt, evidence_map[stmt]): stmt
+                        for stmt in to_process
+                    }
+                    for future, stmt in inf_futures.items():
+                        conclusion, probability = future.result()
+                        self.cache[stmt] = (conclusion, probability)
+                        self.history.append(
+                            {
+                                "statement": stmt,
+                                "conclusion": conclusion,
+                                "probability": probability,
+                                "evidence": evidence_map[stmt],
+                            }
+                        )
+            else:
+                for stmt in to_process:
+                    conclusion, probability = stmt, 1.0
+                    self.cache[stmt] = (conclusion, probability)
+                    self.history.append(
+                        {
+                            "statement": stmt,
+                            "conclusion": conclusion,
+                            "probability": probability,
+                            "evidence": evidence_map[stmt],
+                        }
+                    )
+
+        return [self.cache[s] for s in ordered]
+
     def chain(self, statements: Iterable[str]) -> List[Tuple[str, float]]:
-        """Sequentially infer conclusions for multiple statements."""
-        return [self.infer(s) for s in statements]
+        """Infer conclusions for multiple statements using batched inference."""
+        return self.infer_batch(list(statements))
 
     def explain(self) -> List[Dict[str, object]]:
         """Return a trace of all reasoning steps performed so far."""
