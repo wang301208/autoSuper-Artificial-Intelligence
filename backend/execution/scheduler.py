@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import heapq
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .task_graph import TaskGraph
 
@@ -96,16 +96,15 @@ class Scheduler:
             return None
 
     # ------------------------------------------------------------------
-    def submit(
-        self, graph: TaskGraph, worker: Callable[[str, str], Any]
+    async def submit(
+        self, graph: TaskGraph, worker: Callable[[str, str], Awaitable[Any]]
     ) -> Dict[str, Any]:
         """Schedule tasks on available agents and execute them in parallel.
 
-        The ``worker`` callable receives the selected ``agent`` name and the
+        The ``worker`` coroutine receives the selected ``agent`` name and the
         ``skill`` associated with each task, allowing downstream consumers to
         route execution appropriately.
         """
-        # Build dependency counts and reverse edges
         indegree: Dict[str, int] = {}
         dependents: Dict[str, List[str]] = {}
         for task_id, task in graph.tasks.items():
@@ -113,43 +112,68 @@ class Scheduler:
             for dep in task.dependencies:
                 dependents.setdefault(dep, []).append(task_id)
 
-        ready = [tid for tid, deg in indegree.items() if deg == 0]
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        for tid, deg in indegree.items():
+            if deg == 0:
+                queue.put_nowait(tid)
         if self._task_callback:
-            self._task_callback(len(ready))
+            self._task_callback(queue.qsize())
+
         results: Dict[str, Any] = {}
-        in_progress: Dict[Any, tuple[str, str]] = {}
         max_workers = max(len(self._agents), 1)
-        with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            while ready or in_progress:
-                # Fill available worker slots
-                while ready and len(in_progress) < max_workers:
-                    task_id = ready.pop(0)
+
+        async def worker_loop() -> None:
+            try:
+                while True:
+                    task_id = await queue.get()
+                    if task_id is None:
+                        queue.task_done()
+                        break
                     task = graph.tasks[task_id]
-                    if task.skill:
-                        agent = self._pick_least_busy()
-                        if agent is None:
-                            continue
-                        future = pool.submit(worker, agent, task.skill)
-                        in_progress[future] = (task_id, agent)
+                    if not task.skill:
+                        results[task_id] = None
+                        queue.task_done()
+                        continue
+                    agent = self._pick_least_busy()
+                    if agent is None:
+                        queue.put_nowait(task_id)
+                        queue.task_done()
+                        await asyncio.sleep(0)
+                        continue
+                    try:
                         with self._lock:
                             self._update_tasks(agent, 1)
-                    else:
-                        results[task_id] = None
-                if not in_progress:
-                    continue
-                done = next(as_completed(list(in_progress.keys())))
-                tid, agent = in_progress.pop(done)
-                results[tid] = done.result()
-                with self._lock:
-                    self._update_tasks(agent, -1)
-                    self._task_counts[agent] += 1
-                for dep in dependents.get(tid, []):
-                    indegree[dep] -= 1
-                    if indegree[dep] == 0:
-                        ready.append(dep)
+                        res = await worker(agent, task.skill)
+                        results[task_id] = res
+                        with self._lock:
+                            self._task_counts[agent] += 1
+                        for dep in dependents.get(task_id, []):
+                            indegree[dep] -= 1
+                            if indegree[dep] == 0:
+                                queue.put_nowait(dep)
+                        if self._task_callback:
+                            self._task_callback(queue.qsize())
+                    finally:
+                        with self._lock:
+                            self._update_tasks(agent, -1)
+                        queue.task_done()
+            except asyncio.CancelledError:
+                raise
+
+        workers = [asyncio.create_task(worker_loop()) for _ in range(max_workers)]
+        try:
+            await queue.join()
+            for _ in workers:
+                queue.put_nowait(None)
+            await asyncio.gather(*workers)
+        except asyncio.CancelledError:
+            for w in workers:
+                w.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
+            raise
+
         if self._task_callback:
             self._task_callback(0)
-        # Ensure deterministic order
         return {tid: results.get(tid) for tid in graph.execution_order()}
 
     # ------------------------------------------------------------------

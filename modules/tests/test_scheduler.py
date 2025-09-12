@@ -1,10 +1,11 @@
 import os
 import sys
+import asyncio
 
 sys.path.insert(0, os.path.abspath(os.getcwd()))
 
-from execution.scheduler import Scheduler
-from execution.task_graph import TaskGraph
+from backend.execution.scheduler import Scheduler
+from backend.execution.task_graph import TaskGraph
 
 
 def test_pick_least_busy_distributes_tasks():
@@ -51,7 +52,7 @@ def test_submit_tracks_per_agent_task_counts():
     def worker(agent: str, skill: str) -> str:
         return agent
 
-    results = scheduler.submit(graph, worker)
+    results = asyncio.run(scheduler.submit(graph, worker))
     assert set(results.keys()) == {f"t{i}" for i in range(4)}
     counts = scheduler.task_counts()
     assert counts["A"] + counts["B"] == 4
@@ -70,7 +71,7 @@ def test_high_concurrency_balanced_distribution():
     def worker(agent: str, skill: str) -> str:
         return agent
 
-    scheduler.submit(graph, worker)
+    asyncio.run(scheduler.submit(graph, worker))
     counts = scheduler.task_counts()
     assert sum(counts.values()) == 100
     assert max(counts.values()) - min(counts.values()) <= 2
