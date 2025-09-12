@@ -18,7 +18,7 @@
 
 from .exceptions import AutoGPTException, log_and_format_exception
 from .async_utils import run_async
-from .concepts import ConceptNode, ConceptRelation
+from .concepts import CausalRelation, ConceptNode, ConceptRelation
 from .emotion import EmotionAnalyzer, EmotionState, adjust_response_style
 
 # 公开的 API 接口列表
@@ -34,6 +34,7 @@ __all__ = [
     # 概念建模组件
     "ConceptNode",                # 概念节点表示
     "ConceptRelation",            # 概念关系表示
+    "CausalRelation",             # 因果关系表示
     
     # 情感分析组件
     "EmotionAnalyzer",            # 情感分析器
