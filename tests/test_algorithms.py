@@ -6,6 +6,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from algorithms.sorting.basic.bubble_sort import BubbleSort
 from algorithms.sorting.basic.quick_sort import QuickSort
+from algorithms.sorting.basic.insertion_sort import InsertionSort
 from algorithms.searching.basic.linear_search import LinearSearch
 from algorithms.searching.basic.binary_search import BinarySearch
 from algorithms.graph.basic.bfs import BreadthFirstSearch
@@ -27,6 +28,16 @@ def test_quick_sort():
     assert QuickSort().execute(data) == sorted(data)
     assert QuickSort().execute([]) == []
     assert QuickSort().execute([3, 3, 1]) == [1, 3, 3]
+
+
+def test_insertion_sort():
+    data = [5, 2, 9, 1]
+    sorter = InsertionSort()
+    assert sorter.execute(data) == sorted(data)
+    assert sorter.execute([]) == []
+    assert sorter.execute([3, 3, 1]) == [1, 3, 3]
+    assert sorter.execute([1, 2, 3]) == [1, 2, 3]
+    assert sorter.execute([3, 2, 1]) == [1, 2, 3]
 
 
 def test_linear_search():
