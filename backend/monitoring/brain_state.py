@@ -9,6 +9,7 @@ be used by memory backends to keep track of retrieval operations.
 """
 
 from fastapi import FastAPI
+from typing import List
 
 from .global_workspace import GlobalWorkspace, global_workspace
 
@@ -60,10 +61,10 @@ def create_app(workspace: GlobalWorkspace | None = None) -> FastAPI:
         }
 
     @app.post("/brain/attention/{module}")
-    def set_attention(module: str, weight: float) -> dict[str, object]:
-        """Set attention ``weight`` for ``module``."""
+    def set_attention(module: str, weights: List[float]) -> dict[str, object]:
+        """Set attention ``weights`` for ``module``."""
 
-        workspace._attention[module] = float(weight)
+        workspace._attention[module] = [float(w) for w in weights]
         return {"module": module, "attention": workspace._attention[module]}
 
     return app
