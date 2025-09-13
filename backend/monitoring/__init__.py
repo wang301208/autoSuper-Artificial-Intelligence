@@ -9,6 +9,7 @@ from .reflection import Reflection
 from .global_workspace import GlobalWorkspace, global_workspace
 from .brain_state import create_app as create_brain_app, record_memory_hit
 from .multi_metric_monitor import MultiMetricMonitor
+from .evaluation import EvaluationMetrics
 
 __all__ = [
     "TimeSeriesStorage",
@@ -24,4 +25,5 @@ __all__ = [
     "create_brain_app",
     "record_memory_hit",
     "MultiMetricMonitor",
+    "EvaluationMetrics",
 ]

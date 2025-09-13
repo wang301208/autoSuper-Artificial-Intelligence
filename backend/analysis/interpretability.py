@@ -9,12 +9,16 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from monitoring.storage import TimeSeriesStorage
+
 
 @dataclass
 class InterpretabilityAnalyzer:
-    """Collects metrics and failure cases for interpretability analysis."""
+    """Collects metrics, failure cases and explanations for analysis."""
 
     failure_cases: List[Dict[str, object]] = field(default_factory=list)
+    explanations: List[str] = field(default_factory=list)
+    storage: TimeSeriesStorage | None = None
 
     def generate_learning_curve(self, metrics: List[float], path: str) -> str:
         """Save a learning curve plot for the provided metric values."""
@@ -37,6 +41,12 @@ class InterpretabilityAnalyzer:
             "output": output,
             "expected": expected,
         })
+
+    def log_explanation(self, text: str) -> None:
+        """Record an explanation and persist it via storage if available."""
+        self.explanations.append(text)
+        if self.storage is not None:
+            self.storage.store("analysis.explanations", {"text": text})
 
     def export_failure_cases(self, path: str) -> str:
         """Write failure cases to a CSV file."""
