@@ -1,14 +1,23 @@
 import logging
+from dataclasses import dataclass
 
-from agent_protocol import StepHandler, StepResult
+from agent_protocol import StepHandler
 
-from autogpt.agents import Agent
-from autogpt.app.main import UserFeedback
+from autogpt.agent_manager.agent_manager import AgentManager
+from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
+from autogpt.agents.utils.exceptions import AgentTerminated
+from autogpt.app.main import UserFeedback, _configure_openai_provider
 from autogpt.commands import COMMAND_CATEGORIES
 from autogpt.config import AIProfile, ConfigBuilder
-from autogpt.logs.helpers import user_friendly_output
+from autogpt.file_storage import FileStorageBackendName, get_storage
+from autogpt.logs.config import configure_logging
 from autogpt.models.command_registry import CommandRegistry
-from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
+
+
+@dataclass
+class StepResult:
+    output: dict | None
+    is_last: bool = False
 
 
 async def task_handler(task_input) -> StepHandler:
@@ -57,14 +66,19 @@ async def interaction_step(
     result: str | None = None
 
     if command_name is not None:
-        result = agent.execute(command_name, command_args, user_input)
-        if result is None:
-            user_friendly_output(
-                title="SYSTEM:", message="Unable to execute command", level=logging.WARN
+        try:
+            result_obj = await agent.execute(
+                command_name, command_args or {}, user_input or ""
             )
+            result = str(result_obj)
+        except AgentTerminated:
             return
 
-    next_command_name, next_command_args, assistant_reply_dict = agent.propose_action()
+    (
+        next_command_name,
+        next_command_args,
+        assistant_reply_dict,
+    ) = await agent.propose_action()
 
     return {
         "config": agent.config,
@@ -77,23 +91,53 @@ async def interaction_step(
 
 
 def bootstrap_agent(task, continuous_mode) -> Agent:
+    configure_logging(level=logging.DEBUG, plain_console_output=True)
+
     config = ConfigBuilder.build_config_from_env()
     config.logging.level = logging.DEBUG
     config.logging.plain_console_output = True
     config.continuous_mode = continuous_mode
     config.temperature = 0
-    command_registry = CommandRegistry.with_command_modules(COMMAND_CATEGORIES, config)
     config.memory_backend = "no_memory"
+
+    command_registry = CommandRegistry.with_command_modules(COMMAND_CATEGORIES, config)
+
     ai_profile = AIProfile(
         ai_name="AutoGPT",
         ai_role="a multi-purpose AI assistant.",
         ai_goals=[task],
     )
-    # FIXME this won't work - ai_profile and triggering_prompt is not a valid argument,
-    # lacks file_storage, settings and llm_provider
-    return Agent(
-        command_registry=command_registry,
+
+    agent_prompt_config = Agent.default_settings.prompt_config.copy(deep=True)
+    agent_prompt_config.use_functions_api = config.openai_functions
+    agent_settings = AgentSettings(
+        name=Agent.default_settings.name,
+        description=Agent.default_settings.description,
+        agent_id=AgentManager.generate_id("AutoGPT-cli"),
         ai_profile=ai_profile,
-        legacy_config=config,
-        triggering_prompt=DEFAULT_TRIGGERING_PROMPT,
+        config=AgentConfiguration(
+            fast_llm=config.fast_llm,
+            smart_llm=config.smart_llm,
+            allow_fs_access=not config.restrict_to_workspace,
+            use_functions_api=config.openai_functions,
+            plugins=config.plugins,
+        ),
+        prompt_config=agent_prompt_config,
+        history=Agent.default_settings.history.copy(deep=True),
     )
+
+    local = config.file_storage_backend == FileStorageBackendName.LOCAL
+    restrict_to_root = not local or config.restrict_to_workspace
+    file_storage = get_storage(
+        config.file_storage_backend, root_path="data", restrict_to_root=restrict_to_root
+    )
+    file_storage.initialize()
+
+    agent = Agent(
+        settings=agent_settings,
+        llm_provider=_configure_openai_provider(config),
+        command_registry=command_registry,
+        file_storage=file_storage,
+        legacy_config=config,
+    )
+    return agent
