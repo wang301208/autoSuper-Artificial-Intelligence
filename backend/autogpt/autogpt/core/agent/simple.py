@@ -190,28 +190,56 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._memory_pointer = 0
 
     @classmethod
-    def from_workspace(
-        cls,
-        workspace_path: Path,
-        logger: logging.Logger,
-        optimize_abilities: bool = False,
-    ) -> "SimpleAgent":
-        agent_settings = SimpleWorkspace.load_agent_settings(workspace_path)
-        agent_args = {}
+    def _init_workspace(
+        cls, agent_settings: AgentSettings, logger: logging.Logger
+    ) -> SimpleWorkspace:
+        """Instantiate the workspace plugin.
 
-        agent_args["settings"] = agent_settings.agent
-        agent_args["logger"] = logger
-        agent_args["workspace"] = cls._get_system_instance(
-            "workspace",
-            agent_settings,
-            logger,
-        )
+        Parameters
+        ----------
+        agent_settings
+            Settings loaded from the workspace directory.
+        logger
+            Logger used by the agent.
+
+        Returns
+        -------
+        SimpleWorkspace
+            The workspace instance created from the settings.
+        """
+
+        return cls._get_system_instance("workspace", agent_settings, logger)
+
+    @classmethod
+    def _init_model_providers(
+        cls, agent_settings: AgentSettings, logger: logging.Logger
+    ) -> dict[str | ModelProviderName, ChatModelProvider]:
+        """Create model provider instances from settings.
+
+        Each provider configuration is converted into an instantiated
+        :class:`ChatModelProvider` and keyed by either its string name or
+        :class:`ModelProviderName` enum.
+
+        Parameters
+        ----------
+        agent_settings
+            Settings containing provider configurations.
+        logger
+            Logger used by the agent.
+
+        Returns
+        -------
+        dict[str | ModelProviderName, ChatModelProvider]
+            Mapping of provider identifiers to provider instances.
+        """
+
         providers: dict[str | ModelProviderName, ChatModelProvider] = {}
         for name, provider_settings in agent_settings.openai_providers.items():
-            key = name
+            key: str | ModelProviderName = name
             try:
                 key = ModelProviderName(name)
             except Exception:
+                # Leave key as string if not a valid ModelProviderName
                 pass
             providers[key] = cls._get_system_instance(
                 "openai_provider",
@@ -219,36 +247,162 @@ class SimpleAgent(LayeredAgent, Configurable):
                 logger,
                 system_settings=provider_settings,
             )
-        agent_args["model_providers"] = providers
-        agent_args["planning"] = cls._get_system_instance(
+        return providers
+
+    @classmethod
+    def _init_planners(
+        cls,
+        agent_settings: AgentSettings,
+        logger: logging.Logger,
+        model_providers: dict[str | ModelProviderName, ChatModelProvider],
+    ) -> tuple[SimplePlanner, SimplePlanner | None]:
+        """Initialize the planning systems.
+
+        Parameters
+        ----------
+        agent_settings
+            Settings containing planner configurations.
+        logger
+            Logger used by the agent.
+        model_providers
+            Mapping of model providers to be passed to planners.
+
+        Returns
+        -------
+        tuple[SimplePlanner, SimplePlanner | None]
+            A tuple containing the default planner and an optional creative
+            planner.
+        """
+
+        planning = cls._get_system_instance(
             "planning",
             agent_settings,
             logger,
-            model_providers=providers,
+            model_providers=model_providers,
         )
-        agent_args["creative_planning"] = cls._get_system_instance(
+        creative_planning = cls._get_system_instance(
             "creative_planning",
             agent_settings,
             logger,
-            model_providers=providers,
+            model_providers=model_providers,
         )
-        agent_args["memory"] = cls._get_system_instance(
-            "memory",
-            agent_settings,
-            logger,
-            workspace=agent_args["workspace"],
+        return planning, creative_planning
+
+    @classmethod
+    def _init_memory(
+        cls,
+        agent_settings: AgentSettings,
+        logger: logging.Logger,
+        workspace: SimpleWorkspace,
+    ) -> SimpleMemory:
+        """Load the memory backend.
+
+        Parameters
+        ----------
+        agent_settings
+            Settings with memory configuration.
+        logger
+            Logger used by the agent.
+        workspace
+            Workspace instance used to store memory data.
+
+        Returns
+        -------
+        SimpleMemory
+            Instantiated memory backend.
+        """
+
+        return cls._get_system_instance(
+            "memory", agent_settings, logger, workspace=workspace
         )
 
-        agent_args["ability_registry"] = cls._get_system_instance(
+    @classmethod
+    def _init_ability_registry(
+        cls,
+        agent_settings: AgentSettings,
+        logger: logging.Logger,
+        workspace: SimpleWorkspace,
+        memory: SimpleMemory,
+        model_providers: dict[str | ModelProviderName, ChatModelProvider],
+    ) -> SimpleAbilityRegistry:
+        """Instantiate the ability registry.
+
+        Parameters
+        ----------
+        agent_settings
+            Settings with ability registry configuration.
+        logger
+            Logger used by the agent.
+        workspace
+            Workspace instance required by some abilities.
+        memory
+            Memory backend to store ability information.
+        model_providers
+            Mapping of model providers used by abilities.
+
+        Returns
+        -------
+        SimpleAbilityRegistry
+            The ability registry populated according to settings.
+        """
+
+        return cls._get_system_instance(
             "ability_registry",
             agent_settings,
             logger,
-            workspace=agent_args["workspace"],
-            memory=agent_args["memory"],
-            model_providers=providers,
+            workspace=workspace,
+            memory=memory,
+            model_providers=model_providers,
         )
 
-        return cls(**agent_args, optimize_abilities=optimize_abilities)
+    @classmethod
+    def from_workspace(
+        cls,
+        workspace_path: Path,
+        logger: logging.Logger,
+        optimize_abilities: bool = False,
+    ) -> "SimpleAgent":
+        """Create an agent from settings stored in a workspace directory.
+
+        Parameters
+        ----------
+        workspace_path
+            Path to the workspace containing ``agent_settings.json``.
+        logger
+            Logger used by the agent.
+        optimize_abilities
+            Whether to track ability metrics for optimisation.
+
+        Returns
+        -------
+        SimpleAgent
+            Fully assembled agent instance.
+        """
+
+        agent_settings = SimpleWorkspace.load_agent_settings(workspace_path)
+
+        # Initialize core systems from the workspace configuration
+        workspace = cls._init_workspace(agent_settings, logger)
+        model_providers = cls._init_model_providers(agent_settings, logger)
+        planning, creative_planning = cls._init_planners(
+            agent_settings, logger, model_providers
+        )
+        memory = cls._init_memory(agent_settings, logger, workspace)
+        ability_registry = cls._init_ability_registry(
+            agent_settings, logger, workspace, memory, model_providers
+        )
+
+        return cls(
+            settings=agent_settings.agent,
+            logger=logger,
+            ability_registry=ability_registry,
+            memory=memory,
+            model_providers=model_providers,
+            planning=planning,
+            workspace=workspace,
+            creative_planning=creative_planning,
+            optimize_abilities=optimize_abilities,
+        )
 
     def use_creative_planner(self, use_creative: bool = True) -> None:
         """Switch between the default planner and the creative planner."""
