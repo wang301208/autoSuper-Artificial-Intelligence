@@ -40,6 +40,13 @@ class ModelProviderName(str, enum.Enum):
     OPENAI = "openai"
 
 
+class OpenAIModelName(str, enum.Enum):
+    """Enumeration of default OpenAI chat model identifiers."""
+
+    GPT3 = "gpt-3.5-turbo"
+    GPT4 = "gpt-4"
+
+
 class ChatMessage(BaseModel):
     class Role(str, enum.Enum):
         USER = "user"
