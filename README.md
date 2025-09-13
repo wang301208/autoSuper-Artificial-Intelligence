@@ -31,6 +31,16 @@ autogpt-v0.5.1/
 3. 运行 `./run setup` 安装依赖
 4. 使用 `./run agent start <agent-name>` 启动代理
 
+### 模块级依赖
+
+部分子模块（例如 `algorithms/`、`modules/`）具有独立的依赖，请在相应目录下
+使用以下命令单独安装，以避免全局依赖冲突：
+
+```bash
+pip install -r algorithms/requirements.txt
+pip install -r modules/requirements.txt
+```
+
 **📖 [完整文档](https://docs.agpt.co)** | **🚀 [贡献指南](CONTRIBUTING.md)**
 
 ## 🔌 硬件支持

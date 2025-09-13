@@ -24,6 +24,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-benchmark
+          pip install -r algorithms/requirements.txt
       - name: Run sorting benchmarks
         run: |
           PYTHONPATH=. pytest benchmarks/test_sorting_benchmark.py --benchmark-json=benchmarks/results/sorting_current.json -q
