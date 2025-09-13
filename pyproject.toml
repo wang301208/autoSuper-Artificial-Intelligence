@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "autogpt-monorepo"
-version = "0.0.0"
+version = "0.5.1"
 description = "Unified AutoGPT workspace"
 authors = ["AutoGPT Contributors <support@agpt.co>"]
 
