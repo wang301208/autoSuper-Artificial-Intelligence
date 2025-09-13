@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from .ontology import EntityType, RelationType
 
@@ -29,12 +30,16 @@ class GraphStore:
     def __init__(self) -> None:
         self._nodes: Dict[str, Node] = {}
         self._edges: List[Edge] = []
+        self._version: int = 0
+        self._snapshots: Dict[int, Tuple[Dict[str, Node], List[Edge]]] = {}
+        self._cache_version()
 
     # -- Node/edge management -------------------------------------------------
     def add_node(
         self, node_id: str, entity_type: EntityType, **properties: object
     ) -> None:
         self._nodes[node_id] = Node(node_id, entity_type, properties)
+        self._bump_version()
 
     def add_edge(
         self,
@@ -44,6 +49,39 @@ class GraphStore:
         **properties: object,
     ) -> None:
         self._edges.append(Edge(source, target, relation_type, properties))
+        self._bump_version()
+
+    def remove_node(self, node_id: str) -> None:
+        """Remove a node and any connected edges."""
+
+        self._nodes.pop(node_id, None)
+        self._edges = [
+            e for e in self._edges if e.source != node_id and e.target != node_id
+        ]
+        self._bump_version()
+
+    def remove_edge(
+        self,
+        source: str,
+        target: str,
+        relation_type: RelationType | None = None,
+    ) -> None:
+        """Remove an edge between two nodes.
+
+        If ``relation_type`` is ``None``, all edges between ``source`` and
+        ``target`` are removed.
+        """
+
+        self._edges = [
+            e
+            for e in self._edges
+            if not (
+                e.source == source
+                and e.target == target
+                and (relation_type is None or e.type == relation_type)
+            )
+        ]
+        self._bump_version()
 
     # -- Query API ------------------------------------------------------------
     def query(
@@ -74,6 +112,31 @@ class GraphStore:
             "nodes": nodes,
             "edges": edges,
         }
+
+    def get_version(self) -> int:
+        """Return the current version of the graph."""
+
+        return self._version
+
+    def get_snapshot(self, version: int | None = None) -> Dict[str, List]:
+        """Return a snapshot of the graph at ``version``.
+
+        If ``version`` is ``None``, the latest snapshot is returned.
+        """
+
+        version = self._version if version is None else version
+        nodes, edges = self._snapshots.get(version, (self._nodes, self._edges))
+        return {"nodes": list(nodes.values()), "edges": list(edges)}
+
+    def _bump_version(self) -> None:
+        self._version += 1
+        self._cache_version()
+
+    def _cache_version(self) -> None:
+        self._snapshots[self._version] = (
+            deepcopy(self._nodes),
+            deepcopy(self._edges),
+        )
 
 
 _GLOBAL_GRAPH_STORE: GraphStore | None = None
