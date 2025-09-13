@@ -86,7 +86,23 @@ mypy = "^1.4.1"
 pre-commit = "^3.3.3"
 autoflake = "^2.2.0"
 types-requests = "^2.31.0.2"
+ruff = "^0.1.11"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["tests/vcr_cassettes"]
+
+[tool.ruff.lint]
+ignore = ["E203"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
