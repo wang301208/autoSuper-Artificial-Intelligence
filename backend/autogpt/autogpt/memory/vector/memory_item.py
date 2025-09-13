@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Literal
 
 import ftfy
@@ -31,6 +32,11 @@ except Exception:  # pragma: no cover
         return []
 
 from .utils import Embedding, get_embedding
+
+try:  # pragma: no cover - optional dependency
+    from tree_sitter_languages import get_parser
+except Exception:  # pragma: no cover
+    get_parser = None
 
 logger = logging.getLogger(__name__)
 
@@ -184,9 +190,131 @@ class MemoryItemFactory:
     def from_text_file(self, content: str, path: str, config: Config):
         return self.from_text(content, "text_file", config, {"location": path})
 
-    def from_code_file(self, content: str, path: str):
-        # TODO: implement tailored code memories
-        return self.from_text(content, "code_file", {"location": path})
+    async def from_code_file(self, content: str, path: str, config: Config):
+        """Create a memory item from a code file."""
+
+        language_map = {
+            ".c": "c",
+            ".cpp": "cpp",
+            ".cs": "c_sharp",
+            ".go": "go",
+            ".java": "java",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".php": "php",
+            ".py": "python",
+            ".rb": "ruby",
+            ".rs": "rust",
+            ".sh": "bash",
+            ".swift": "swift",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+        }
+
+        language = language_map.get(Path(path).suffix.lower())
+
+        def extract_symbols(code: str) -> list[str]:
+            if not language or not get_parser:
+                return []
+            try:
+                parser = get_parser(language)
+                tree = parser.parse(code.encode("utf-8"))
+                symbols: list[str] = []
+
+                def visit(node):
+                    if "function" in node.type or "class" in node.type:
+                        name_node = node.child_by_field_name("name")
+                        if name_node:
+                            symbols.append(
+                                code[name_node.start_byte : name_node.end_byte]
+                            )
+                    for child in node.children:
+                        visit(child)
+
+                visit(tree.root_node)
+                return symbols
+            except Exception:
+                return []
+
+        symbols = extract_symbols(content)
+
+        tokenizer = self.llm_provider.get_tokenizer(config.fast_llm)
+        max_chunk_length = 1000
+
+        chunks: list[str] = []
+        if language and get_parser:
+            try:
+                parser = get_parser(language)
+                tree = parser.parse(content.encode("utf-8"))
+                byte_code = content.encode("utf-8")
+                last_end = 0
+                for node in tree.root_node.children:
+                    start, end = node.start_byte, node.end_byte
+                    snippet = byte_code[start:end].decode("utf-8")
+                    length = len(tokenizer.encode(snippet))
+                    if length <= max_chunk_length:
+                        chunks.append(snippet)
+                    else:
+                        chunks.extend(
+                            c for c, _ in chunk_content(snippet, max_chunk_length, tokenizer)
+                        )
+                    last_end = end
+                if last_end < len(byte_code):
+                    snippet = byte_code[last_end:].decode("utf-8")
+                    chunks.append(snippet)
+            except Exception:
+                chunks = [
+                    c for c, _ in chunk_content(content, max_chunk_length, tokenizer)
+                ]
+        else:
+            chunks = [c for c, _ in chunk_content(content, max_chunk_length, tokenizer)]
+
+        how_to_summarize = (
+            "Provide a concise summary of the following code."
+        )
+        chunk_summaries = [
+            (
+                await summarize_text(
+                    text=chunk,
+                    instruction=how_to_summarize,
+                    llm_provider=self.llm_provider,
+                    config=config,
+                )
+            )[0]
+            for chunk in chunks
+        ]
+        e_chunks = await get_embedding(chunks, config, self.embedding_provider)
+
+        summary = (
+            chunk_summaries[0]
+            if len(chunks) == 1
+            else (
+                await summarize_text(
+                    text="\n\n".join(chunk_summaries),
+                    instruction=how_to_summarize,
+                    llm_provider=self.llm_provider,
+                    config=config,
+                )
+            )[0]
+        )
+        e_summary = await get_embedding(summary, config, self.embedding_provider)
+
+        metadata = {
+            "location": path,
+            "language": language,
+            "symbols": symbols,
+            "source_type": "code_file",
+        }
+
+        return MemoryItem(
+            raw_content=content,
+            summary=summary,
+            chunks=chunks,
+            chunk_summaries=chunk_summaries,
+            e_summary=e_summary,
+            e_chunks=e_chunks,
+            metadata=metadata,
+        )
 
     def from_ai_action(self, ai_message: ChatMessage, result_message: ChatMessage):
         # The result_message contains either user feedback
