@@ -66,3 +66,10 @@ Basic example:
 - `algorithms/causal/causal_graph.py` - build causal graphs, perform interventions,
   and infer downstream values. See `algorithms/examples.py` for a usage
   demonstration.
+
+## Adaptive Neural Networks
+
+Basic example:
+
+- `algorithms/neuro_symbolic/dynamic_network.py` - incremental network that
+  grows or prunes layers during training based on configurable triggers.
