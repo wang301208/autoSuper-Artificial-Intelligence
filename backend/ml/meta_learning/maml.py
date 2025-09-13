@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Sequence
 
 import numpy as np
 import pandas as pd
@@ -19,15 +19,53 @@ class TaskData:
     query_y: np.ndarray
 
 
-def load_task(path: str | Path, test_size: float = 0.5, random_state: int = 42) -> TaskData:
-    """Load a regression task from ``path``.
+def load_task(
+    path: str | Path,
+    test_size: float = 0.5,
+    random_state: int = 42,
+    k_shot: int | None = None,
+    n_way: int | None = None,
+) -> TaskData:
+    """Load a task from ``path``.
 
-    The CSV file must contain numeric feature columns and a ``target`` column.
-    The dataset is split into support and query sets.
+    The CSV file must contain numeric feature columns and a ``target`` column. If
+    ``k_shot`` and ``n_way`` are provided, a few-shot classification task is
+    constructed by sampling ``n_way`` classes and ``k_shot`` support examples per
+    class. Remaining examples for those classes form the query set. Otherwise the
+    dataset is split randomly for generic regression tasks.
     """
+
     df = pd.read_csv(path)
     if "target" not in df.columns:
         raise ValueError("Dataset must contain a 'target' column")
+
+    if k_shot is not None and n_way is not None:
+        rng = np.random.default_rng(random_state)
+        classes = df["target"].unique()
+        if len(classes) < n_way:
+            raise ValueError("Dataset does not contain enough classes for n_way")
+        selected: Sequence[int] = rng.choice(classes, size=n_way, replace=False)
+
+        support_x, support_y, query_x, query_y = [], [], [], []
+        for c in selected:
+            cls_df = df[df["target"] == c]
+            if len(cls_df) <= k_shot:
+                raise ValueError(
+                    f"Class {c} does not have more than k_shot={k_shot} examples"
+                )
+            cls_df = cls_df.sample(frac=1.0, random_state=random_state)
+            support = cls_df.iloc[:k_shot]
+            query = cls_df.iloc[k_shot:]
+            support_x.append(support.drop(columns=["target"]).values.astype(float))
+            support_y.append(np.full(len(support), c, dtype=float))
+            query_x.append(query.drop(columns=["target"]).values.astype(float))
+            query_y.append(np.full(len(query), c, dtype=float))
+        X_s = np.vstack(support_x)
+        y_s = np.concatenate(support_y)
+        X_q = np.vstack(query_x)
+        y_q = np.concatenate(query_y)
+        return TaskData(X_s, y_s, X_q, y_q)
+
     X = df.drop(columns=["target"]).values.astype(float)
     y = df["target"].values.astype(float)
     X_s, X_q, y_s, y_q = train_test_split(
