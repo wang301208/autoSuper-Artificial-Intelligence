@@ -48,6 +48,8 @@ class MultiTaskTrainer:
         self.optimizer: str | None = None
         self.scheduler: str | None = None
         self.early_stopped = False
+        # Store optimizers used per task for testing/inspection
+        self.torch_optimizers: Dict[str, optim.Optimizer] = {}
 
     def load_datasets(self) -> None:
         """Load datasets and fit the shared feature extractor."""
@@ -124,7 +126,25 @@ class MultiTaskTrainer:
                 else self.config.model_type
             )
             model = get_model(model_type, input_dim=X_train_t.shape[1], output_dim=1)
-            optimizer = optim.Adam(model.parameters(), lr=self.config.initial_lr)
+            optimizer_map = {
+                "adam": optim.Adam,
+                "adamw": optim.AdamW,
+            }
+            if hasattr(optim, "Lion"):
+                optimizer_map["lion"] = optim.Lion  # type: ignore[attr-defined]
+            else:  # pragma: no cover - optional dependency
+                try:
+                    from lion_pytorch import Lion  # type: ignore
+
+                    optimizer_map["lion"] = Lion
+                except Exception:  # pragma: no cover - dependency may be missing
+                    pass
+
+            if self.optimizer not in optimizer_map:
+                raise ValueError(f"Unsupported optimizer: {self.optimizer}")
+            opt_cls = optimizer_map[self.optimizer]
+            optimizer = opt_cls(model.parameters(), lr=self.config.initial_lr)
+            self.torch_optimizers[name] = optimizer
             criterion = nn.MSELoss()
 
             model.train()
@@ -152,11 +172,8 @@ class MultiTaskTrainer:
     # ---- Hooks ---------------------------------------------------------
 
     def _init_optimizer(self) -> str:
-        """Return the configured optimizer name."""
-        opt = self.config.optimizer.lower()
-        if opt not in {"adam", "adamw", "lion"}:
-            opt = "adam"
-        return opt
+        """Return the configured optimizer name in lowercase."""
+        return self.config.optimizer.lower()
 
     def _apply_adversarial_training(self, data) -> None:
         """Placeholder adversarial training hook."""

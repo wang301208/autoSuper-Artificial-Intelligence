@@ -123,7 +123,25 @@ class ContinualTrainer:
             self.model = get_model(
                 self.config.model_type, input_dim=inputs.shape[1], output_dim=1
             )
-            self.torch_optimizer = optim.Adam(
+            # Map configured optimizer name to implementation class
+            optimizer_map = {
+                "adam": optim.Adam,
+                "adamw": optim.AdamW,
+            }
+            if hasattr(optim, "Lion"):
+                optimizer_map["lion"] = optim.Lion  # type: ignore[attr-defined]
+            else:  # pragma: no cover - optional dependency
+                try:
+                    from lion_pytorch import Lion  # type: ignore
+
+                    optimizer_map["lion"] = Lion
+                except Exception:  # pragma: no cover - dependency may be missing
+                    pass
+
+            if self.optimizer not in optimizer_map:
+                raise ValueError(f"Unsupported optimizer: {self.optimizer}")
+            opt_cls = optimizer_map[self.optimizer]
+            self.torch_optimizer = opt_cls(
                 self.model.parameters(), lr=self.config.initial_lr
             )
 
@@ -191,11 +209,8 @@ class ContinualTrainer:
     # ---- Hooks ---------------------------------------------------------
 
     def _init_optimizer(self) -> str:
-        """Return the configured optimizer name."""
-        opt = self.config.optimizer.lower()
-        if opt not in {"adam", "adamw", "lion"}:
-            opt = "adam"
-        return opt
+        """Return the configured optimizer name in lowercase."""
+        return self.config.optimizer.lower()
 
     def _apply_adversarial_training(self, data: List[Dict[str, Any]]) -> None:
         """Placeholder adversarial training hook."""
