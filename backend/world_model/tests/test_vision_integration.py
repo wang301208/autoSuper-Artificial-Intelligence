@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import types
 from pathlib import Path
+import torch
 
 
 # Create a package-like structure for ``backend`` so modules can be imported
@@ -22,19 +23,20 @@ WorldModel = module.WorldModel
 def test_store_and_retrieve_visual_data():
     wm = WorldModel()
     image = [[0, 1], [1, 0]]
-    features = [0.1, 0.2, 0.3]
-    vit_features = [0.4, 0.5]
+    features = torch.tensor([0.1, 0.2, 0.3])
+    text = torch.tensor([0.9, 0.8, 0.7])
 
-    wm.add_visual_observation(
-        "agent1", image=image, features=features, vit_features=vit_features
-    )
+    wm.add_visual_observation("agent1", image=image, features=features, text=text)
 
     retrieved = wm.get_visual_observation("agent1")
     assert retrieved["image"] == image
-    assert retrieved["features"] == features
-    assert retrieved["vit_features"] == vit_features
+    assert torch.allclose(retrieved["features"], features)
+    assert torch.allclose(retrieved["text"], text)
+
+    unified = wm.get_unified_representation("agent1")
+    assert unified is not None
+    assert unified.shape[0] == features.shape[0]
 
     state = wm.get_state()
     assert "agent1" in state["vision"]
-    assert state["vision"]["agent1"]["features"] == features
-    assert state["vision"]["agent1"]["vit_features"] == vit_features
+    assert "agent1" in state["multimodal"]
