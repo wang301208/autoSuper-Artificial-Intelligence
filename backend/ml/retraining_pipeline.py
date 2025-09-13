@@ -19,6 +19,7 @@ from typing import Dict
 
 import pandas as pd
 from events import create_event_bus, publish
+from .data_pipeline import DataPipeline
 
 DATA_DIR = Path("data")
 DATASET = DATA_DIR / "dataset.csv"
@@ -221,6 +222,12 @@ def main() -> bool:
     if not DATASET.exists():
         print("No dataset available for training")
         return True
+
+    # Expand the dataset using the data pipeline before training.
+    df = pd.read_csv(DATASET)
+    pipeline = DataPipeline()
+    df = pipeline.process(df)
+    df.to_csv(DATASET, index=False)
 
     version = datetime.utcnow().strftime("v%Y%m%d%H%M%S")
     metrics_file, metric_name = train_and_evaluate(version, args.model)
