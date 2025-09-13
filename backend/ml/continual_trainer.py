@@ -51,6 +51,13 @@ class ContinualTrainer:
         self.scheduler: str | None = None
         self.early_stopped = False
 
+        # State used by training strategies
+        self.prev_grads: List[torch.Tensor] | None = None
+        self.ewc_prev_params: List[torch.Tensor] | None = None
+        self.ewc_fisher: List[torch.Tensor] | None = None
+        self._ewc_penalty: torch.Tensor | None = None
+        self._curriculum_weights: List[float] | None = None
+
         # Simple linear model and feature extractor used for fine-tuning
         self.extractor = self._create_extractor(feature_type)
         self.model: nn.Module | None = None
@@ -79,22 +86,15 @@ class ContinualTrainer:
         self.optimizer = self._init_optimizer()
         self.scheduler = self.config.lr_scheduler
 
-        # Hooks for curriculum learning and adversarial training
+        # Hooks for curriculum learning and adversarial training modify the raw data
         if self.config.use_curriculum:
             self._apply_curriculum_learning(new_data)
         if self.config.use_adversarial:
             self._apply_adversarial_training(new_data)
-        if self.config.use_ewc:
-            self._apply_ewc_regularization(new_data)
-        if self.config.use_orthogonal:
-            self._apply_orthogonal_training(new_data)
-
-        if self.config.early_stopping_patience is not None:
-            # Placeholder: mark that early stopping would be engaged
-            self.early_stopped = True
 
         rewards = torch.tensor(
-            [float(s.get("reward", 0.0)) for s in new_data], dtype=torch.float32
+            [float(s.get("reward", 0.0)) * float(s.get("curriculum_weight", 1.0)) for s in new_data],
+            dtype=torch.float32,
         ).unsqueeze(1)
 
         if isinstance(self.extractor, TimeSeriesFeatureExtractor):
@@ -148,12 +148,51 @@ class ContinualTrainer:
         assert self.model is not None
         assert self.torch_optimizer is not None
 
-        self.model.train()
-        preds = self.model(inputs)
-        loss = self.criterion(preds, rewards)
-        self.torch_optimizer.zero_grad()
-        loss.backward()
-        self.torch_optimizer.step()
+        # Compute EWC penalty if enabled
+        if self.config.use_ewc:
+            self._apply_ewc_regularization(inputs, rewards, update=False)
+
+        # Split into train/validation for early stopping
+        if rewards.shape[0] > 1:
+            split_idx = max(1, int(rewards.shape[0] * 0.8))
+        else:
+            split_idx = 1
+        train_inputs, val_inputs = inputs[:split_idx], inputs[split_idx:]
+        train_rewards, val_rewards = rewards[:split_idx], rewards[split_idx:]
+        if val_inputs.shape[0] == 0:
+            val_inputs, val_rewards = train_inputs, train_rewards
+
+        patience = self.config.early_stopping_patience
+        best_val = float("inf")
+        epochs_no_improve = 0
+
+        for _ in range(100):
+            self.model.train()
+            preds = self.model(train_inputs)
+            loss = self.criterion(preds, train_rewards)
+            if self.config.use_ewc and self._ewc_penalty is not None:
+                loss = loss + self._ewc_penalty
+            self.torch_optimizer.zero_grad()
+            loss.backward()
+            if self.config.use_orthogonal:
+                self._apply_orthogonal_training()
+            self.torch_optimizer.step()
+
+            self.model.eval()
+            with torch.no_grad():
+                val_loss = self.criterion(self.model(val_inputs), val_rewards).item()
+            if val_loss < best_val - 1e-8:
+                best_val = val_loss
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+            if patience is not None and epochs_no_improve > patience:
+                self.early_stopped = True
+                break
+
+        # Update EWC fisher information after training
+        if self.config.use_ewc:
+            self._apply_ewc_regularization(train_inputs, train_rewards, update=True)
 
         self.trained_rows += len(new_data)
         self.pending_samples = 0
@@ -213,17 +252,73 @@ class ContinualTrainer:
         return self.config.optimizer.lower()
 
     def _apply_adversarial_training(self, data: List[Dict[str, Any]]) -> None:
-        """Placeholder adversarial training hook."""
+        """Generate simple adversarial examples by perturbing rewards.
+
+        Each sample is duplicated with a small reward perturbation. This
+        increases the diversity of the training signal and results in different
+        model updates when the strategy is enabled.
+        """
         self.adversarial_hook_called = True
+        augmented = []
+        for sample in data:
+            adv = sample.copy()
+            r = float(sample.get("reward", 0.0))
+            adv["reward"] = r + 0.1 if r >= 0 else r - 0.1
+            augmented.append(adv)
+        data.extend(augmented)
 
     def _apply_curriculum_learning(self, data: List[Dict[str, Any]]) -> None:
-        """Placeholder curriculum learning hook."""
+        """Order samples by reward magnitude and assign progressive weights."""
         self.curriculum_hook_called = True
+        data.sort(key=lambda s: abs(float(s.get("reward", 0.0))))
+        weights = [(i + 1) / len(data) for i in range(len(data))]
+        for sample, w in zip(data, weights):
+            sample["curriculum_weight"] = w
+        self._curriculum_weights = weights
 
-    def _apply_ewc_regularization(self, data: List[Dict[str, Any]]) -> None:
-        """Placeholder Elastic Weight Consolidation regularization."""
+    def _apply_ewc_regularization(
+        self, inputs: torch.Tensor, targets: torch.Tensor, update: bool = False
+    ) -> None:
+        """Compute or update the Elastic Weight Consolidation penalty.
+
+        When ``update`` is ``False`` the method calculates the penalty term
+        based on previously stored parameters and Fisher information. When
+        ``update`` is ``True`` it recomputes and stores the Fisher information
+        for the provided data for use in future training iterations.
+        """
         self.ewc_hook_called = True
+        if self.model is None:
+            return
 
-    def _apply_orthogonal_training(self, data: List[Dict[str, Any]]) -> None:
-        """Placeholder orthogonal gradient descent step."""
+        if not update and self.ewc_prev_params is not None and self.ewc_fisher is not None:
+            penalty = torch.zeros(1)
+            for p, p_old, f in zip(self.model.parameters(), self.ewc_prev_params, self.ewc_fisher):
+                penalty += (f * (p - p_old) ** 2).sum()
+            self._ewc_penalty = penalty.detach()
+
+        if update:
+            self.model.eval()
+            outputs = self.model(inputs)
+            loss = self.criterion(outputs, targets)
+            self.model.zero_grad()
+            loss.backward()
+            fisher = [p.grad.detach() ** 2 for p in self.model.parameters()]
+            self.ewc_prev_params = [p.detach().clone() for p in self.model.parameters()]
+            self.ewc_fisher = fisher
+            self.model.zero_grad()
+
+    def _apply_orthogonal_training(self) -> None:
+        """Project gradients to be orthogonal to previous gradients."""
         self.orthogonal_hook_called = True
+        if self.model is None:
+            return
+        if self.prev_grads is None:
+            self.prev_grads = [p.grad.detach().clone() for p in self.model.parameters() if p.grad is not None]
+            return
+        with torch.no_grad():
+            for p, g_prev in zip(self.model.parameters(), self.prev_grads):
+                if p.grad is None:
+                    continue
+                proj = (p.grad * g_prev).sum() / (g_prev.norm() ** 2 + 1e-8)
+                p.grad -= proj * g_prev
+            self.prev_grads = [p.grad.detach().clone() for p in self.model.parameters() if p.grad is not None]
