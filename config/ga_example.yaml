@@ -1,0 +1,5 @@
+metrics:
+  - name: minimize_response_time
+    weight: 0.7
+  - name: minimize_resource_consumption
+    weight: 0.3

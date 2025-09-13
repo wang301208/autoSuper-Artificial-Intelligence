@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from typing import Callable, List, Sequence, Tuple
 import random
 
+# Optional plugin support for multi-metric fitness evaluation
+from .fitness_plugins import load_from_config
+
 
 def _clip(value: float, low: float, high: float) -> float:
     """Clip *value* to the inclusive range [low, high]."""
@@ -31,12 +34,30 @@ class GeneticAlgorithm:
 
     def __init__(
         self,
-        fitness_fn: Callable[[Sequence[float]], float],
-        bounds: Sequence[Tuple[float, float]],
+        fitness_fn: Callable[[Sequence[float]], float] | None = None,
+        bounds: Sequence[Tuple[float, float]] | None = None,
         config: GAConfig | None = None,
+        metric_config: str | None = None,
+        metrics: Sequence[Tuple[Callable[[Sequence[float]], float], float]] | None = None,
     ) -> None:
-        self.fitness_fn = fitness_fn
-        self.bounds = list(bounds)
+        # ``fitness_fn`` is used when a single evaluation function is supplied.
+        # ``metrics`` / ``metric_config`` enable weighted multi-metric fitness.
+        if metrics is None and metric_config is not None:
+            metrics = load_from_config(metric_config)
+
+        self.metrics = list(metrics) if metrics is not None else None
+        if self.metrics is None:
+            if fitness_fn is None:
+                raise ValueError("Either fitness_fn or metrics must be provided")
+            assert bounds is not None
+            self.fitness_fn = fitness_fn
+        else:
+            assert bounds is not None
+            # Compose a fitness function from the metrics and weights.
+            self.fitness_fn = lambda ind: sum(
+                weight * fn(ind) for fn, weight in self.metrics  # type: ignore[misc]
+            )
+        self.bounds = list(bounds) if bounds is not None else []
         self.config = config or GAConfig()
         self.num_genes = len(self.bounds)
         self.best_individual: List[float] | None = None
