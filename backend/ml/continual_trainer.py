@@ -36,6 +36,8 @@ class ContinualTrainer:
         # Internal flags for testing hooks
         self.adversarial_hook_called = False
         self.curriculum_hook_called = False
+        self.ewc_hook_called = False
+        self.orthogonal_hook_called = False
         self.optimizer: str | None = None
         self.scheduler: str | None = None
         self.early_stopped = False
@@ -65,6 +67,10 @@ class ContinualTrainer:
             self._apply_curriculum_learning(new_data)
         if self.config.use_adversarial:
             self._apply_adversarial_training(new_data)
+        if self.config.use_ewc:
+            self._apply_ewc_regularization(new_data)
+        if self.config.use_orthogonal:
+            self._apply_orthogonal_training(new_data)
 
         if self.config.early_stopping_patience is not None:
             # Placeholder: mark that early stopping would be engaged
@@ -101,3 +107,11 @@ class ContinualTrainer:
     def _apply_curriculum_learning(self, data: List[Dict[str, Any]]) -> None:
         """Placeholder curriculum learning hook."""
         self.curriculum_hook_called = True
+
+    def _apply_ewc_regularization(self, data: List[Dict[str, Any]]) -> None:
+        """Placeholder Elastic Weight Consolidation regularization."""
+        self.ewc_hook_called = True
+
+    def _apply_orthogonal_training(self, data: List[Dict[str, Any]]) -> None:
+        """Placeholder orthogonal gradient descent step."""
+        self.orthogonal_hook_called = True

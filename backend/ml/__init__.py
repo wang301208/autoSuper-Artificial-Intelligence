@@ -15,7 +15,8 @@ class TrainingConfig:
     This configuration now supports multiple optimizers, optional learning
     rate scheduling and an early stopping mechanism. Hooks for adversarial and
     curriculum learning strategies can be toggled via this configuration as
-    well.
+    well. Additional flags enable strategies to mitigate catastrophic
+    forgetting such as EWC and orthogonal gradient descent.
     """
 
     initial_lr: float = 1e-4
@@ -24,6 +25,8 @@ class TrainingConfig:
     early_stopping_patience: int | None = None
     use_adversarial: bool = False
     use_curriculum: bool = False
+    use_ewc: bool = False
+    use_orthogonal: bool = False
     train_after_samples: int = 100
     checkpoint_dir: Path = Path("data") / "checkpoints"
 
