@@ -20,6 +20,10 @@ from typing import Dict
 import pandas as pd
 from events import create_event_bus, publish
 
+from .compression import compress_model
+from .model_registry import ModelRegistry
+from . import distributed
+
 DATA_DIR = Path("data")
 DATASET = DATA_DIR / "dataset.csv"
 NEW_LOGS = DATA_DIR / "new_logs.csv"
@@ -154,15 +158,29 @@ def train_and_evaluate(version: str, model: str) -> tuple[Path, str]:
     return ARTIFACTS / version / "metrics.txt", metric_name
 
 
-def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> bool:
-    """Deploy the trained model if it outperforms the current baseline.
+def deploy_with_ab_test(
+    version: str,
+    new_metrics: Dict[str, float],
+    metric_name: str,
+    registry: ModelRegistry,
+) -> bool:
+    """Deploy the trained model and run a simple A/B test against the baseline.
 
-    Returns ``True`` if deployment succeeded, ``False`` otherwise.
+    The current model is backed up, the new model is copied into ``CURRENT`` and
+    compared against the previous metrics. If any regression is detected the
+    deployment is rolled back and the previous model restored.
     """
 
-    new_metrics = parse_metrics(metrics_file)
-    baseline_file = CURRENT / "metrics.txt"
-    baseline_metrics = parse_metrics(baseline_file)
+    baseline_meta = registry.current()
+    baseline_metrics = baseline_meta["metrics"] if baseline_meta else {}
+
+    # Deploy new model by swapping directories so that the A/B test can run.
+    if CURRENT.exists():
+        if PREVIOUS.exists():
+            shutil.rmtree(PREVIOUS)
+        shutil.copytree(CURRENT, PREVIOUS)
+        shutil.rmtree(CURRENT)
+    shutil.copytree(ARTIFACTS / version, CURRENT)
 
     thresholds = METRIC_THRESHOLDS.copy()
     thresholds.setdefault(metric_name, {"direction": "lower", "threshold": 0.0})
@@ -183,29 +201,31 @@ def deploy_if_better(version: str, metrics_file: Path, metric_name: str) -> bool
                 regressions.append(f"{metric} {new_val:.4f} < {base_val:.4f}")
 
     if not regressions:
-        if CURRENT.exists():
-            if PREVIOUS.exists():
-                shutil.rmtree(PREVIOUS)
-            shutil.copytree(CURRENT, PREVIOUS)
-            shutil.rmtree(CURRENT)
-        shutil.copytree(ARTIFACTS / version, CURRENT)
         metric_val = new_metrics.get(metric_name, float("nan"))
         print(
             f"Deployed new model version {version} ({metric_name} {metric_val:.4f})",
         )
+        registry.set_current(version)
         _log_history(version, new_metrics, "deployed")
         return True
-    else:
-        logger.warning(
-            "Model not deployed due to metric regressions: %s", "; ".join(regressions)
-        )
-        _log_history(version, new_metrics, "regression")
-        publish(
-            event_bus,
-            "model.regression",
-            {"version": version, "regressions": regressions},
-        )
-        return False
+
+    logger.warning(
+        "Model not deployed due to metric regressions: %s", "; ".join(regressions)
+    )
+    _log_history(version, new_metrics, "regression")
+    publish(
+        event_bus,
+        "model.regression",
+        {"version": version, "regressions": regressions},
+    )
+
+    # Roll back to the previous model
+    if CURRENT.exists():
+        shutil.rmtree(CURRENT)
+    if PREVIOUS.exists():
+        shutil.copytree(PREVIOUS, CURRENT)
+    registry.rollback()
+    return False
 
 
 def main() -> bool:
@@ -215,7 +235,20 @@ def main() -> bool:
         default="linear",
         help="Model type to train (e.g. 'linear' or 'llm')",
     )
+    parser.add_argument(
+        "--compression-level",
+        type=int,
+        default=None,
+        help="Optional compression level to apply to the trained model",
+    )
+    parser.add_argument(
+        "--distributed",
+        action="store_true",
+        help="Enable distributed training hooks",
+    )
     args = parser.parse_args()
+
+    registry = ModelRegistry()
 
     accumulate_logs()
     if not DATASET.exists():
@@ -223,8 +256,18 @@ def main() -> bool:
         return True
 
     version = datetime.utcnow().strftime("v%Y%m%d%H%M%S")
+    if args.distributed:
+        distributed.setup_training()
     metrics_file, metric_name = train_and_evaluate(version, args.model)
-    return deploy_if_better(version, metrics_file, metric_name)
+    if args.distributed:
+        distributed.teardown_training()
+
+    new_metrics = parse_metrics(metrics_file)
+    if args.compression_level is not None:
+        compress_model(ARTIFACTS / version, args.compression_level)
+
+    registry.register(version, new_metrics, args.compression_level)
+    return deploy_with_ab_test(version, new_metrics, metric_name, registry)
 
 
 if __name__ == "__main__":
