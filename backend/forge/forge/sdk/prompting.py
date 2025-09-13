@@ -23,8 +23,9 @@ import os
 from difflib import get_close_matches
 from typing import List
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, TemplateError
 
+from .errors import AutoGPTError
 from .forge_log import ForgeLogger
 
 LOG = ForgeLogger(__name__)
@@ -65,9 +66,9 @@ class PromptEngine:
                 LOG.debug(f"Using the closest match model for prompts: {self.model}")
 
             self.env = Environment(loader=FileSystemLoader(models_dir))
-        except Exception as e:
-            LOG.error(f"Error initializing Environment: {e}")
-            raise
+        except OSError as err:
+            LOG.error(f"Error initializing Environment: {err}")
+            raise AutoGPTError("Failed to initialize prompt environment") from err
 
     @staticmethod
     def get_closest_match(target: str, model_dirs: List[str]) -> str:
@@ -89,9 +90,9 @@ class PromptEngine:
             for m in matches:
                 LOG.info(m)
             return matches[0]
-        except Exception as e:
-            LOG.error(f"Error finding closest match: {e}")
-            raise
+        except ValueError as err:
+            LOG.error(f"Error finding closest match: {err}")
+            raise AutoGPTError("Failed to determine closest model match") from err
 
     def load_prompt(self, template: str, **kwargs) -> str:
         """
@@ -112,6 +113,6 @@ class PromptEngine:
             if self.debug_enabled:
                 LOG.debug(f"Rendering template: {template} with args: {kwargs}")
             return template.render(**kwargs)
-        except Exception as e:
-            LOG.error(f"Error loading or rendering template: {e}")
-            raise
+        except TemplateError as err:
+            LOG.error(f"Error loading or rendering template: {err}")
+            raise AutoGPTError("Failed to render template") from err

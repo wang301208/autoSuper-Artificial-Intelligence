@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import AgentDB
-from .errors import NotFoundError
+from .errors import AutoGPTError, DatabaseError, NotFoundError
 from .forge_log import ForgeLogger
 from .middlewares import AgentMiddleware
 from .model import (
@@ -100,8 +100,9 @@ class Agent:
                 additional_input=task_request.additional_input,
             )
             return task
-        except Exception as e:
-            raise
+        except DatabaseError as err:
+            LOG.error("Failed to create task", exc_info=err)
+            raise DatabaseError("Failed to create task") from err
 
     async def list_tasks(self, page: int = 1, pageSize: int = 10) -> TaskListResponse:
         """
@@ -111,8 +112,9 @@ class Agent:
             tasks, pagination = await self.db.list_tasks(page, pageSize)
             response = TaskListResponse(tasks=tasks, pagination=pagination)
             return response
-        except Exception as e:
-            raise
+        except DatabaseError as err:
+            LOG.error("Failed to list tasks", exc_info=err)
+            raise DatabaseError("Failed to list tasks") from err
 
     async def get_task(self, task_id: str) -> Task:
         """
@@ -120,9 +122,13 @@ class Agent:
         """
         try:
             task = await self.db.get_task(task_id)
-        except Exception as e:
-            raise
-        return task
+            return task
+        except NotFoundError as err:
+            LOG.warning(f"Task {task_id} not found")
+            raise NotFoundError(f"Task {task_id} not found") from err
+        except DatabaseError as err:
+            LOG.error(f"Failed to get task {task_id}", exc_info=err)
+            raise DatabaseError(f"Failed to get task {task_id}") from err
 
     async def list_steps(
         self, task_id: str, page: int = 1, pageSize: int = 10
@@ -134,8 +140,13 @@ class Agent:
             steps, pagination = await self.db.list_steps(task_id, page, pageSize)
             response = TaskStepsListResponse(steps=steps, pagination=pagination)
             return response
-        except Exception as e:
-            raise
+        except DatabaseError as err:
+            LOG.error(
+                f"Failed to list steps for task {task_id}", exc_info=err
+            )
+            raise DatabaseError(
+                f"Failed to list steps for task {task_id}"
+            ) from err
 
     async def execute_step(self, task_id: str, step_request: StepRequestBody) -> Step:
         """
@@ -150,8 +161,18 @@ class Agent:
         try:
             step = await self.db.get_step(task_id, step_id)
             return step
-        except Exception as e:
-            raise
+        except NotFoundError as err:
+            LOG.warning(f"Step {step_id} for task {task_id} not found")
+            raise NotFoundError(
+                f"Step {step_id} for task {task_id} not found"
+            ) from err
+        except DatabaseError as err:
+            LOG.error(
+                f"Failed to get step {step_id} for task {task_id}", exc_info=err
+            )
+            raise DatabaseError(
+                f"Failed to get step {step_id} for task {task_id}"
+            ) from err
 
     async def list_artifacts(
         self, task_id: str, page: int = 1, pageSize: int = 10
@@ -163,10 +184,17 @@ class Agent:
             artifacts, pagination = await self.db.list_artifacts(
                 task_id, page, pageSize
             )
-            return TaskArtifactsListResponse(artifacts=artifacts, pagination=pagination)
+            return TaskArtifactsListResponse(
+                artifacts=artifacts, pagination=pagination
+            )
 
-        except Exception as e:
-            raise
+        except DatabaseError as err:
+            LOG.error(
+                f"Failed to list artifacts for task {task_id}", exc_info=err
+            )
+            raise DatabaseError(
+                f"Failed to list artifacts for task {task_id}"
+            ) from err
 
     async def create_artifact(
         self, task_id: str, file: UploadFile, relative_path: str
@@ -194,9 +222,17 @@ class Agent:
                 relative_path=relative_path,
                 agent_created=False,
             )
-        except Exception as e:
-            raise
-        return artifact
+            return artifact
+        except OSError as err:
+            LOG.error(
+                f"Failed to write artifact {file_name} for task {task_id}", exc_info=err
+            )
+            raise AutoGPTError(
+                f"Failed to write artifact {file_name} for task {task_id}"
+            ) from err
+        except DatabaseError as err:
+            LOG.error("Failed to create artifact entry", exc_info=err)
+            raise DatabaseError("Failed to create artifact") from err
 
     async def get_artifact(self, task_id: str, artifact_id: str) -> Artifact:
         """
@@ -209,12 +245,28 @@ class Agent:
             else:
                 file_path = artifact.relative_path
             retrieved_artifact = self.workspace.read(task_id=task_id, path=file_path)
-        except NotFoundError as e:
+        except NotFoundError as err:
+            LOG.warning(f"Artifact {artifact_id} not found")
+            raise NotFoundError(f"Artifact {artifact_id} not found") from err
+        except FileNotFoundError as err:
+            LOG.error(
+                f"Artifact file not found for task {task_id}: {err}" , exc_info=err
+            )
             raise
-        except FileNotFoundError as e:
-            raise
-        except Exception as e:
-            raise
+        except OSError as err:
+            LOG.error(
+                f"Error reading artifact {artifact_id} for task {task_id}", exc_info=err
+            )
+            raise AutoGPTError(
+                f"Error reading artifact {artifact_id} for task {task_id}"
+            ) from err
+        except DatabaseError as err:
+            LOG.error(
+                f"Failed to get artifact {artifact_id}", exc_info=err
+            )
+            raise DatabaseError(
+                f"Failed to get artifact {artifact_id}"
+            ) from err
 
         return StreamingResponse(
             BytesIO(retrieved_artifact),

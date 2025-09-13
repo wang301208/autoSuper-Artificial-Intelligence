@@ -28,7 +28,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 
-from ..errors import NotFoundError
+from ..errors import AutoGPTError, NotFoundError
 from ..forge_log import ForgeLogger
 from ..model import (
     Artifact,
@@ -101,7 +101,7 @@ async def create_agent_task(request: Request, task_request: TaskRequestBody) -> 
             status_code=200,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception(f"Error whilst trying to create a task: {task_request}")
         return Response(
             content=json.dumps(
@@ -172,7 +172,7 @@ async def list_agent_tasks(
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception("Error whilst trying to list tasks")
         return Response(
             content=json.dumps(
@@ -255,7 +255,7 @@ async def get_agent_task(request: Request, task_id: str) -> Task:
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception(f"Error whilst trying to get task: {task_id}")
         return Response(
             content=json.dumps(
@@ -330,7 +330,7 @@ async def list_agent_task_steps(
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception("Error whilst trying to list steps")
         return Response(
             content=json.dumps(
@@ -408,7 +408,7 @@ async def execute_agent_task_step(
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception(f"Error whilst trying to execute a task step: {task_id}")
         return Response(
             content=json.dumps(
@@ -461,7 +461,7 @@ async def get_agent_task_step(request: Request, task_id: str, step_id: str) -> S
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception(f"Error whilst trying to get step: {step_id}")
         return Response(
             content=json.dumps(
@@ -531,7 +531,7 @@ async def list_agent_task_artifacts(
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception("Error whilst trying to list artifacts")
         return Response(
             content=json.dumps(
@@ -594,7 +594,7 @@ async def upload_agent_task_artifacts(
             status_code=200,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception(f"Error whilst trying to upload artifact: {task_id}")
         return Response(
             content=json.dumps(
@@ -650,7 +650,7 @@ async def download_agent_task_artifact(
             status_code=404,
             media_type="application/json",
         )
-    except Exception:
+    except AutoGPTError:
         LOG.exception(f"Error whilst trying to download artifact: {task_id}")
         return Response(
             content=json.dumps(
