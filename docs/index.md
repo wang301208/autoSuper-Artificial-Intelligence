@@ -38,7 +38,7 @@ AutoGPT 项目包含四个主要组件：
 
 **[📘 使用说明](../algorithms/README.md)**
 
-提供排序、搜索、数据结构以及存储与缓存等常见算法实现，例如 `LRUCache`、`LFUCache`、`BTreeIndex` 等。
+提供排序、搜索、数据结构以及存储与缓存等常见算法实现，例如 `LRUCache`、`LFUCache`、`BTreeIndex` 等。新增的 `DynamicNetwork` 模块支持在训练过程中动态增删隐藏层。
 
 ## 🔧 CLI
 
