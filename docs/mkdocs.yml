@@ -1,7 +1,8 @@
 site_name: AutoGPT Documentation
 site_url: https://docs.agpt.co/
 repo_url: https://github.com/Significant-Gravitas/AutoGPT
-docs_dir: content
+docs_dir: .
+site_dir: ../site
 nav:
   - Home: index.md
   - 未来展望: agi_vision_cn.md
@@ -34,6 +35,7 @@ nav:
   - Frontend:
     - Readme: https://github.com/Significant-Gravitas/AutoGPT/blob/master/frontend/README.md
 
+  - API Reference: api.md
   # - Challenges:
   #     - Introduction: challenges/introduction.md
   #     - List of Challenges:
@@ -123,6 +125,10 @@ markdown_extensions:
 plugins:
   - table-reader
   - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [../backend/autogpt]
 
 extra_javascript:
   - https://unpkg.com/tablesort@5.3.0/dist/tablesort.min.js
