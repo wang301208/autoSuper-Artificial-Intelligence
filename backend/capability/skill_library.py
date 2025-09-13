@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import subprocess
 import time
@@ -9,6 +10,9 @@ from typing import Dict, Tuple, List
 
 import aiofiles
 from cachetools import LRUCache, TTLCache
+
+
+logger = logging.getLogger(__name__)
 
 
 class SkillLibrary:
@@ -139,9 +143,20 @@ class SkillLibrary:
         code = await self._read_file(skill_file)
         metadata = json.loads(await self._read_file(meta_file))
         if name.startswith("MetaSkill_") and not metadata.get("active"):
-            raise PermissionError(
-                "Meta-skill version not activated by System Architect"
+            logger.warning(
+                "Meta-skill %s requested while inactive; activating automatically.",
+                name,
             )
+            try:
+                await self.activate_meta_skill(name)
+            except Exception as err:  # pragma: no cover - best effort logging
+                logger.error(
+                    "Failed to auto-activate meta-skill %s: %s", name, err
+                )
+                raise PermissionError(
+                    "Meta-skill version could not be activated"
+                ) from err
+            metadata["active"] = True
         self._cache[name] = (code, metadata)
         self._save_to_persist(name, code, metadata)
         return code, metadata
