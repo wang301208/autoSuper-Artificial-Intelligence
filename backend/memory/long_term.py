@@ -13,7 +13,7 @@ import json
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 
 class LongTermMemory:
@@ -26,6 +26,8 @@ class LongTermMemory:
         max_entries: Optional[int] = None,
         vacuum_interval: int = 1000,
         cache_pages: int = 1000,
+        forget_interval: int = 0,
+        recycle_interval: int = 0,
     ) -> None:
         """Parameters
 
@@ -37,6 +39,12 @@ class LongTermMemory:
         vacuum_interval:
             Perform a ``VACUUM`` after this many insert operations. ``0``
             disables automatic vacuuming.
+        forget_interval:
+            Apply the forgetting strategy after this many insert operations.
+            ``0`` disables automatic forgetting.
+        recycle_interval:
+            Apply the recycling strategy after this many insert operations.
+            ``0`` disables automatic recycling.
         cache_pages:
             Page count for the SQLite cache.  Smaller values keep the memory
             footprint low.
@@ -52,6 +60,11 @@ class LongTermMemory:
 
         self.max_entries = max_entries
         self.vacuum_interval = vacuum_interval
+        self.forget_interval = forget_interval
+        self.recycle_interval = recycle_interval
+        self.forget_strategy: Optional[Callable[[sqlite3.Connection], None]] = None
+        self.recycle_strategy: Optional[Callable[[sqlite3.Connection], None]] = None
+        self.compression_strategy: Optional[Callable[[sqlite3.Connection], None]] = None
         self._pending_adds = 0
         self._total_adds = 0
         self._in_batch = False
@@ -95,6 +108,28 @@ class LongTermMemory:
             """
         )
         self.conn.commit()
+
+    # ------------------------------------------------------------------
+    # Strategy configuration
+    # ------------------------------------------------------------------
+    def set_compression_strategy(
+        self, strategy: Callable[[sqlite3.Connection], None]
+    ) -> None:
+        """Define custom compression strategy."""
+
+        self.compression_strategy = strategy
+
+    def set_forget_strategy(self, strategy: Callable[[sqlite3.Connection], None]) -> None:
+        """Define custom forgetting strategy."""
+
+        self.forget_strategy = strategy
+
+    def set_recycle_strategy(
+        self, strategy: Callable[[sqlite3.Connection], None]
+    ) -> None:
+        """Define custom recycling strategy."""
+
+        self.recycle_strategy = strategy
 
     def add(
         self,
@@ -234,7 +269,64 @@ class LongTermMemory:
         if self.max_entries is not None:
             self._trim_to_limit()
 
+        if (
+            self.forget_interval
+            and self.forget_strategy
+            and self._total_adds % self.forget_interval == 0
+        ):
+            self.forget()
+
+        if (
+            self.recycle_interval
+            and self.recycle_strategy
+            and self._total_adds % self.recycle_interval == 0
+        ):
+            self.recycle()
+
         if self.vacuum_interval and self._total_adds % self.vacuum_interval == 0:
+            self.compress()
+
+    def compress(
+        self, strategy: Optional[Callable[[sqlite3.Connection], None]] = None
+    ) -> None:
+        """Apply compression strategy or fall back to ``VACUUM``."""
+
+        strategy = strategy or self.compression_strategy
+        if strategy is not None:
+            strategy(self.conn)
+            self.conn.commit()
+        else:
+            self.vacuum()
+
+    def forget(
+        self,
+        *,
+        before_ts: Optional[float] = None,
+        strategy: Optional[Callable[[sqlite3.Connection], None]] = None,
+    ) -> None:
+        """Forget memories using ``strategy`` or timestamp filtering."""
+
+        strategy = strategy or self.forget_strategy
+        if strategy is not None:
+            strategy(self.conn)
+            self.conn.commit()
+            return
+        if before_ts is None:
+            return
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM memory WHERE timestamp < ?", (before_ts,))
+        self.conn.commit()
+
+    def recycle(
+        self, strategy: Optional[Callable[[sqlite3.Connection], None]] = None
+    ) -> None:
+        """Recycle memory entries using ``strategy`` or ``VACUUM``."""
+
+        strategy = strategy or self.recycle_strategy
+        if strategy is not None:
+            strategy(self.conn)
+            self.conn.commit()
+        else:
             self.vacuum()
 
     def _trim_to_limit(self) -> None:
