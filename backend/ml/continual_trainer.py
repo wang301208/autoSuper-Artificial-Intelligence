@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 import torch
 from torch import nn, optim
 
-from . import DEFAULT_TRAINING_CONFIG, TrainingConfig
+from . import DEFAULT_TRAINING_CONFIG, TrainingConfig, get_model
 from .feature_extractor import (
     FeatureExtractor,
     GraphFeatureExtractor,
@@ -119,8 +119,10 @@ class ContinualTrainer:
             arr = feats.toarray() if hasattr(feats, "toarray") else feats
             inputs = torch.tensor(arr, dtype=torch.float32)
 
-        if self.model is None or inputs.shape[1] != self.model.in_features:  # type: ignore[arg-type]
-            self.model = nn.Linear(inputs.shape[1], 1)
+        if self.model is None or getattr(self.model, "input_dim", inputs.shape[1]) != inputs.shape[1]:
+            self.model = get_model(
+                self.config.model_type, input_dim=inputs.shape[1], output_dim=1
+            )
             self.torch_optimizer = optim.Adam(
                 self.model.parameters(), lr=self.config.initial_lr
             )
@@ -145,9 +147,10 @@ class ContinualTrainer:
             return
         self.config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = self.config.checkpoint_dir / f"checkpoint_{self.step}.pt"
+        input_dim = getattr(self.model, "in_features", getattr(self.model, "input_dim", None))
         state = {
             "model_state": self.model.state_dict(),
-            "input_dim": self.model.in_features,  # type: ignore[attr-defined]
+            "input_dim": input_dim,
             "step": self.step,
             "trained_rows": self.trained_rows,
         }
@@ -161,10 +164,12 @@ class ContinualTrainer:
         ckpts = sorted(self.config.checkpoint_dir.glob("checkpoint_*.pt"))
         if not ckpts:
             return
-        state = torch.load(ckpts[-1], map_location="cpu")
+        state = torch.load(ckpts[-1], map_location="cpu", weights_only=False)
         input_dim = state.get("input_dim")
         if input_dim is not None:
-            self.model = nn.Linear(input_dim, 1)
+            self.model = get_model(
+                self.config.model_type, input_dim=input_dim, output_dim=1
+            )
             self.model.load_state_dict(state["model_state"])
             self.torch_optimizer = optim.Adam(
                 self.model.parameters(), lr=self.config.initial_lr

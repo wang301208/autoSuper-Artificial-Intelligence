@@ -1,7 +1,7 @@
 """Model architectures and factory helpers for AutoGPT training."""
 from __future__ import annotations
 
-from typing import Dict, Type
+from typing import Dict, Sequence, Type
 
 
 try:  # pragma: no cover - optional dependency
@@ -82,8 +82,39 @@ class SequenceRNN(nn.Module):
         return self.output(out[:, -1, :])
 
 
+class MLP(nn.Module):
+    """Simple configurable multi-layer perceptron."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dims: Sequence[int] = (64, 32),
+        output_dim: int = 1,
+    ) -> None:
+        if torch is None:  # pragma: no cover - runtime dependency check
+            raise ImportError("torch is required for MLP")
+        super().__init__()
+        layers: list[nn.Module] = []
+        last = input_dim
+        for h in hidden_dims:
+            layers.append(nn.Linear(last, h))
+            layers.append(nn.ReLU())
+            last = h
+        layers.append(nn.Linear(last, output_dim))
+        self.network = nn.Sequential(*layers)
+        # attribute used by trainers to check input dimensionality
+        self.input_dim = input_dim
+
+    def forward(self, x: "torch.Tensor") -> "torch.Tensor":  # type: ignore[override]
+        return self.network(x)
+
+
 _MODELS: Dict[str, Type[nn.Module]] = {
+    "mlp": MLP,
+    "cnn": VisionCNN,
+    "rnn": SequenceRNN,
     "transformer": TransformerTextModel,
+    # backwards compatibility with previous keys
     "vision_cnn": VisionCNN,
     "sequence_rnn": SequenceRNN,
 }
@@ -96,7 +127,7 @@ def get_model(model_type: str, **kwargs) -> nn.Module:
     ----------
     model_type:
         Key identifying the model class. Supported values are
-        ``"transformer"``, ``"vision_cnn"`` and ``"sequence_rnn"``.
+        ``"mlp"``, ``"cnn"``, ``"rnn"`` and ``"transformer"``.
     **kwargs:
         Additional arguments passed to the model constructor.
     """
@@ -108,6 +139,7 @@ def get_model(model_type: str, **kwargs) -> nn.Module:
 
 
 __all__ = [
+    "MLP",
     "TransformerTextModel",
     "VisionCNN",
     "SequenceRNN",

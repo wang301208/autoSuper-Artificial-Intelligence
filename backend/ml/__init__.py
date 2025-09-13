@@ -8,6 +8,7 @@ from typing import Dict
 from .backends import get_backend
 from .hf_models import load_bert, load_gpt, load_vit
 from .models import (
+    MLP,
     SequenceRNN,
     TransformerTextModel,
     VisionCNN,
@@ -38,6 +39,7 @@ class TrainingConfig:
     use_orthogonal: bool = False
     train_after_samples: int = 100
     checkpoint_dir: Path = Path("data") / "checkpoints"
+    model_type: str = "mlp"
     task_model_types: Dict[str, str] | None = None
 
 
@@ -51,6 +53,7 @@ __all__ = [
     "load_gpt",
     "load_bert",
     "load_vit",
+    "MLP",
     "TransformerTextModel",
     "VisionCNN",
     "SequenceRNN",

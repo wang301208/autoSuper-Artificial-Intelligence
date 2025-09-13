@@ -14,7 +14,7 @@ try:  # Optional dependency for graph parsing
 except Exception:  # pragma: no cover - dependency may be missing at runtime
     nx = None  # type: ignore
 
-from . import DEFAULT_TRAINING_CONFIG, TrainingConfig
+from . import DEFAULT_TRAINING_CONFIG, TrainingConfig, get_model
 from .feature_extractor import (
     FeatureExtractor,
     GraphFeatureExtractor,
@@ -118,7 +118,12 @@ class MultiTaskTrainer:
             )
             y_test_t = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
 
-            model = nn.Linear(X_train_t.shape[1], 1)
+            model_type = (
+                self.config.task_model_types.get(name)
+                if self.config.task_model_types
+                else self.config.model_type
+            )
+            model = get_model(model_type, input_dim=X_train_t.shape[1], output_dim=1)
             optimizer = optim.Adam(model.parameters(), lr=self.config.initial_lr)
             criterion = nn.MSELoss()
 
