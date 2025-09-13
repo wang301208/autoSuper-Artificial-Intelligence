@@ -7,6 +7,7 @@ import yaml
 from algorithms import ALGORITHMS
 from benchmarks import PROBLEMS
 from metrics.recorder import MetricsRecorder
+from modules.diagnostics import record_error
 
 
 def _load_config(path: str = "config/experiment.yaml") -> Dict[str, Any]:
@@ -42,14 +43,25 @@ def run_experiments(
 
     recorder = MetricsRecorder()
     for seed in seeds:
-        best_x, best_val, iterations, elapsed = algo_fn(
-            prob,
-            seed=seed,
-            max_iters=max_iters,
-            max_time=max_time,
-            patience=patience,
-            **kwargs,
-        )
+        try:
+            best_x, best_val, iterations, elapsed = algo_fn(
+                prob,
+                seed=seed,
+                max_iters=max_iters,
+                max_time=max_time,
+                patience=patience,
+                **kwargs,
+            )
+        except Exception as e:  # pragma: no cover - exceptional path
+            record_error(
+                e,
+                {
+                    "algorithm": algorithm,
+                    "problem": prob.name,
+                    "seed": seed,
+                },
+            )
+            raise
         recorder.record(
             algorithm,
             prob.name,
