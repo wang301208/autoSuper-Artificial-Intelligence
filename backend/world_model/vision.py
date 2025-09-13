@@ -19,12 +19,14 @@ class VisionStore:
     def __init__(self) -> None:
         self._images: Dict[str, Any] = {}
         self._features: Dict[str, Any] = {}
+        self._vit_features: Dict[str, Any] = {}
 
     def ingest(
         self,
         agent_id: str,
         image: Optional[Any] = None,
         features: Optional[Any] = None,
+        vit_features: Optional[Any] = None,
     ) -> None:
         """Store an observation for ``agent_id``.
 
@@ -38,12 +40,17 @@ class VisionStore:
         features:
             Feature representation of the observation (for example CLIP
             embeddings).
+        vit_features:
+            Feature representation produced by a Vision Transformer (ViT)
+            model.
         """
 
         if image is not None:
             self._images[agent_id] = image
         if features is not None:
             self._features[agent_id] = features
+        if vit_features is not None:
+            self._vit_features[agent_id] = vit_features
 
     def get(self, agent_id: str) -> Dict[str, Any]:
         """Return the latest observation for ``agent_id``."""
@@ -51,14 +58,19 @@ class VisionStore:
         return {
             "image": self._images.get(agent_id),
             "features": self._features.get(agent_id),
+            "vit_features": self._vit_features.get(agent_id),
         }
 
     def all(self) -> Dict[str, Dict[str, Any]]:
         """Return a snapshot of all stored observations."""
 
-        keys = set(self._images) | set(self._features)
+        keys = set(self._images) | set(self._features) | set(self._vit_features)
         return {
-            agent: {"image": self._images.get(agent), "features": self._features.get(agent)}
+            agent: {
+                "image": self._images.get(agent),
+                "features": self._features.get(agent),
+                "vit_features": self._vit_features.get(agent),
+            }
             for agent in keys
         }
 
