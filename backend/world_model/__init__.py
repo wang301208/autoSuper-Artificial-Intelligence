@@ -82,7 +82,11 @@ class WorldModel:
         }
 
     def add_visual_observation(
-        self, agent_id: str, image: Any | None = None, features: Any | None = None
+        self,
+        agent_id: str,
+        image: Any | None = None,
+        features: Any | None = None,
+        vit_features: Any | None = None,
     ) -> None:
         """Store visual data for ``agent_id``.
 
@@ -94,9 +98,13 @@ class WorldModel:
             Optional raw image tensor or array.
         features:
             Optional feature vector representing the image.
+        vit_features:
+            Optional feature vector produced by a ViT model.
         """
 
-        self.vision.ingest(agent_id, image=image, features=features)
+        self.vision.ingest(
+            agent_id, image=image, features=features, vit_features=vit_features
+        )
 
     def get_visual_observation(self, agent_id: str) -> Dict[str, Any]:
         """Retrieve the latest visual observation for ``agent_id``."""

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .backends import get_backend
+from .hf_models import load_bert, load_gpt, load_vit
 
 
 @dataclass
@@ -19,4 +20,11 @@ class TrainingConfig:
 
 DEFAULT_TRAINING_CONFIG = TrainingConfig()
 
-__all__ = ["get_backend", "TrainingConfig", "DEFAULT_TRAINING_CONFIG"]
+__all__ = [
+    "get_backend",
+    "TrainingConfig",
+    "DEFAULT_TRAINING_CONFIG",
+    "load_gpt",
+    "load_bert",
+    "load_vit",
+]

@@ -23,13 +23,18 @@ def test_store_and_retrieve_visual_data():
     wm = WorldModel()
     image = [[0, 1], [1, 0]]
     features = [0.1, 0.2, 0.3]
+    vit_features = [0.4, 0.5]
 
-    wm.add_visual_observation("agent1", image=image, features=features)
+    wm.add_visual_observation(
+        "agent1", image=image, features=features, vit_features=vit_features
+    )
 
     retrieved = wm.get_visual_observation("agent1")
     assert retrieved["image"] == image
     assert retrieved["features"] == features
+    assert retrieved["vit_features"] == vit_features
 
     state = wm.get_state()
     assert "agent1" in state["vision"]
     assert state["vision"]["agent1"]["features"] == features
+    assert state["vision"]["agent1"]["vit_features"] == vit_features
