@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from backend.ml import TrainingConfig
+from backend.ml.models import MLP
 from backend.ml.continual_trainer import ContinualTrainer
 from backend.ml.multitask_trainer import MultiTaskTrainer
 
@@ -24,7 +25,7 @@ def test_continual_trainer_strategy_switch(tmp_path):
         writer = csv.DictWriter(f, fieldnames=["prompt", "completion"])
         writer.writeheader()
 
-    cfg_off = TrainingConfig(optimizer="adam")
+    cfg_off = TrainingConfig(optimizer="adam", checkpoint_dir=tmp_path / "ckpt1")
     trainer = ContinualTrainer(cfg_off, log_file)
     with log_file.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["prompt", "completion"])
@@ -44,6 +45,7 @@ def test_continual_trainer_strategy_switch(tmp_path):
         use_curriculum=True,
         use_ewc=True,
         use_orthogonal=True,
+        checkpoint_dir=tmp_path / "ckpt2",
     )
     trainer_on = ContinualTrainer(cfg_on, log_file)
     with log_file.open("a", newline="") as f:
@@ -86,3 +88,14 @@ def test_multitask_trainer_strategy_switch(tmp_path):
     assert trainer_on.adversarial_hook_called
     assert trainer_on.curriculum_hook_called
     assert trainer_on.early_stopped
+
+
+def test_trainer_model_selection(tmp_path):
+    data = tmp_path / "task.csv"
+    _write_dataset(data)
+
+    cfg = TrainingConfig(task_model_types={"t": "mlp"})
+    trainer = MultiTaskTrainer({"t": str(data)}, cfg)
+    results = trainer.train()
+    model, _ = results["t"]
+    assert isinstance(model, MLP)
