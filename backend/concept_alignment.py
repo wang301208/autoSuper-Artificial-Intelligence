@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import yaml
 
 from capability.librarian import Librarian
-from modules.common import CausalRelation, ConceptNode
+from modules.common import ConceptNode
 
 
 class ConceptAligner:
@@ -67,6 +67,58 @@ class ConceptAligner:
             results.append(node)
         results.sort(key=lambda n: n.metadata.get("similarity", 0.0), reverse=True)
         return results
+
+    def distill_from_graph(
+        self,
+        external_entities: Dict[str, ConceptNode],
+        *,
+        vector_type: str = "text",
+        similarity_threshold: float = 0.8,
+    ) -> None:
+        """Distill knowledge from an external graph.
+
+        External concepts are aligned to the current graph. If the best match
+        exceeds ``similarity_threshold`` the node is merged, otherwise it is
+        added as a new entity.
+        """
+
+        for node in external_entities.values():
+            embedding = node.modalities.get(vector_type)
+            if not embedding:
+                continue
+            matches = self.align(embedding, n_results=1, vector_type=vector_type)
+            if (
+                matches
+                and matches[0].metadata.get("similarity", 0.0) >= similarity_threshold
+            ):
+                existing = self.entities[matches[0].id]
+                existing.metadata.update(node.metadata)
+                existing.causal_links.extend(node.causal_links)
+            else:
+                self.entities[node.id] = node
+
+    def transfer_knowledge(
+        self,
+        nodes: List[ConceptNode],
+        *,
+        n_results: int = 3,
+        vector_type: str = "text",
+    ) -> List[ConceptNode]:
+        """Enrich provided nodes with related concepts from the knowledge graph."""
+
+        enriched: List[ConceptNode] = []
+        for node in nodes:
+            embedding = node.modalities.get(vector_type)
+            if not embedding:
+                enriched.append(node)
+                continue
+            matches = self.align(embedding, n_results=n_results, vector_type=vector_type)
+            node.metadata.setdefault("related_concepts", [])
+            node.metadata["related_concepts"].extend([m.id for m in matches])
+            for match in matches:
+                node.causal_links.extend(match.causal_links)
+            enriched.append(node)
+        return enriched
 
     @staticmethod
     def _cosine_similarity(a: List[float], b: List[float]) -> float:
