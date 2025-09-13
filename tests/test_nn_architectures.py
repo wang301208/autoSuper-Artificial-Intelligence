@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import torch
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from backend.ml.models import get_model, MLP, VisionCNN, SequenceRNN
@@ -43,6 +44,16 @@ def test_cnn_forward_and_train():
     assert out.shape == (2, 5)
     changed, _ = _train_step(model, x, y)
     assert changed
+
+
+@pytest.mark.parametrize("size", [32, 64, 28])
+def test_cnn_forward_varied_input_sizes(size):
+    """VisionCNN should handle different image sizes."""
+    torch.manual_seed(0)
+    model = get_model("cnn", num_classes=5)
+    x = torch.randn(2, 3, size, size)
+    out = model(x)
+    assert out.shape == (2, 5)
 
 
 def test_rnn_forward_and_train():
