@@ -52,3 +52,15 @@ def test_policy_trainer_updates_from_rewards(tmp_path: Path, ext: str, use_custo
     policy_path.write_text(json.dumps(updated))
     loaded = json.loads(policy_path.read_text())
     assert loaded["S"]["A"] == updated["S"]["A"]
+
+
+def test_multi_agent_training() -> None:
+    trainer = PolicyTrainer(dataset_path=Path("nonexistent"), num_agents=2)
+    trainer.push_experience("S", "A", 1.0, agent_id=0)
+    trainer.push_experience("S", "B", -1.0, agent_id=0)
+    trainer.push_experience("S", "A", 1.0, agent_id=1)
+    trainer.push_experience("S", "B", -1.0, agent_id=1)
+    policies = trainer.update_policy()
+    assert isinstance(policies, dict)
+    assert policies[0]["S"]["A"] > policies[0]["S"]["B"]
+    assert policies[1]["S"]["B"] < policies[1]["S"]["A"]
