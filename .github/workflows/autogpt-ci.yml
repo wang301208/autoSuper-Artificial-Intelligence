@@ -55,8 +55,8 @@ jobs:
           curl -sSL https://install.python-poetry.org | python3 -
           poetry install
 
-      - name: Lint with flake8
-        run: poetry run flake8
+      - name: Run lint checks
+        run: ../scripts/lint.sh
 
       - name: Check black formatting
         run: poetry run black . --check
@@ -66,9 +66,9 @@ jobs:
         run: poetry run isort . --check
         if: success() || failure()
 
-      # - name: Check mypy formatting
-      #   run: poetry run mypy
-      #   if: success() || failure()
+      - name: Run type checks
+        run: ../scripts/typecheck.sh
+        if: success() || failure()
 
       # - name: Check for unused imports and pass statements
       #   run: |
