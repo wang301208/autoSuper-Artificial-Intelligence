@@ -1,6 +1,14 @@
 """Meta-learning algorithms."""
-from .maml import MAML, load_task, TaskData
-from .reptile import Reptile
+from .maml import MAML, TaskData, load_task
 from .protonet import PrototypicalNetwork
+from .reptile import Reptile
+from .trainer import MetaLearningTrainer
 
-__all__ = ["MAML", "Reptile", "PrototypicalNetwork", "load_task", "TaskData"]
+__all__ = [
+    "MAML",
+    "Reptile",
+    "PrototypicalNetwork",
+    "MetaLearningTrainer",
+    "load_task",
+    "TaskData",
+]
