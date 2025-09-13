@@ -7,6 +7,8 @@ from email.message import EmailMessage
 from typing import Any, Callable, Iterable, List
 import smtplib
 
+from sklearn.ensemble import IsolationForest
+
 from .storage import TimeSeriesStorage
 from common import AutoGPTException, log_and_format_exception
 from smtplib import SMTPException
@@ -26,6 +28,10 @@ class PerformanceMonitor:
         cpu_threshold: float | None = None,
         memory_threshold: float | None = None,
         throughput_threshold: float | None = None,
+        *,
+        enable_anomaly_detection: bool = False,
+        model_update_interval: float = 3600.0,
+        contamination: float = 0.05,
     ) -> None:
         self.storage = storage
         self.training_accuracy = training_accuracy
@@ -34,6 +40,11 @@ class PerformanceMonitor:
         self.cpu_threshold = cpu_threshold
         self.memory_threshold = memory_threshold
         self.throughput_threshold = throughput_threshold
+        self.enable_anomaly_detection = enable_anomaly_detection
+        self.model_update_interval = model_update_interval
+        self.contamination = contamination
+        self._anomaly_model: IsolationForest | None = None
+        self._last_model_update = 0.0
 
     # ------------------------------------------------------------------
     # logging
@@ -91,6 +102,29 @@ class PerformanceMonitor:
         count = sum(1 for e in events if agent is None or e.get("agent") == agent)
         return count / interval if interval > 0 else 0.0
 
+    def _resource_samples(self) -> list[list[float]]:
+        events = self.storage.events("agent.resource")
+        return [
+            [float(e.get("cpu", 0.0)), float(e.get("memory", 0.0))]
+            for e in events
+        ]
+
+    def _latest_resource_sample(self) -> list[float] | None:
+        events = self.storage.events("agent.resource")
+        if events:
+            e = events[-1]
+            return [float(e.get("cpu", 0.0)), float(e.get("memory", 0.0))]
+        return None
+
+    def _maybe_update_model(self) -> None:
+        now = time.time()
+        if self._anomaly_model is None or now - self._last_model_update > self.model_update_interval:
+            data = self._resource_samples()
+            if data:
+                self._anomaly_model = IsolationForest(contamination=self.contamination)
+                self._anomaly_model.fit(data)
+                self._last_model_update = now
+
     def check_performance(self) -> None:
         """Compare live metrics against thresholds and alert on degradation."""
         accuracy = self.current_accuracy()
@@ -124,6 +158,20 @@ class PerformanceMonitor:
                     "Task throughput low",
                     f"Throughput {tp:.2f} tasks/sec below {self.throughput_threshold:.2f}",
                 )
+
+        if self.enable_anomaly_detection:
+            self._maybe_update_model()
+            sample = self._latest_resource_sample()
+            if sample and self._anomaly_model is not None:
+                pred = self._anomaly_model.predict([sample])[0]
+                if pred == -1:
+                    bottlenecks = self.storage.bottlenecks()
+                    component = max(bottlenecks, key=bottlenecks.get) if bottlenecks else "unknown"
+                    self._alert(
+                        "Anomalous performance metrics",
+                        f"Metrics {sample} flagged as anomalous. Potential bottleneck: {component}",
+                    )
+
 
     # ------------------------------------------------------------------
     # alerting
