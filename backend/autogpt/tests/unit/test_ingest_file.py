@@ -1,4 +1,4 @@
-import pytest
+import numpy
 import numpy
 import pytest
 from pytest_mock import MockerFixture
@@ -57,7 +57,7 @@ async def test_ingest_file_updates_memory(
 ):
     agent = DummyAgent(storage, config)
 
-    def make_memory(content: str, path: str, source_type: str):
+    async def make_memory(content: str, path: str, cfg: Config):
         return MemoryItem(
             raw_content=content,
             summary="",
@@ -65,13 +65,13 @@ async def test_ingest_file_updates_memory(
             chunks=[content],
             e_summary=mock_embedding,
             e_chunks=[mock_embedding],
-            metadata={"location": path, "source_type": source_type},
+            metadata={"location": path, "source_type": "text_file"},
         )
 
-    mocker.patch.object(
+    mocker.patch_object(
         file_ops.MemoryItemFactory,
         "from_text_file",
-        side_effect=lambda content, path, cfg: make_memory(content, path, "text_file"),
+        side_effect=make_memory,
     )
 
     await storage.write_file("test.txt", "first")
@@ -95,7 +95,7 @@ async def test_ingest_file_handles_file_types(
 ):
     agent = DummyAgent(storage, config)
 
-    def make_memory(content: str, path: str, source_type: str):
+    async def make_text_memory(content: str, path: str, cfg: Config):
         return MemoryItem(
             raw_content=content,
             summary="",
@@ -103,18 +103,29 @@ async def test_ingest_file_handles_file_types(
             chunks=[content],
             e_summary=mock_embedding,
             e_chunks=[mock_embedding],
-            metadata={"location": path, "source_type": source_type},
+            metadata={"location": path, "source_type": "text_file"},
         )
 
-    text_mock = mocker.patch.object(
+    async def make_code_memory(content: str, path: str, cfg: Config):
+        return MemoryItem(
+            raw_content=content,
+            summary="",
+            chunk_summaries=[""],
+            chunks=[content],
+            e_summary=mock_embedding,
+            e_chunks=[mock_embedding],
+            metadata={"location": path, "source_type": "code_file"},
+        )
+
+    text_mock = mocker.patch_object(
         file_ops.MemoryItemFactory,
         "from_text_file",
-        side_effect=lambda content, path, cfg: make_memory(content, path, "text_file"),
+        side_effect=make_text_memory,
     )
-    code_mock = mocker.patch.object(
+    code_mock = mocker.patch_object(
         file_ops.MemoryItemFactory,
         "from_code_file",
-        side_effect=lambda content, path: make_memory(content, path, "code_file"),
+        side_effect=make_code_memory,
     )
 
     await storage.write_file("note.txt", "hello")
@@ -133,3 +144,4 @@ async def test_ingest_file_handles_file_types(
     assert text_mock.call_count == 1
     assert code_mock.call_count == 1
     assert len(memory_json_file) == 2
+

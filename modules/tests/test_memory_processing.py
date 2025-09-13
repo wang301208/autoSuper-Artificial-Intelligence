@@ -169,3 +169,27 @@ async def test_search_retrieval(monkeypatch):
     score_cat, _, _ = MemoryItemRelevance.calculate_scores(item_cat, q_embed)
     score_dog, _, _ = MemoryItemRelevance.calculate_scores(item_dog, q_embed)
     assert score_cat > score_dog
+
+
+@pytest.mark.asyncio
+async def test_code_memory(monkeypatch):
+    config = SimpleConfig()
+    embed_provider = FakeEmbeddingProvider()
+    chat_provider = FakeChatProvider()
+    factory = MemoryItemFactory(chat_provider, embed_provider)
+
+    import autogpt.memory.vector.memory_item as mi
+
+    async def summarize_text_stub(text: str, **kwargs):
+        return text, None
+
+    monkeypatch.setattr(mi, "summarize_text", summarize_text_stub)
+
+    code = "def foo():\n    return 1\n"
+    item = await factory.from_code_file(code, "foo.py", config)
+
+    assert item.metadata["language"] == "python"
+    assert "foo" in item.metadata["symbols"]
+    assert item.summary != ""
+    assert item.e_summary is not None
+    assert len(item.e_chunks) == 1

@@ -8,6 +8,7 @@ import os
 import os.path
 from pathlib import Path
 from typing import Iterator, Literal
+import asyncio
 
 from typing import TYPE_CHECKING
 
@@ -206,10 +207,16 @@ def ingest_file(
                 memory.discard(item)
 
         if file_path.suffix.lower() in CODE_EXTENSIONS:
-            file_memory = MemoryItemFactory.from_code_file(content, location)
+            file_memory = asyncio.run(
+                MemoryItemFactory.from_code_file(
+                    content, location, agent.legacy_config
+                )
+            )
         else:
-            file_memory = MemoryItemFactory.from_text_file(
-                content, location, agent.legacy_config
+            file_memory = asyncio.run(
+                MemoryItemFactory.from_text_file(
+                    content, location, agent.legacy_config
+                )
             )
 
         logger.debug(f"Created memory: {file_memory.dump(True)}")
