@@ -3,7 +3,11 @@ from __future__ import annotations
 import argparse
 import yaml
 
+from .logging_config import get_logger
 from backend.ml.meta_learning import MetaLearningTrainer, load_task
+
+
+logger = get_logger(__name__)
 
 
 def run_meta_learning(
@@ -42,7 +46,12 @@ def run_meta_learning(
 
     history = trainer.train(tasks, epochs=cfg.get("epochs", 1))
     for epoch, metric in enumerate(history, 1):
-        print(f"Epoch {epoch}: {trainer.metric}={metric:.4f}")
+        logger.info(
+            "epoch_metric",
+            epoch=epoch,
+            metric_name=trainer.metric,
+            metric_value=metric,
+        )
 
 
 def main() -> None:
@@ -63,7 +72,10 @@ def main() -> None:
     if args.meta:
         run_meta_learning(args.config, args.algorithm, args.shots, args.ways)
     else:
-        print("Standard training routine not implemented. Use --meta for meta-learning.")
+        logger.info(
+            "standard_training_not_implemented",
+            meta_required=True,
+        )
 
 
 if __name__ == "__main__":

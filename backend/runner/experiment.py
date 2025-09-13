@@ -8,6 +8,10 @@ from algorithms import ALGORITHMS
 from benchmarks import PROBLEMS
 from metrics.recorder import MetricsRecorder
 from modules.diagnostics import record_error
+from .logging_config import get_logger
+
+
+logger = get_logger(__name__)
 
 
 def _load_config(path: str = "config/experiment.yaml") -> Dict[str, Any]:
@@ -82,7 +86,6 @@ def run_experiments(
 
 if __name__ == "__main__":
     import argparse
-    import json
 
     parser = argparse.ArgumentParser(description="Run optimization experiments")
     parser.add_argument("algorithm", choices=ALGORITHMS.keys())
@@ -104,4 +107,4 @@ if __name__ == "__main__":
         output=args.output,
     )
     if not args.output:
-        print(json.dumps(output, indent=2))
+        logger.info("experiment_output", output=output)
