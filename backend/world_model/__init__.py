@@ -34,6 +34,7 @@ class WorldModel:
         self.actions: List[Dict[str, str]] = []
         self._predictions: Dict[str, Dict[str, float]] = {}
         self.vision = VisionStore()
+        self.multimodal: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # State management APIs
@@ -79,6 +80,7 @@ class WorldModel:
             "resources": {k: dict(v) for k, v in self.resources.items()},
             "actions": list(self.actions),
             "vision": self.vision.all(),
+            "multimodal": {k: v for k, v in self.multimodal.items()},
         }
 
     def add_visual_observation(
@@ -87,6 +89,7 @@ class WorldModel:
         image: Any | None = None,
         features: Any | None = None,
         vit_features: Any | None = None,
+        text: Any | None = None,
     ) -> None:
         """Store visual data for ``agent_id``.
 
@@ -100,16 +103,29 @@ class WorldModel:
             Optional feature vector representing the image.
         vit_features:
             Optional feature vector produced by a ViT model.
+        text:
+            Optional textual embedding associated with the observation.
         """
 
-        self.vision.ingest(
-            agent_id, image=image, features=features, vit_features=vit_features
+        unified = self.vision.ingest(
+            agent_id,
+            image=image,
+            features=features,
+            vit_features=vit_features,
+            text=text,
         )
+        if unified is not None:
+            self.multimodal[agent_id] = unified
 
     def get_visual_observation(self, agent_id: str) -> Dict[str, Any]:
         """Retrieve the latest visual observation for ``agent_id``."""
 
         return self.vision.get(agent_id)
+
+    def get_unified_representation(self, agent_id: str) -> Any:
+        """Retrieve the unified multimodal representation for ``agent_id``."""
+
+        return self.multimodal.get(agent_id)
 
     # ------------------------------------------------------------------
     # Prediction APIs
