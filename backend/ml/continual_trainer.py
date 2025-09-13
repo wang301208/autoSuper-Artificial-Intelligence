@@ -8,7 +8,11 @@ import torch
 from torch import nn, optim
 
 from . import DEFAULT_TRAINING_CONFIG, TrainingConfig
-from .feature_extractor import FeatureExtractor
+from .feature_extractor import (
+    FeatureExtractor,
+    GraphFeatureExtractor,
+    TimeSeriesFeatureExtractor,
+)
 
 
 DEFAULT_LOG_FILE = Path("data") / "new_logs.csv"
@@ -26,6 +30,7 @@ class ContinualTrainer:
         self,
         config: TrainingConfig = DEFAULT_TRAINING_CONFIG,
         log_file: Path = DEFAULT_LOG_FILE,
+        feature_type: str = "tfidf",
     ) -> None:
         self.config = config
         self.log_file = log_file
@@ -47,7 +52,7 @@ class ContinualTrainer:
         self.early_stopped = False
 
         # Simple linear model and feature extractor used for fine-tuning
-        self.extractor = FeatureExtractor()
+        self.extractor = self._create_extractor(feature_type)
         self.model: nn.Module | None = None
         self.criterion = nn.MSELoss()
         self.torch_optimizer: optim.Optimizer | None = None
@@ -88,22 +93,31 @@ class ContinualTrainer:
             # Placeholder: mark that early stopping would be engaged
             self.early_stopped = True
 
-        texts = []
-        for s in new_data:
-            joined = " ".join(str(v) for k, v in s.items() if k != "reward")
-            if not any(len(tok) > 1 for tok in joined.split()):
-                joined += " filler"
-            texts.append(joined)
         rewards = torch.tensor(
             [float(s.get("reward", 0.0)) for s in new_data], dtype=torch.float32
         ).unsqueeze(1)
 
-        try:
-            feats = self.extractor.transform(texts)
-        except Exception:
-            feats = self.extractor.fit_transform(texts)
-
-        inputs = torch.tensor(feats.toarray(), dtype=torch.float32)
+        if isinstance(self.extractor, TimeSeriesFeatureExtractor):
+            series_list = [s.get("series", []) for s in new_data]
+            feats = self.extractor.fit_transform(series_list)
+            inputs = torch.tensor(feats, dtype=torch.float32)
+        elif isinstance(self.extractor, GraphFeatureExtractor):
+            graphs = [s.get("graph") for s in new_data]
+            feats = self.extractor.fit_transform(graphs)
+            inputs = torch.tensor(feats, dtype=torch.float32)
+        else:
+            texts = []
+            for s in new_data:
+                joined = " ".join(str(v) for k, v in s.items() if k != "reward")
+                if not any(len(tok) > 1 for tok in joined.split()):
+                    joined += " filler"
+                texts.append(joined)
+            try:
+                feats = self.extractor.transform(texts)
+            except Exception:
+                feats = self.extractor.fit_transform(texts)
+            arr = feats.toarray() if hasattr(feats, "toarray") else feats
+            inputs = torch.tensor(arr, dtype=torch.float32)
 
         if self.model is None or inputs.shape[1] != self.model.in_features:  # type: ignore[arg-type]
             self.model = nn.Linear(inputs.shape[1], 1)
@@ -131,16 +145,15 @@ class ContinualTrainer:
             return
         self.config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = self.config.checkpoint_dir / f"checkpoint_{self.step}.pt"
-        torch.save(
-            {
-                "model_state": self.model.state_dict(),
-                "input_dim": self.model.in_features,  # type: ignore[attr-defined]
-                "vectorizer": self.extractor.vectorizer,
-                "step": self.step,
-                "trained_rows": self.trained_rows,
-            },
-            ckpt_path,
-        )
+        state = {
+            "model_state": self.model.state_dict(),
+            "input_dim": self.model.in_features,  # type: ignore[attr-defined]
+            "step": self.step,
+            "trained_rows": self.trained_rows,
+        }
+        if hasattr(self.extractor, "vectorizer"):
+            state["vectorizer"] = self.extractor.vectorizer  # type: ignore[attr-defined]
+        torch.save(state, ckpt_path)
 
     def _load_checkpoint(self) -> None:
         if not self.config.checkpoint_dir.exists():
@@ -156,10 +169,19 @@ class ContinualTrainer:
             self.torch_optimizer = optim.Adam(
                 self.model.parameters(), lr=self.config.initial_lr
             )
-        if "vectorizer" in state:
-            self.extractor.vectorizer = state["vectorizer"]
+        if "vectorizer" in state and hasattr(self.extractor, "vectorizer"):
+            self.extractor.vectorizer = state["vectorizer"]  # type: ignore[attr-defined]
         self.step = state.get("step", 0)
         self.trained_rows = state.get("trained_rows", self.trained_rows)
+
+    def _create_extractor(self, feature_type: str):
+        if feature_type == "sentence":
+            return FeatureExtractor(method="sentence")
+        if feature_type == "time_series":
+            return TimeSeriesFeatureExtractor()
+        if feature_type == "graph":
+            return GraphFeatureExtractor()
+        return FeatureExtractor()
 
     # ---- Hooks ---------------------------------------------------------
 

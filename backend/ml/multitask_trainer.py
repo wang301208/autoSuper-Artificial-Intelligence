@@ -9,8 +9,17 @@ from torch import nn, optim
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
+try:  # Optional dependency for graph parsing
+    import networkx as nx
+except Exception:  # pragma: no cover - dependency may be missing at runtime
+    nx = None  # type: ignore
+
 from . import DEFAULT_TRAINING_CONFIG, TrainingConfig
-from .feature_extractor import FeatureExtractor
+from .feature_extractor import (
+    FeatureExtractor,
+    GraphFeatureExtractor,
+    TimeSeriesFeatureExtractor,
+)
 
 
 class MultiTaskTrainer:
@@ -22,12 +31,15 @@ class MultiTaskTrainer:
     """
 
     def __init__(
-        self, tasks: Dict[str, str], config: TrainingConfig = DEFAULT_TRAINING_CONFIG
+        self,
+        tasks: Dict[str, str],
+        config: TrainingConfig = DEFAULT_TRAINING_CONFIG,
+        feature_type: str = "tfidf",
     ):
         # Map task name to dataset path
         self.tasks = {name: Path(path) for name, path in tasks.items()}
         self.config = config
-        self.extractor = FeatureExtractor()
+        self.extractor = self._create_extractor(feature_type)
         self._datasets: Dict[str, Tuple[list[str], list[float]]] = {}
 
         # Internal flags for testing
@@ -46,11 +58,24 @@ class MultiTaskTrainer:
                 raise ValueError(
                     f"Dataset {path} must contain 'text' and 'target' columns"
                 )
-            task_texts = df["text"].astype(str).tolist()
+            raw_texts = df["text"].astype(str).tolist()
             targets = df["target"].values
-            self._datasets[name] = (task_texts, targets)
-            texts.extend(task_texts)
-        if texts:
+            if isinstance(self.extractor, TimeSeriesFeatureExtractor):
+                data = [list(map(float, t.split())) for t in raw_texts]
+            elif isinstance(self.extractor, GraphFeatureExtractor):
+                if nx is None:
+                    raise ImportError("networkx is required for graph features")
+                data = []
+                for t in raw_texts:
+                    edges = [tuple(e.split("-")) for e in t.split()]
+                    g = nx.Graph()
+                    g.add_edges_from(edges)
+                    data.append(g)
+            else:
+                data = raw_texts
+                texts.extend(raw_texts)
+            self._datasets[name] = (data, targets)
+        if texts and isinstance(self.extractor, FeatureExtractor):
             # ``FeatureExtractor`` exposes ``fit_transform`` instead of ``fit``
             # for simplicity. We only need the fitted vocabulary here.
             self.extractor.fit_transform(texts)
@@ -64,22 +89,33 @@ class MultiTaskTrainer:
         self.scheduler = self.config.lr_scheduler
 
         results: Dict[str, Tuple[nn.Module, float]] = {}
-        for name, (texts, targets) in self._datasets.items():
-            X = self.extractor.transform(texts)
+        for name, (data, targets) in self._datasets.items():
+            if isinstance(self.extractor, TimeSeriesFeatureExtractor):
+                X = self.extractor.fit_transform(data)
+            elif isinstance(self.extractor, GraphFeatureExtractor):
+                X = self.extractor.fit_transform(data)
+            else:
+                X = self.extractor.transform(data)
             X_train, X_test, y_train, y_test = train_test_split(
                 X, targets, test_size=0.2, random_state=42
             )
 
             if self.config.use_curriculum:
-                self._apply_curriculum_learning(texts)
+                self._apply_curriculum_learning(data)
             if self.config.use_adversarial:
-                self._apply_adversarial_training(texts)
+                self._apply_adversarial_training(data)
             if self.config.early_stopping_patience is not None:
                 self.early_stopped = True
 
-            X_train_t = torch.tensor(X_train.toarray(), dtype=torch.float32)
+            X_train_t = torch.tensor(
+                X_train.toarray() if hasattr(X_train, "toarray") else X_train,
+                dtype=torch.float32,
+            )
             y_train_t = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
-            X_test_t = torch.tensor(X_test.toarray(), dtype=torch.float32)
+            X_test_t = torch.tensor(
+                X_test.toarray() if hasattr(X_test, "toarray") else X_test,
+                dtype=torch.float32,
+            )
             y_test_t = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
 
             model = nn.Linear(X_train_t.shape[1], 1)
@@ -98,6 +134,15 @@ class MultiTaskTrainer:
                 mse = criterion(model(X_test_t), y_test_t).item()
             results[name] = (model, mse)
         return results
+
+    def _create_extractor(self, feature_type: str):
+        if feature_type == "sentence":
+            return FeatureExtractor(method="sentence")
+        if feature_type == "time_series":
+            return TimeSeriesFeatureExtractor()
+        if feature_type == "graph":
+            return GraphFeatureExtractor()
+        return FeatureExtractor()
 
     # ---- Hooks ---------------------------------------------------------
 
