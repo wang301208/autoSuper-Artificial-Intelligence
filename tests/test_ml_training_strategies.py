@@ -2,12 +2,20 @@ import csv
 import sys
 from pathlib import Path
 
+import pytest
+import torch
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from backend.ml import TrainingConfig
 from backend.ml.models import MLP
 from backend.ml.continual_trainer import ContinualTrainer
 from backend.ml.multitask_trainer import MultiTaskTrainer
+
+try:  # pragma: no cover - optional dependency
+    from lion_pytorch import Lion
+except Exception:  # pragma: no cover
+    Lion = None  # type: ignore
 
 
 def _write_dataset(path: Path, rows: int = 5) -> None:
@@ -99,3 +107,60 @@ def test_trainer_model_selection(tmp_path):
     results = trainer.train()
     model, _ = results["t"]
     assert isinstance(model, MLP)
+
+
+@pytest.mark.parametrize(
+    "opt_name,opt_cls",
+    [
+        ("adam", torch.optim.Adam),
+        ("adamw", torch.optim.AdamW),
+        ("lion", Lion),
+    ],
+)
+def test_continual_trainer_optimizer_instances(tmp_path, opt_name, opt_cls):
+    if opt_name == "lion" and Lion is None:
+        pytest.skip("lion optimizer not available")
+    log_file = tmp_path / f"logs_{opt_name}.csv"
+    cfg = TrainingConfig(optimizer=opt_name, checkpoint_dir=tmp_path / f"ckpt_{opt_name}")
+    trainer = ContinualTrainer(cfg, log_file)
+    with log_file.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["text", "reward"])
+        writer.writeheader()
+        writer.writerow({"text": "sample", "reward": "1"})
+    trainer.train()
+    assert isinstance(trainer.torch_optimizer, opt_cls)
+
+
+@pytest.mark.parametrize(
+    "opt_name,opt_cls",
+    [
+        ("adam", torch.optim.Adam),
+        ("adamw", torch.optim.AdamW),
+        ("lion", Lion),
+    ],
+)
+def test_multitask_trainer_optimizer_instances(tmp_path, opt_name, opt_cls):
+    if opt_name == "lion" and Lion is None:
+        pytest.skip("lion optimizer not available")
+    data = tmp_path / f"task_{opt_name}.csv"
+    with data.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["text", "target"])
+        for i in range(5):
+            writer.writerow([f"sample {i}", i])
+    cfg = TrainingConfig(optimizer=opt_name)
+    trainer = MultiTaskTrainer({"t": str(data)}, cfg)
+    trainer.train()
+    assert isinstance(trainer.torch_optimizers["t"], opt_cls)
+
+
+def test_unsupported_optimizer_raises(tmp_path):
+    log_file = tmp_path / "logs.csv"
+    cfg = TrainingConfig(optimizer="sgd", checkpoint_dir=tmp_path / "ckpt")
+    trainer = ContinualTrainer(cfg, log_file)
+    with log_file.open("w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["text", "reward"])
+        writer.writeheader()
+        writer.writerow({"text": "sample", "reward": "1"})
+    with pytest.raises(ValueError):
+        trainer.train()
