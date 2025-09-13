@@ -18,7 +18,11 @@ class ContinualTrainer:
     Checkpoints are written after each training run.
     """
 
-    def __init__(self, config: TrainingConfig = DEFAULT_TRAINING_CONFIG, log_file: Path = DEFAULT_LOG_FILE) -> None:
+    def __init__(
+        self,
+        config: TrainingConfig = DEFAULT_TRAINING_CONFIG,
+        log_file: Path = DEFAULT_LOG_FILE,
+    ) -> None:
         self.config = config
         self.log_file = log_file
         self.trained_rows = 0
@@ -28,6 +32,13 @@ class ContinualTrainer:
                 self.trained_rows = sum(1 for _ in f) - 1
         self.pending_samples = 0
         self.step = 0
+
+        # Internal flags for testing hooks
+        self.adversarial_hook_called = False
+        self.curriculum_hook_called = False
+        self.optimizer: str | None = None
+        self.scheduler: str | None = None
+        self.early_stopped = False
 
     def add_sample(self, sample: Dict[str, Any]) -> None:
         """Register a new sample and trigger training if needed."""
@@ -45,6 +56,20 @@ class ContinualTrainer:
         if not new_data:
             return
 
+        # Select optimizer and scheduler according to config
+        self.optimizer = self._init_optimizer()
+        self.scheduler = self.config.lr_scheduler
+
+        # Hooks for curriculum learning and adversarial training
+        if self.config.use_curriculum:
+            self._apply_curriculum_learning(new_data)
+        if self.config.use_adversarial:
+            self._apply_adversarial_training(new_data)
+
+        if self.config.early_stopping_patience is not None:
+            # Placeholder: mark that early stopping would be engaged
+            self.early_stopped = True
+
         # Placeholder for model fine-tuning logic
         print(
             f"Fine-tuning on {len(new_data)} samples with lr {self.config.initial_lr}"
@@ -59,3 +84,20 @@ class ContinualTrainer:
         self.config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = self.config.checkpoint_dir / f"checkpoint_{self.step}.pt"
         ckpt_path.write_text("checkpoint placeholder")
+
+    # ---- Hooks ---------------------------------------------------------
+
+    def _init_optimizer(self) -> str:
+        """Return the configured optimizer name."""
+        opt = self.config.optimizer.lower()
+        if opt not in {"adam", "adamw", "lion"}:
+            opt = "adam"
+        return opt
+
+    def _apply_adversarial_training(self, data: List[Dict[str, Any]]) -> None:
+        """Placeholder adversarial training hook."""
+        self.adversarial_hook_called = True
+
+    def _apply_curriculum_learning(self, data: List[Dict[str, Any]]) -> None:
+        """Placeholder curriculum learning hook."""
+        self.curriculum_hook_called = True
