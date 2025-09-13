@@ -42,6 +42,8 @@ def test_continual_trainer_strategy_switch(tmp_path):
         early_stopping_patience=1,
         use_adversarial=True,
         use_curriculum=True,
+        use_ewc=True,
+        use_orthogonal=True,
     )
     trainer_on = ContinualTrainer(cfg_on, log_file)
     with log_file.open("a", newline="") as f:
@@ -52,6 +54,8 @@ def test_continual_trainer_strategy_switch(tmp_path):
     assert trainer_on.scheduler == "linear"
     assert trainer_on.adversarial_hook_called
     assert trainer_on.curriculum_hook_called
+    assert trainer_on.ewc_hook_called
+    assert trainer_on.orthogonal_hook_called
     assert trainer_on.early_stopped
 
 

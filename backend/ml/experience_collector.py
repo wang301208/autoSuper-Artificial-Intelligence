@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Set
 
 from .continual_trainer import ContinualTrainer
 from . import DEFAULT_TRAINING_CONFIG
@@ -11,6 +11,39 @@ LOG_FILE = Path("data") / "new_logs.csv"
 
 # Single trainer instance used to schedule periodic fine-tuning
 TRAINER = ContinualTrainer(DEFAULT_TRAINING_CONFIG, LOG_FILE)
+
+
+class ActiveCuriositySelector:
+    """Filter samples based on reward and novelty.
+
+    A simple heuristic combines the running reward average with whether the
+    underlying state has been seen before. Samples that are either novel or
+    yield above-average reward are forwarded to the trainer.
+    """
+
+    def __init__(self, reward_threshold: float = 0.0, novelty_weight: float = 0.5) -> None:
+        self.reward_threshold = reward_threshold
+        self.novelty_weight = novelty_weight
+        self.seen_states: Set[str] = set()
+        self.avg_reward = 0.0
+        self.count = 0
+
+    def consider(self, sample: Dict[str, Any]) -> bool:
+        self.count += 1
+        r = sample["reward"]
+        # update moving average of reward
+        self.avg_reward += (r - self.avg_reward) / self.count
+        novelty = 0.0 if sample["state"] in self.seen_states else 1.0
+        curiosity = self.novelty_weight * novelty + (1 - self.novelty_weight) * max(
+            0.0, r - self.avg_reward
+        )
+        if curiosity > self.reward_threshold:
+            self.seen_states.add(sample["state"])
+            return True
+        return False
+
+
+SELECTOR = ActiveCuriositySelector()
 
 
 def log_interaction(task: Any, ability: str, result: Any, reward: float) -> None:
@@ -38,6 +71,14 @@ def log_interaction(task: Any, ability: str, result: Any, reward: float) -> None
         input_data = getattr(result, "input", "")
         output_data = getattr(result, "output", str(result))
 
+    sample = {
+        "state": state,
+        "ability": ability,
+        "input": input_data,
+        "output": output_data,
+        "reward": reward,
+    }
+
     LOG_FILE.parent.mkdir(exist_ok=True)
     file_exists = LOG_FILE.exists()
     with LOG_FILE.open("a", newline="") as f:
@@ -46,21 +87,7 @@ def log_interaction(task: Any, ability: str, result: Any, reward: float) -> None
         )
         if not file_exists:
             writer.writeheader()
-        writer.writerow(
-            {
-                "state": state,
-                "ability": ability,
-                "input": input_data,
-                "output": output_data,
-                "reward": reward,
-            }
-        )
-    TRAINER.add_sample(
-        {
-            "state": state,
-            "ability": ability,
-            "input": input_data,
-            "output": output_data,
-            "reward": reward,
-        }
-    )
+        writer.writerow(sample)
+
+    if SELECTOR.consider(sample):
+        TRAINER.add_sample(sample)
