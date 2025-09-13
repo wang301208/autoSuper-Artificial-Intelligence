@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 import os
 import re
 from pathlib import Path
 
+import numpy
 import pytest
 from pytest_mock import MockerFixture
 
 import autogpt.commands.file_operations as file_ops
-from autogpt.agents.agent import Agent
 from autogpt.agents.utils.exceptions import DuplicateOperationError
 from autogpt.config import Config
 from autogpt.file_storage import FileStorage
@@ -23,19 +25,56 @@ def file_content():
 def mock_MemoryItem_from_text(
     mocker: MockerFixture, mock_embedding: Embedding, config: Config
 ):
-    mocker.patch.object(
-        file_ops.MemoryItemFactory,
-        "from_text",
-        new=lambda content, source_type, config, metadata: MemoryItem(
+    def make_memory(content: str, path: str, source_type: str):
+        return MemoryItem(
             raw_content=content,
             summary=f"Summary of content '{content}'",
             chunk_summaries=[f"Summary of content '{content}'"],
             chunks=[content],
             e_summary=mock_embedding,
             e_chunks=[mock_embedding],
-            metadata=metadata | {"source_type": source_type},
+            metadata={"location": path, "source_type": source_type},
+        )
+
+    mocker.patch.object(
+        file_ops.MemoryItemFactory,
+        "from_text_file",
+        side_effect=lambda content, path, cfg: make_memory(
+            content, path, "text_file"
         ),
     )
+    mocker.patch.object(
+        file_ops.MemoryItemFactory,
+        "from_code_file",
+        side_effect=lambda content, path: make_memory(content, path, "code_file"),
+    )
+
+
+@pytest.fixture()
+def mock_embedding() -> Embedding:
+    return numpy.full((1,), 0.0255, numpy.float32)
+
+
+class DummyAgent:
+    def __init__(self, workspace: FileStorage, config: Config, memory=None):
+        self.workspace = workspace
+        self.legacy_config = config
+        self.memory = memory
+
+
+class SimpleMemory:
+    def __init__(self):
+        self.items: list[MemoryItem] = []
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def add(self, item: MemoryItem):
+        self.items.append(item)
+
+    def discard(self, item: MemoryItem):
+        if item in self.items:
+            self.items.remove(item)
 
 
 @pytest.fixture()
@@ -151,16 +190,54 @@ async def test_log_operation_with_checksum(agent: Agent):
 @pytest.mark.asyncio
 async def test_read_file(
     mock_MemoryItem_from_text,
-    test_file_path: Path,
+    storage: FileStorage,
+    config: Config,
     file_content,
-    agent: Agent,
 ):
-    await agent.workspace.write_file(test_file_path.name, file_content)
-    await file_ops.log_operation(
-        "write", Path(test_file_path.name), agent, file_ops.text_checksum(file_content)
-    )
-    content = file_ops.read_file(test_file_path.name, agent=agent)
+    await storage.write_file("test_file.txt", file_content)
+    agent = DummyAgent(storage, config)
+    content = file_ops.read_file("test_file.txt", agent=agent)
     assert content.replace("\r", "") == file_content
+
+
+@pytest.mark.asyncio
+async def test_read_file_refreshes_memory(
+    storage: FileStorage,
+    config: Config,
+    mock_embedding: Embedding,
+    mocker: MockerFixture,
+):
+    memory = SimpleMemory()
+    agent = DummyAgent(storage, config, memory)
+
+    def make_memory(content: str, path: str, source_type: str):
+        return MemoryItem(
+            raw_content=content,
+            summary="",
+            chunk_summaries=[""],
+            chunks=[content],
+            e_summary=mock_embedding,
+            e_chunks=[mock_embedding],
+            metadata={"location": path, "source_type": source_type},
+        )
+
+    mocker.patch.object(
+        file_ops.MemoryItemFactory,
+        "from_text_file",
+        side_effect=lambda content, path, cfg: make_memory(
+            content, path, "text_file"
+        ),
+    )
+
+    await storage.write_file("test.txt", "first")
+    file_ops.read_file("test.txt", agent)
+    assert len(memory.items) == 1
+    assert memory.items[0].raw_content == "first"
+
+    await storage.write_file("test.txt", "second")
+    file_ops.read_file("test.txt", agent)
+    assert len(memory.items) == 1
+    assert memory.items[0].raw_content == "second"
 
 
 def test_read_file_not_found(agent: Agent):

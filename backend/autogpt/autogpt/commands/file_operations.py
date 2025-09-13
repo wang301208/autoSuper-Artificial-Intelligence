@@ -26,7 +26,10 @@ COMMAND_CATEGORY = "file_operations"
 COMMAND_CATEGORY_TITLE = "File Operations"
 
 
-from .file_context import open_file, open_folder  # NOQA
+try:
+    from .file_context import open_file, open_folder  # NOQA
+except Exception:  # pragma: no cover - optional dependency
+    open_file = open_folder = None
 
 logger = logging.getLogger(__name__)
 
@@ -168,10 +171,38 @@ def read_file(filename: str | Path, agent: Agent) -> str:
     file = agent.workspace.open_file(filename, binary=True)
     content = decode_textual_file(file, os.path.splitext(filename)[1], logger)
 
-    # # TODO: invalidate/update memory when file is edited
-    # file_memory = MemoryItem.from_text_file(content, str(filename), agent.config)
-    # if len(file_memory.chunks) > 1:
-    #     return file_memory.summary
+    # Regenerate memory embeddings for this file if necessary
+    memory = getattr(agent, "memory", None)
+    if memory is not None:
+        try:
+            file_path = Path(filename)
+            location = file_path.as_posix()
+            existing_items = [
+                item for item in list(memory) if item.metadata.get("location") == location
+            ]
+
+            # Check if existing memory matches current content
+            needs_update = not existing_items or any(
+                item.raw_content != content for item in existing_items
+            )
+
+            if needs_update:
+                for item in existing_items:
+                    memory.discard(item)
+
+                if file_path.suffix.lower() in CODE_EXTENSIONS:
+                    file_memory = MemoryItemFactory.from_code_file(content, location)
+                else:
+                    file_memory = MemoryItemFactory.from_text_file(
+                        content, location, agent.legacy_config
+                    )
+
+                logger.debug(f"Created memory: {file_memory.dump(True)}")
+                memory.add(file_memory)
+        except Exception as err:
+            logger.warning(
+                f"Error while refreshing memory for '{filename}': {err}"
+            )
 
     return content
 
