@@ -2,6 +2,15 @@
 
 from abc import ABC, abstractmethod
 
+from .replay_buffer import ReplayBuffer
+
+try:  # optional dependencies
+    from .ppo import PPO, PPOConfig
+    from .a3c import A3C, A3CConfig
+    from .sac import SAC, SACConfig
+except Exception:  # pragma: no cover - algorithms require torch
+    PPO = PPOConfig = A3C = A3CConfig = SAC = SACConfig = None  # type: ignore
+
 try:  # Attempt to leverage AutoGPT's agent base when available
     from autogpts.autogpt.autogpt.agents.base import BaseAgent as AutoGPTBaseAgent
 except Exception:  # pragma: no cover - fallback when dependencies missing
@@ -20,6 +29,8 @@ if AutoGPTBaseAgent is None:
         def perform(self, *args, **kwargs):
             """Execute the agent's primary behaviour."""
             raise NotImplementedError
+
+
 else:
     class Agent(AutoGPTBaseAgent, ABC):
         """Abstract base agent for the evolution package.
@@ -34,3 +45,15 @@ else:
         def perform(self, *args, **kwargs):
             """Execute the agent's primary behaviour."""
             raise NotImplementedError
+
+
+__all__ = [
+    "Agent",
+    "ReplayBuffer",
+    "PPO",
+    "PPOConfig",
+    "A3C",
+    "A3CConfig",
+    "SAC",
+    "SACConfig",
+]

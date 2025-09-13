@@ -14,10 +14,13 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 
-Experience = Tuple[str, str, float]
+# ``Experience`` tuples may optionally include an ``agent_id`` as the first
+# element allowing the trainer to manage multiple policies while sharing a
+# common experience buffer.
+Experience = Union[Tuple[int, str, str, float], Tuple[str, str, float]]
 
 
 @dataclass
@@ -34,32 +37,41 @@ class PolicyTrainer:
     dataset_path: Path
     learning_rate: float = 0.1
     policy: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    num_agents: int = 1
     experience_transform: Callable[[Dict[str, Any]], Experience] | None = None
 
     def __post_init__(self) -> None:
         self.dataset_path = Path(self.dataset_path)
         self._buffer: List[Experience] = []
+        if self.num_agents == 1:
+            self._policies: Dict[int, Dict[str, Dict[str, float]]] = {0: self.policy}
+        else:
+            self._policies = {i: {} for i in range(self.num_agents)}
+            # maintain attribute ``policy`` for backwards compatibility
+            self.policy = self._policies[0]
         if self.experience_transform is None:
             self.experience_transform = self._default_transform
 
     # ------------------------------------------------------------------
     # Experience management
     # ------------------------------------------------------------------
-    def push_experience(self, state: str, action: str, reward: float) -> None:
-        """Add an experience tuple to the in-memory buffer."""
+    def push_experience(self, state: str, action: str, reward: float, agent_id: int = 0) -> None:
+        """Add an experience tuple to the shared in-memory buffer."""
 
-        self._buffer.append((state, action, reward))
+        self._buffer.append((agent_id, state, action, reward))
 
     # Dataset loading --------------------------------------------------
     def _default_transform(self, obj: Dict[str, Any]) -> Experience:
-        """Extract ``(state, action, reward)`` from a dataset object.
+        """Extract ``(agent_id, state, action, reward)`` from a dataset object.
 
         The default implementation supports both flat and nested ``{"experience"``
-        ``: {...}}`` structures.
+        ``: {...}}`` structures and assumes an ``agent_id`` field (defaulting to
+        ``0`` when absent).
         """
 
         exp = obj.get("experience", obj)
-        return exp["state"], exp["action"], float(exp["reward"])
+        agent = int(exp.get("agent_id", 0))
+        return agent, exp["state"], exp["action"], float(exp["reward"])
 
     def _append_from_obj(self, obj: Dict[str, Any], experiences: List[Experience]) -> None:
         try:
@@ -117,15 +129,22 @@ class PolicyTrainer:
         total = sum(exps) or 1.0
         return [e / total for e in exps]
 
-    def update_policy(self) -> Dict[str, Dict[str, float]]:
-        """Update the policy using buffered and dataset experiences.
+    def update_policy(self) -> Dict[str, Dict[str, float]] | Dict[int, Dict[str, Dict[str, float]]]:
+        """Update the policy or policies using buffered and dataset experiences.
 
-        Returns the updated policy mapping.
+        When ``num_agents`` is ``1`` the return value matches previous versions
+        of this class (a single policy mapping). For multi-agent settings a
+        dictionary keyed by ``agent_id`` is returned.
         """
 
         experiences = self._load_dataset() + self._buffer
-        for state, action, reward in experiences:
-            prefs = self.policy.setdefault(state, {})
+        for exp in experiences:
+            if len(exp) == 4:
+                agent, state, action, reward = exp  # type: ignore[misc]
+            else:
+                state, action, reward = exp  # type: ignore[misc]
+                agent = 0
+            prefs = self._policies.setdefault(agent, {}).setdefault(state, {})
             prefs.setdefault(action, 0.0)
             actions = list(prefs.keys())
             probs = self._softmax([prefs[a] for a in actions])
@@ -133,7 +152,7 @@ class PolicyTrainer:
                 indicator = 1.0 if name == action else 0.0
                 prefs[name] += self.learning_rate * reward * (indicator - prob)
         self._buffer.clear()
-        return self.policy
+        return self.policy if self.num_agents == 1 else self._policies
 
 
 __all__ = ["PolicyTrainer"]
