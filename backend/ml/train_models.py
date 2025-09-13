@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+from typing import Any
 
 import joblib
 import pandas as pd
@@ -19,7 +20,16 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
-from .feature_extractor import FeatureExtractor
+try:  # Optional dependency for graph parsing
+    import networkx as nx
+except Exception:  # pragma: no cover - dependency may be missing at runtime
+    nx = None  # type: ignore
+
+from .feature_extractor import (
+    FeatureExtractor,
+    GraphFeatureExtractor,
+    TimeSeriesFeatureExtractor,
+)
 
 
 def load_data(path: str):
@@ -38,17 +48,70 @@ def train_model(model_name: str, X_train, y_train):
     return model
 
 
+def _build_extractor(args) -> Any:
+    if args.feature_type == "sentence":
+        return FeatureExtractor(
+            method="sentence",
+            use_pca=args.use_pca,
+            n_components=args.pca_components,
+            use_feature_selection=args.use_feature_selection,
+            var_threshold=args.var_threshold,
+        )
+    if args.feature_type == "time_series":
+        return TimeSeriesFeatureExtractor(
+            window_size=args.window_size, apply_fft=args.apply_fft
+        )
+    if args.feature_type == "graph":
+        return GraphFeatureExtractor(dimensions=args.embedding_dim)
+    return FeatureExtractor(
+        method="tfidf",
+        use_pca=args.use_pca,
+        n_components=args.pca_components,
+        use_feature_selection=args.use_feature_selection,
+        var_threshold=args.var_threshold,
+    )
+
+
+def _prepare_inputs(texts, args, extractor) -> Any:
+    if args.feature_type == "time_series":
+        series_list = [list(map(float, t.split())) for t in texts]
+        return extractor.fit_transform(series_list)
+    if args.feature_type == "graph":
+        if nx is None:  # type: ignore[name-defined]
+            raise ImportError("networkx is required for graph features")
+        graphs = []
+        for t in texts:
+            edges = [tuple(e.split("-")) for e in t.split()]
+            g = nx.Graph()
+            g.add_edges_from(edges)
+            graphs.append(g)
+        return extractor.fit_transform(graphs)
+    return extractor.fit_transform(texts)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Train baseline models on log data")
     parser.add_argument("data", help="Path to CSV file with columns 'text' and 'target'")
     parser.add_argument("--model", choices=["linear", "random_forest"], default="linear")
     parser.add_argument("--version", default="v1", help="Version string for saved artifacts")
+    parser.add_argument(
+        "--feature-type",
+        choices=["tfidf", "sentence", "time_series", "graph"],
+        default="tfidf",
+    )
+    parser.add_argument("--use-pca", action="store_true")
+    parser.add_argument("--pca-components", type=int, default=None)
+    parser.add_argument("--use-feature-selection", action="store_true")
+    parser.add_argument("--var-threshold", type=float, default=0.0)
+    parser.add_argument("--window-size", type=int, default=5)
+    parser.add_argument("--apply-fft", action="store_true")
+    parser.add_argument("--embedding-dim", type=int, default=64)
     args = parser.parse_args()
 
     texts, targets = load_data(args.data)
 
-    extractor = FeatureExtractor()
-    X = extractor.fit_transform(texts)
+    extractor = _build_extractor(args)
+    X = _prepare_inputs(texts, args, extractor)
 
     X_train, X_temp, y_train, y_temp = train_test_split(X, targets, test_size=0.4, random_state=42)
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
