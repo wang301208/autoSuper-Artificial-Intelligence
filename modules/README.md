@@ -12,3 +12,11 @@ pip install -r requirements.txt
 ```
 
 This installs only the packages required by the modules under this directory.
+
+## Optimization
+
+The ``optimization`` module provides lightweight parameter tuning utilities. It
+records the parameters and metrics of each algorithm run to a CSV file and can
+recommend improved parameters for future runs.
+
+See [docs/optimization.md](../docs/optimization.md) for usage details.
