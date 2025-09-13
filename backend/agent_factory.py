@@ -13,10 +13,13 @@ from pathlib import Path
 from typing import Iterable, TYPE_CHECKING
 
 import ast
+import asyncio
 import hashlib
 import logging
+from functools import lru_cache
 from json import JSONDecodeError
 
+import aiofiles
 import yaml
 from jsonschema import validate
 
@@ -67,16 +70,36 @@ def _verify_skill(name: str, code: str, metadata: dict) -> None:
         raise SkillSecurityError(name, "invalid signature")
 
 
+@lru_cache
 def _parse_blueprint(path: Path) -> dict:
     """Load and validate a blueprint file.
+
+    This function asynchronously reads the blueprint from disk and caches the
+    parsed result so subsequent calls for the same path avoid disk I/O.
 
     Parameters
     ----------
     path: Path
         Path to a YAML file conforming to ``schemas/agent_blueprint.yaml``.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+
+    async def _read() -> str:
+        async with aiofiles.open(path, "r", encoding="utf-8") as f:
+            return await f.read()
+
+    try:
+        content = asyncio.run(_read())
+    except RuntimeError:
+        # If an event loop is already running, fall back to creating a new one
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            content = loop.run_until_complete(_read())
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
+    data = yaml.safe_load(content)
     validate(instance=data, schema=charter_io.BLUEPRINT_SCHEMA)
     return data
 
