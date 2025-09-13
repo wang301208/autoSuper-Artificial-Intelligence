@@ -11,7 +11,12 @@ supports online learning via an event queue.
 2. **Retrain and evaluate** – the dataset is used to train a fresh model.
    Classic models are trained via `ml/train_models.py` while LLMs use
    `ml/fine_tune_llm.py` when calling the pipeline with `--model llm`. The
-   resulting metrics (MSE for classic models or perplexity for LLMs) are
+   classic training script accepts a JSON hyperparameter grid via
+   `--search-space` and performs either grid or random search as selected by
+   `--search-type`. The number of cross‑validation folds can be adjusted with
+   `--cv`, and the resulting cross‑validation score together with the best
+   parameters are written to `artifacts/<version>/metrics.txt`.
+   The resulting metrics (MSE for classic models or perplexity for LLMs) are
    compared against the current baseline located in `artifacts/current/`.
 3. **Deploy on improvement** – if the new model achieves a lower metric, it
    replaces the existing model in `artifacts/current/`. Older versions remain in
