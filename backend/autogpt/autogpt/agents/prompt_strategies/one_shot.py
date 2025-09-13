@@ -115,6 +115,9 @@ class OneShotAgentPromptConfiguration(SystemConfiguration):
         },
     )
 
+    model_classification: LanguageModelClassification = UserConfigurable(
+        default=LanguageModelClassification.FAST_MODEL
+    )
     body_template: str = UserConfigurable(default=DEFAULT_BODY_TEMPLATE)
     response_schema: dict = UserConfigurable(
         default_factory=DEFAULT_RESPONSE_SCHEMA.to_dict
@@ -148,7 +151,7 @@ class OneShotAgentPromptStrategy(PromptStrategy):
 
     @property
     def model_classification(self) -> LanguageModelClassification:
-        return LanguageModelClassification.FAST_MODEL  # FIXME: dynamic switching
+        return self.config.model_classification
 
     def build_prompt(
         self,
