@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import pandas as pd
-from sklearn.linear_model import LinearRegression
+import torch
+from torch import nn, optim
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
 
@@ -54,7 +55,7 @@ class MultiTaskTrainer:
             # for simplicity. We only need the fitted vocabulary here.
             self.extractor.fit_transform(texts)
 
-    def train(self) -> Dict[str, Tuple[LinearRegression, float]]:
+    def train(self) -> Dict[str, Tuple[nn.Module, float]]:
         """Train a model for each task and return metrics."""
         if not self._datasets:
             self.load_datasets()
@@ -62,7 +63,7 @@ class MultiTaskTrainer:
         self.optimizer = self._init_optimizer()
         self.scheduler = self.config.lr_scheduler
 
-        results: Dict[str, Tuple[LinearRegression, float]] = {}
+        results: Dict[str, Tuple[nn.Module, float]] = {}
         for name, (texts, targets) in self._datasets.items():
             X = self.extractor.transform(texts)
             X_train, X_test, y_train, y_test = train_test_split(
@@ -76,9 +77,25 @@ class MultiTaskTrainer:
             if self.config.early_stopping_patience is not None:
                 self.early_stopped = True
 
-            model = LinearRegression()
-            model.fit(X_train, y_train)
-            mse = mean_squared_error(y_test, model.predict(X_test))
+            X_train_t = torch.tensor(X_train.toarray(), dtype=torch.float32)
+            y_train_t = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
+            X_test_t = torch.tensor(X_test.toarray(), dtype=torch.float32)
+            y_test_t = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
+
+            model = nn.Linear(X_train_t.shape[1], 1)
+            optimizer = optim.Adam(model.parameters(), lr=self.config.initial_lr)
+            criterion = nn.MSELoss()
+
+            model.train()
+            preds = model(X_train_t)
+            loss = criterion(preds, y_train_t)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            model.eval()
+            with torch.no_grad():
+                mse = criterion(model(X_test_t), y_test_t).item()
             results[name] = (model, mse)
         return results
 

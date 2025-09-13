@@ -4,7 +4,11 @@ import csv
 from pathlib import Path
 from typing import Any, Dict, List
 
+import torch
+from torch import nn, optim
+
 from . import DEFAULT_TRAINING_CONFIG, TrainingConfig
+from .feature_extractor import FeatureExtractor
 
 
 DEFAULT_LOG_FILE = Path("data") / "new_logs.csv"
@@ -42,6 +46,14 @@ class ContinualTrainer:
         self.scheduler: str | None = None
         self.early_stopped = False
 
+        # Simple linear model and feature extractor used for fine-tuning
+        self.extractor = FeatureExtractor()
+        self.model: nn.Module | None = None
+        self.criterion = nn.MSELoss()
+        self.torch_optimizer: optim.Optimizer | None = None
+
+        self._load_checkpoint()
+
     def add_sample(self, sample: Dict[str, Any]) -> None:
         """Register a new sample and trigger training if needed."""
         self.pending_samples += 1
@@ -76,10 +88,38 @@ class ContinualTrainer:
             # Placeholder: mark that early stopping would be engaged
             self.early_stopped = True
 
-        # Placeholder for model fine-tuning logic
-        print(
-            f"Fine-tuning on {len(new_data)} samples with lr {self.config.initial_lr}"
-        )
+        texts = []
+        for s in new_data:
+            joined = " ".join(str(v) for k, v in s.items() if k != "reward")
+            if not any(len(tok) > 1 for tok in joined.split()):
+                joined += " filler"
+            texts.append(joined)
+        rewards = torch.tensor(
+            [float(s.get("reward", 0.0)) for s in new_data], dtype=torch.float32
+        ).unsqueeze(1)
+
+        try:
+            feats = self.extractor.transform(texts)
+        except Exception:
+            feats = self.extractor.fit_transform(texts)
+
+        inputs = torch.tensor(feats.toarray(), dtype=torch.float32)
+
+        if self.model is None or inputs.shape[1] != self.model.in_features:  # type: ignore[arg-type]
+            self.model = nn.Linear(inputs.shape[1], 1)
+            self.torch_optimizer = optim.Adam(
+                self.model.parameters(), lr=self.config.initial_lr
+            )
+
+        assert self.model is not None
+        assert self.torch_optimizer is not None
+
+        self.model.train()
+        preds = self.model(inputs)
+        loss = self.criterion(preds, rewards)
+        self.torch_optimizer.zero_grad()
+        loss.backward()
+        self.torch_optimizer.step()
 
         self.trained_rows += len(new_data)
         self.pending_samples = 0
@@ -87,9 +127,39 @@ class ContinualTrainer:
         self._save_checkpoint()
 
     def _save_checkpoint(self) -> None:
+        if self.model is None:
+            return
         self.config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = self.config.checkpoint_dir / f"checkpoint_{self.step}.pt"
-        ckpt_path.write_text("checkpoint placeholder")
+        torch.save(
+            {
+                "model_state": self.model.state_dict(),
+                "input_dim": self.model.in_features,  # type: ignore[attr-defined]
+                "vectorizer": self.extractor.vectorizer,
+                "step": self.step,
+                "trained_rows": self.trained_rows,
+            },
+            ckpt_path,
+        )
+
+    def _load_checkpoint(self) -> None:
+        if not self.config.checkpoint_dir.exists():
+            return
+        ckpts = sorted(self.config.checkpoint_dir.glob("checkpoint_*.pt"))
+        if not ckpts:
+            return
+        state = torch.load(ckpts[-1], map_location="cpu")
+        input_dim = state.get("input_dim")
+        if input_dim is not None:
+            self.model = nn.Linear(input_dim, 1)
+            self.model.load_state_dict(state["model_state"])
+            self.torch_optimizer = optim.Adam(
+                self.model.parameters(), lr=self.config.initial_lr
+            )
+        if "vectorizer" in state:
+            self.extractor.vectorizer = state["vectorizer"]
+        self.step = state.get("step", 0)
+        self.trained_rows = state.get("trained_rows", self.trained_rows)
 
     # ---- Hooks ---------------------------------------------------------
 
