@@ -1,7 +1,19 @@
 from typing import Optional
 
+try:  # pragma: no cover - prefer upstream AutoGPTError
+    from autogpts.autogpt.autogpt.core.errors import AutoGPTError
+except ModuleNotFoundError:  # pragma: no cover - fallback stub for tests
+    class AutoGPTError(Exception):
+        """Fallback AutoGPT base error used in tests."""
+        pass
+
 
 class NotFoundError(Exception):
+    pass
+
+
+class DatabaseError(AutoGPTError):
+    """Unexpected error while accessing the agent database."""
     pass
 
 
