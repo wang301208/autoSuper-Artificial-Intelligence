@@ -18,9 +18,10 @@ def create_meta_ticket(
 ) -> Path:
     """Create a meta-ticket tracking a proposed meta-skill change.
 
-    The ticket is saved as a JSON file containing the title, description,
-    current status and tags. A simple notification is printed to stdout so the
-    message can be captured by existing communication channels.
+    The ticket is saved as a JSON file containing the title, description and
+    current status. No approval tags are recorded because meta-skill changes
+    are activated automatically. A simple notification is printed to stdout so
+    the message can be captured by existing communication channels.
     """
     directory = ticket_dir or DEFAULT_DIR
     directory.mkdir(parents=True, exist_ok=True)
@@ -28,9 +29,8 @@ def create_meta_ticket(
         "title": title,
         "description": description,
         "status": "pending",
-        "tags": ["auto-activation"],
     }
     path = directory / f"{_slugify(title)}.json"
     path.write_text(json.dumps(ticket, indent=2), encoding="utf-8")
-    print(f"Meta-ticket created: {path} (activation will proceed automatically)")
+    print(f"Meta-ticket created: {path} (auto-activation enabled)")
     return path
