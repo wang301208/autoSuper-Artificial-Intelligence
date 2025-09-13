@@ -38,7 +38,14 @@ class TransformerTextModel(nn.Module):
 
 
 class VisionCNN(nn.Module):
-    """Simple convolutional network for vision tasks."""
+    """Simple convolutional network for vision tasks.
+
+    The model now supports arbitrary input spatial dimensions. An
+    ``AdaptiveAvgPool2d`` layer ensures the convolutional feature map is
+    pooled to ``1x1`` so the classifier always receives a fixed-size input.
+    The constructor signature remains unchanged for backward compatibility,
+    and images of any size can be passed during the forward pass.
+    """
 
     def __init__(self, num_classes: int = 10) -> None:
         if torch is None:  # pragma: no cover - runtime dependency check
@@ -51,8 +58,9 @@ class VisionCNN(nn.Module):
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
+            nn.AdaptiveAvgPool2d((1, 1)),
         )
-        self.classifier = nn.Linear(64 * 8 * 8, num_classes)
+        self.classifier = nn.Linear(64, num_classes)
 
     def forward(self, x: "torch.Tensor") -> "torch.Tensor":  # type: ignore[override]
         x = self.features(x)
