@@ -37,7 +37,7 @@ def test_add_and_get_skill(tmp_path: Path) -> None:
     lib.close()
 
 
-def test_meta_skill_requires_activation(tmp_path: Path) -> None:
+def test_meta_skill_auto_activation_and_caching(tmp_path: Path) -> None:
     repo = tmp_path
     init_repo(repo)
     lib = SkillLibrary(repo)
@@ -49,11 +49,24 @@ def test_meta_skill_requires_activation(tmp_path: Path) -> None:
         "protected": False,
     }
     lib.add_skill("MetaSkill_Test", code, metadata)
-    with pytest.raises(PermissionError):
-        asyncio.run(lib.get_skill("MetaSkill_Test"))
-    asyncio.run(lib.activate_meta_skill("MetaSkill_Test"))
+
+    # Requesting the inactive meta-skill should transparently activate it.
     _, meta = asyncio.run(lib.get_skill("MetaSkill_Test"))
     assert meta["active"] is True
+    log = subprocess.run(
+        ["git", "log", "--oneline"], cwd=repo, capture_output=True, text=True, check=True
+    )
+    assert "Activate meta-skill MetaSkill_Test" in log.stdout
+
+    # Repeated calls should use the cached, already activated version.
+    _, meta2 = asyncio.run(lib.get_skill("MetaSkill_Test"))
+    assert meta2["active"] is True
+    stats = lib.cache_stats()
+    assert stats["hits"] == 1
+    log2 = subprocess.run(
+        ["git", "log", "--oneline"], cwd=repo, capture_output=True, text=True, check=True
+    )
+    assert log.stdout == log2.stdout
     lib.close()
 
 
