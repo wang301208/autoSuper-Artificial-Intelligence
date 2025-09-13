@@ -40,6 +40,16 @@ AutoGPT 项目包含四个主要组件：
 
 提供排序、搜索、数据结构以及存储与缓存等常见算法实现，例如 `LRUCache`、`LFUCache`、`BTreeIndex` 等。新增的 `DynamicNetwork` 模块支持在训练过程中动态增删隐藏层。
 
+## 依赖管理
+
+为避免全局依赖冲突，某些子模块（如 `algorithms/`、`modules/`）提供独立的依赖文件。可在模块目录下执行以下命令单独安装：
+
+```bash
+pip install -r <module>/requirements.txt
+```
+
+这样可以仅安装所需依赖并保持环境整洁。
+
 ## 🔧 CLI
 
 项目命令行工具，统一管理所有组件：

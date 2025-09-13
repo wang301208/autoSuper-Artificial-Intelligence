@@ -3,6 +3,18 @@
 This directory contains algorithm implementations organized by category
 and difficulty.
 
+## Installation
+
+Install the algorithm module's dependencies separately to avoid polluting the
+global environment:
+
+```bash
+pip install -r requirements.txt
+```
+
+This ensures only the packages needed for the algorithms module are added to
+your Python environment.
+
 ## Language & Style
 - Implement algorithms in **Python 3**.
 - Follow the **PEP 8** style guide.
