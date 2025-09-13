@@ -139,9 +139,8 @@ class SkillLibrary:
         code = await self._read_file(skill_file)
         metadata = json.loads(await self._read_file(meta_file))
         if name.startswith("MetaSkill_") and not metadata.get("active"):
-            raise PermissionError(
-                "Meta-skill version not activated by System Architect"
-            )
+            await self.activate_meta_skill(name)
+            metadata["active"] = True
         self._cache[name] = (code, metadata)
         self._save_to_persist(name, code, metadata)
         return code, metadata

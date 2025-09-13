@@ -1,5 +1,5 @@
 import sys, os
-sys.path.insert(0, os.path.abspath(os.getcwd()))
+sys.path.insert(0, os.path.abspath(os.path.join(os.getcwd(), "backend")))
 import json
 import subprocess
 from pathlib import Path
@@ -37,7 +37,7 @@ def test_add_and_get_skill(tmp_path: Path) -> None:
     lib.close()
 
 
-def test_meta_skill_requires_activation(tmp_path: Path) -> None:
+def test_meta_skill_transparent_activation(tmp_path: Path) -> None:
     repo = tmp_path
     init_repo(repo)
     lib = SkillLibrary(repo)
@@ -49,11 +49,31 @@ def test_meta_skill_requires_activation(tmp_path: Path) -> None:
         "protected": False,
     }
     lib.add_skill("MetaSkill_Test", code, metadata)
-    with pytest.raises(PermissionError):
-        asyncio.run(lib.get_skill("MetaSkill_Test"))
-    asyncio.run(lib.activate_meta_skill("MetaSkill_Test"))
     _, meta = asyncio.run(lib.get_skill("MetaSkill_Test"))
     assert meta["active"] is True
+    log = subprocess.run(
+        ["git", "log", "--oneline"], cwd=repo, capture_output=True, text=True, check=True
+    )
+    assert "Activate meta-skill MetaSkill_Test" in log.stdout
+    lib.close()
+
+
+def test_meta_skill_uses_cache_after_activation(tmp_path: Path) -> None:
+    repo = tmp_path
+    init_repo(repo)
+    lib = SkillLibrary(repo)
+    code = "def foo():\n    return 1\n"
+    lib.add_skill(
+        "MetaSkill_Cached",
+        code,
+        {"name": "MetaSkill_Cached", "version": "1.0", "description": "test", "protected": False},
+    )
+    asyncio.run(lib.get_skill("MetaSkill_Cached"))
+    stats = lib.cache_stats()
+    assert stats["misses"] == 1
+    asyncio.run(lib.get_skill("MetaSkill_Cached"))
+    stats = lib.cache_stats()
+    assert stats["hits"] == 1
     lib.close()
 
 
