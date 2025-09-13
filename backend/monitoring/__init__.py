@@ -8,6 +8,7 @@ from .performance_monitor import PerformanceMonitor, email_alert, dashboard_aler
 from .reflection import Reflection
 from .global_workspace import GlobalWorkspace, global_workspace
 from .brain_state import create_app as create_brain_app, record_memory_hit
+from .multi_metric_monitor import MultiMetricMonitor
 
 __all__ = [
     "TimeSeriesStorage",
@@ -22,4 +23,5 @@ __all__ = [
     "global_workspace",
     "create_brain_app",
     "record_memory_hit",
+    "MultiMetricMonitor",
 ]
