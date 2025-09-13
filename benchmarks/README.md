@@ -36,3 +36,22 @@ trajectory for the adaptive run.
 ```
 python benchmarks/pso_benchmark.py
 ```
+
+## A/B testing framework
+
+The `ab_testing` module enables side-by-side evaluation of two algorithm
+variants. `run_ab_test.py` executes both versions in parallel on a synthetic
+classification dataset, collects accuracy and timing metrics, and performs
+basic statistical analysis (confidence intervals and a paired t-test).
+
+### Running the benchmark
+
+```
+python benchmarks/run_ab_test.py --algoA benchmarks.ab_testing.sample_algorithms:algo_random --algoB benchmarks.ab_testing.sample_algorithms:algo_knn
+```
+
+### CI integration
+
+In continuous integration, run the script with your production algorithm as
+`--algoA` and the candidate change as `--algoB`. Fail the pipeline if the
+reported p-value indicates a significant drop in accuracy.
