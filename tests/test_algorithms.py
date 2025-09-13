@@ -13,6 +13,7 @@ from algorithms.graph.basic.bfs import BreadthFirstSearch
 from algorithms.graph.basic.dfs import DepthFirstSearch
 from algorithms.dynamic_programming.basic.fibonacci import Fibonacci
 from algorithms.dynamic_programming.basic.lcs import LongestCommonSubsequence
+from algorithms.dynamic_programming.basic.knapsack import Knapsack
 from algorithms.utils import Graph
 
 
@@ -90,3 +91,21 @@ def test_longest_common_subsequence():
     assert LongestCommonSubsequence().execute("abcde", "ace") == 3
     assert LongestCommonSubsequence().execute("", "abc") == 0
     assert LongestCommonSubsequence().execute("abc", "") == 0
+
+
+def test_knapsack_value_and_selection():
+    weights = [2, 3, 4, 5]
+    values = [3, 4, 5, 6]
+    capacity = 5
+    max_value, selected = Knapsack().execute(weights, values, capacity)
+    assert max_value == 7
+    assert set(selected) == {0, 1}
+    assert sum(weights[i] for i in selected) <= capacity
+
+
+def test_knapsack_zero_capacity():
+    weights = [1, 2, 3]
+    values = [10, 15, 40]
+    max_value, selected = Knapsack().execute(weights, values, 0)
+    assert max_value == 0
+    assert selected == []
