@@ -48,7 +48,7 @@ AutoGPT 项目包含四个主要组件：
 pip install -r <module>/requirements.txt
 ```
 
-这样可以仅安装所需依赖并保持环境整洁。
+项目同时提供 `ModernDependencyManager` 来按需解析并安装缺失依赖，内部通过 `importlib` 与 `pip` 等官方接口实现，可自动处理版本范围并减少对弃用 API 的依赖。这样可以仅安装所需依赖并保持环境整洁。
 
 ## 🔧 CLI
 

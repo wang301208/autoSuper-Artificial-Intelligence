@@ -11,7 +11,10 @@ environment:
 pip install -r requirements.txt
 ```
 
-This installs only the packages required by the modules under this directory.
+This installs only the packages required by the modules under this directory. The
+project now includes a `ModernDependencyManager` which will attempt to resolve and
+install missing packages automatically using `pip`/`importlib` when modules are
+loaded.
 
 ## Optimization
 
