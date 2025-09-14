@@ -8,7 +8,7 @@ other parts of the system.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Dict, Sequence, Optional
 
 import numpy as np
 
@@ -16,7 +16,7 @@ from .cross_modal_transformer import CrossModalTransformer
 
 
 class MultimodalFusionEngine:
-    """Fuse visual, auditory and tactile data into a shared representation."""
+    """Fuse data from arbitrary modalities into a shared representation using attention."""
 
     def __init__(self, transformer: Optional[CrossModalTransformer] = None) -> None:
         self._transformer = transformer or CrossModalTransformer()
@@ -26,23 +26,41 @@ class MultimodalFusionEngine:
 
         self._transformer = transformer
 
-    def fuse_sensory_modalities(
-        self, visual: np.ndarray, auditory: np.ndarray, tactile: np.ndarray
-    ) -> np.ndarray:
+    def fuse_sensory_modalities(self, **modalities: np.ndarray) -> np.ndarray:
         """Return a unified representation of the provided modalities.
 
         Parameters
         ----------
-        visual, auditory, tactile:
-            Arrays containing the sensory data.  All three modalities must be
-            supplied.  Each is aligned via the configured transformer and then
-            fused into a single representation.
+        **modalities:
+            Named modality arrays (e.g. ``visual``, ``auditory``, ``tactile``,
+            ``smell`` or ``text``).  At least one modality must be supplied.
+            Each modality is aligned via the configured transformer and fused
+            using a simple attention mechanism that weights modalities by the
+            magnitude of their aligned representations.
         """
 
-        modalities = [visual, auditory, tactile]
-        if any(m is None for m in modalities):
-            raise ValueError("all modalities must be provided")
-        return self._transformer.fuse(modalities)
+        if not modalities:
+            raise ValueError("at least one modality must be provided")
+
+        aligned = self._align_modalities(modalities)
+        weights = self._attention(aligned)
+        return np.average(aligned, axis=0, weights=weights)
+
+    def _align_modalities(self, modalities: Dict[str, np.ndarray]) -> Sequence[np.ndarray]:
+        """Project modalities into the shared representation space."""
+
+        return [self._transformer.project(m) for m in modalities.values()]
+
+    @staticmethod
+    def _attention(aligned: Sequence[np.ndarray]) -> np.ndarray:
+        """Compute attention weights for a sequence of aligned modalities."""
+
+        scores = np.array([np.linalg.norm(a) for a in aligned], dtype=float)
+        if np.allclose(scores, 0):
+            return np.full(len(aligned), 1.0 / len(aligned))
+        scores -= np.max(scores)
+        exp_scores = np.exp(scores)
+        return exp_scores / exp_scores.sum()
 
 
 __all__ = ["MultimodalFusionEngine"]
