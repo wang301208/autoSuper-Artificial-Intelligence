@@ -12,6 +12,11 @@ from .self_evolving_ai_architecture import SelfEvolvingAIArchitecture
 from .evolution_engine import EvolutionEngine
 from .adapter import EvolutionModule
 from .dynamic_architecture import DynamicArchitectureExpander
+from .strategy import (
+    ExplorationStrategy,
+    SimulatedAnnealingStrategy,
+    InnovationProtectionStrategy,
+)
 
 try:  # optional dependencies
     from .ppo import PPO, PPOConfig
@@ -65,6 +70,9 @@ __all__ = [
     "SelfEvolvingAIArchitecture",
     "EvolutionEngine",
     "DynamicArchitectureExpander",
+    "ExplorationStrategy",
+    "SimulatedAnnealingStrategy",
+    "InnovationProtectionStrategy",
     "PPO",
     "PPOConfig",
     "A3C",

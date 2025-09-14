@@ -13,6 +13,7 @@ import random
 
 # Optional plugin support for multi-metric fitness evaluation
 from .fitness_plugins import load_from_config
+from .strategy import ExplorationStrategy
 
 
 def _clip(value: float, low: float, high: float) -> float:
@@ -27,6 +28,8 @@ class GAConfig:
     crossover_rate: float = 0.9
     mutation_rate: float = 0.1
     mutation_sigma: float = 0.1
+    diversity_threshold: float = 0.1
+    perturbation_rate: float = 0.1
 
 
 class GeneticAlgorithm:
@@ -39,6 +42,7 @@ class GeneticAlgorithm:
         config: GAConfig | None = None,
         metric_config: str | None = None,
         metrics: Sequence[Tuple[Callable[[Sequence[float]], float], float]] | None = None,
+        strategy: ExplorationStrategy | None = None,
     ) -> None:
         # ``fitness_fn`` is used when a single evaluation function is supplied.
         # ``metrics`` / ``metric_config`` enable weighted multi-metric fitness.
@@ -62,6 +66,7 @@ class GeneticAlgorithm:
         self.num_genes = len(self.bounds)
         self.best_individual: List[float] | None = None
         self.best_fitness: float | None = None
+        self.strategy = strategy
 
     # Population utilities -------------------------------------------------
     def _random_individual(self) -> List[float]:
@@ -75,6 +80,26 @@ class GeneticAlgorithm:
 
     def _evaluate(self, population: List[List[float]]) -> List[float]:
         return [self.fitness_fn(ind) for ind in population]
+
+    def _population_diversity(self, population: List[List[float]]) -> float:
+        if len(population) < 2:
+            return 0.0
+        total = 0.0
+        count = 0
+        for i in range(len(population)):
+            for j in range(i + 1, len(population)):
+                total += sum(
+                    (population[i][k] - population[j][k]) ** 2 for k in range(self.num_genes)
+                ) ** 0.5
+                count += 1
+        return total / count if count else 0.0
+
+    def _introduce_diversity(self, population: List[List[float]]) -> None:
+        if self._population_diversity(population) < self.config.diversity_threshold:
+            num_replace = max(1, int(self.config.perturbation_rate * len(population)))
+            for _ in range(num_replace):
+                idx = random.randrange(len(population))
+                population[idx] = self._random_individual()
 
     # Genetic operators ----------------------------------------------------
     def _tournament_selection(
@@ -110,7 +135,7 @@ class GeneticAlgorithm:
         fitnesses = self._evaluate(population)
         self._update_best(population, fitnesses)
 
-        for _ in range(generations):
+        for generation in range(generations):
             new_population: List[List[float]] = []
             while len(new_population) < self.config.population_size:
                 p1 = self._tournament_selection(population, fitnesses)
@@ -120,7 +145,10 @@ class GeneticAlgorithm:
                 self._mutate(c2)
                 new_population.extend([c1, c2])
             population = new_population[: self.config.population_size]
+            self._introduce_diversity(population)
             fitnesses = self._evaluate(population)
+            if self.strategy is not None:
+                self.strategy.apply(population, fitnesses, generation)
             self._update_best(population, fitnesses)
 
         assert self.best_individual is not None
