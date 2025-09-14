@@ -14,12 +14,11 @@ nav:
         - Set up with Docker: AutoGPT/setup/docker.md
     - Usage: AutoGPT/usage.md
     - Plugins: AutoGPT/plugins.md
-    # - Configuration:
-    #     - Options: AutoGPT/configuration/options.md
-    #     - Search: AutoGPT/configuration/search.md
-    #     - Memory: AutoGPT/configuration/memory.md
-    #     - Voice: AutoGPT/configuration/voice.md
-    #     - Image Generation: AutoGPT/configuration/imagegen.md
+    - Configuration:
+        - User Configurable Fields: AutoGPT/configuration/user_configurable.md
+        - Search: AutoGPT/configuration/search.md
+        - Voice: AutoGPT/configuration/voice.md
+        - Image Generation: AutoGPT/configuration/imagegen.md
     - Help us improve AutoGPT:
         - Share your debug logs with us: AutoGPT/share-your-logs.md
         - Contribution guide: contributing.md
