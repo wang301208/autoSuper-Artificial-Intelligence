@@ -8,6 +8,7 @@ from typing import Dict, Tuple, Optional, List
 from .bagua import PreHeavenBagua, PostHeavenBagua
 from .time_context import TimeContext
 from .ai_interpreter import AIEnhancedInterpreter
+from .analysis_dimensions import ANALYSIS_DIMENSIONS
 
 # Binary line patterns for each trigram (least significant bit is the bottom line)
 _TRIGRAM_PATTERNS = {
@@ -268,6 +269,48 @@ class HexagramEngine:
         if context:
             hexagram = self._interpreter.enhance(hexagram, context)
         return hexagram
+
+    def interpret_hexagram(
+        self,
+        upper: str,
+        lower: str,
+        dimensions: Optional[List[str]] = None,
+        time_ctx: Optional[TimeContext] = None,
+        context: Optional[str] = None,
+    ) -> Dict[str, object]:
+        """Interpret a hexagram with optional analysis dimensions.
+
+        Parameters
+        ----------
+        upper, lower:
+            Names of the upper and lower trigrams.
+        dimensions:
+            Iterable of dimension names to apply. Each dimension produces
+            independent interpretation and advice based on
+            :mod:`analysis_dimensions` rules.
+        time_ctx, context:
+            Passed through to :meth:`interpret` for temporal and contextual
+            enhancements.
+
+        Returns
+        -------
+        dict
+            Dictionary containing the base ``hexagram`` and entries for each
+            requested dimension.
+        """
+
+        hexagram = self.interpret(upper, lower, time_ctx=time_ctx, context=context)
+        result: Dict[str, object] = {"hexagram": hexagram}
+        if dimensions:
+            for dim in dimensions:
+                if dim not in ANALYSIS_DIMENSIONS:
+                    raise KeyError(f"Unknown analysis dimension '{dim}'")
+                rule = ANALYSIS_DIMENSIONS[dim]
+                result[dim] = {
+                    "interpretation": rule.interpret(hexagram),
+                    "advice": rule.advise(hexagram),
+                }
+        return result
 
     def predict_transformations(
         self,
