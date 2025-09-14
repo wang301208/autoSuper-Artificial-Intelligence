@@ -3,6 +3,10 @@
 from abc import ABC, abstractmethod
 
 from .replay_buffer import ReplayBuffer
+from .evolving_cognitive_architecture import (
+    EvolvingCognitiveArchitecture,
+    GeneticAlgorithm as EvolutionGeneticAlgorithm,
+)
 
 try:  # optional dependencies
     from .ppo import PPO, PPOConfig
@@ -50,6 +54,8 @@ else:
 __all__ = [
     "Agent",
     "ReplayBuffer",
+    "EvolvingCognitiveArchitecture",
+    "EvolutionGeneticAlgorithm",
     "PPO",
     "PPOConfig",
     "A3C",
