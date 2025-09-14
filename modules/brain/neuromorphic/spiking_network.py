@@ -1,4 +1,5 @@
 import heapq
+import random
 from typing import List, Tuple
 
 
@@ -29,27 +30,61 @@ class SpikingNeuralNetwork:
     class LeakyIntegrateFireNeurons:
         """Set of leaky integrate-and-fire neurons."""
 
-        def __init__(self, n_neurons, decay=0.9, threshold=1.0, reset=0.0):
+        def __init__(
+            self,
+            n_neurons,
+            decay=0.9,
+            threshold=1.0,
+            reset=0.0,
+            refractory_period=0,
+            dynamic_threshold=0.0,
+            noise=None,
+        ):
             self.potentials = [0.0] * n_neurons
             self.decay = decay
             self.threshold = threshold
             self.reset = reset
+            self.refractory_period = refractory_period
+            self.dynamic_threshold = dynamic_threshold
+            self.noise = noise
+
+            # Track per-neuron refractory timers and adaptive thresholds
+            self.refractory = [0] * n_neurons
+            self.adaptation = [0.0] * n_neurons
 
         def step(self, inputs):
             """Update membrane potentials given input currents.
 
             Returns a list of spikes (1 or 0) indicating whether each neuron
-            fired on this step. Potentials are reset after spiking.
+            fired on this step. Potentials are reset after spiking. Neurons
+            respect refractory periods and thresholds adapt based on recent
+            spiking activity. Optional noise can be injected into the membrane
+            potential update.
             """
             spikes = []
             for i, current in enumerate(inputs):
+                # Handle refractory state
+                if self.refractory[i] > 0:
+                    spikes.append(0)
+                    self.refractory[i] -= 1
+                    self.potentials[i] = self.reset
+                    self.adaptation[i] *= self.decay
+                    continue
+
                 v = self.potentials[i] * self.decay + current
-                if v >= self.threshold:
+                if self.noise is not None:
+                    v += random.gauss(0, self.noise)
+
+                threshold = self.threshold + self.adaptation[i]
+                if v >= threshold:
                     spikes.append(1)
                     self.potentials[i] = self.reset
+                    self.refractory[i] = self.refractory_period
+                    self.adaptation[i] += self.dynamic_threshold
                 else:
                     spikes.append(0)
                     self.potentials[i] = v
+                    self.adaptation[i] *= self.decay
             return spikes
 
     class DynamicSynapses:
@@ -76,10 +111,28 @@ class SpikingNeuralNetwork:
                 for i, post in enumerate(post_spikes):
                     self.weights[j][i] += learning_rate * pre * post
 
-    def __init__(self, n_neurons, decay=0.9, threshold=1.0, reset=0.0, weights=None):
+    def __init__(
+        self,
+        n_neurons,
+        decay=0.9,
+        threshold=1.0,
+        reset=0.0,
+        weights=None,
+        refractory_period=0,
+        dynamic_threshold=0.0,
+        noise=None,
+    ):
         if weights is None:
             weights = [[1.0] * n_neurons for _ in range(n_neurons)]
-        self.neurons = self.LeakyIntegrateFireNeurons(n_neurons, decay, threshold, reset)
+        self.neurons = self.LeakyIntegrateFireNeurons(
+            n_neurons,
+            decay,
+            threshold,
+            reset,
+            refractory_period,
+            dynamic_threshold,
+            noise,
+        )
         self.synapses = self.DynamicSynapses(weights)
 
     def run(self, input_events):
