@@ -15,6 +15,7 @@ from .message_bus import (
 from .multimodal import MultimodalFusionEngine
 from .adapter import BrainModule
 from .bci import BrainComputerInterface
+from .ethics import EthicalReasoningEngine, EthicalRule
 
 __all__ = [
     "VisualCortex",
@@ -34,4 +35,6 @@ __all__ = [
     "MultimodalFusionEngine",
     "BrainModule",
     "BrainComputerInterface",
+    "EthicalReasoningEngine",
+    "EthicalRule",
 ]

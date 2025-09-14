@@ -22,13 +22,23 @@ class SupplementaryMotor:
 class MotorCortex:
     """Motor cortex integrating multiple motor-related areas."""
 
-    def __init__(self, basal_ganglia=None, cerebellum=None, spiking_backend=None):
+    def __init__(
+        self,
+        basal_ganglia=None,
+        cerebellum=None,
+        spiking_backend=None,
+        ethics=None,
+    ):
         self.primary_motor = PrimaryMotor()
         self.premotor_area = PreMotorArea()
         self.supplementary_motor = SupplementaryMotor()
         self.basal_ganglia = basal_ganglia
         self.cerebellum = cerebellum
         self.spiking_backend = spiking_backend
+        # Optional ethical reasoning engine used to vet actions before
+        # execution.  The engine is expected to expose an ``evaluate_action``
+        # method returning a compliance report.
+        self.ethics = ethics
 
     def plan_movement(self, intention: str) -> str:
         """Plan a movement based on an intention."""
@@ -40,6 +50,12 @@ class MotorCortex:
 
     def execute_action(self, motor_command: str):
         """Execute a motor command, optionally using a spiking backend."""
+        # Perform ethical evaluation before any physical execution.
+        if self.ethics:
+            report = self.ethics.evaluate_action(motor_command)
+            if not report["compliant"]:
+                return report
+
         if self.spiking_backend and isinstance(motor_command, (list, tuple)):
             spikes = self.spiking_backend.run(motor_command)
             self.spiking_backend.synapses.adapt(
