@@ -14,7 +14,7 @@ fidelity.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Protocol
+from typing import Any, Dict, List, Protocol, Callable
 from collections import defaultdict
 
 # ---------------------------------------------------------------------------
@@ -154,15 +154,61 @@ class EmotionRegulator:
 
 
 @dataclass
-class ConsciousnessAdvancedModel:
-    """Integrate workspace, attention, memory, metacognition and emotion."""
+class ConsciousnessAdvanced:
+    """Integrate workspace, attention, memory, metacognition and emotion.
+
+    The class exposes lightweight helpers for querying local/global workspaces,
+    inspecting metacognitive accuracy and registering visualisation hooks that
+    receive real‑time updates of attention and memory changes.
+    """
 
     workspace: HierarchicalGlobalWorkspace = field(default_factory=HierarchicalGlobalWorkspace)
     attention: ThresholdAttention = field(default_factory=AdaptiveAttention)
     memory: MemoryStrategy = field(default_factory=ListMemory)
     meta: Metacognition = field(default_factory=Metacognition)
     emotion: EmotionRegulator = field(default_factory=EmotionRegulator)
+    _visualizers: List[Callable[[Dict[str, Any]], None]] = field(default_factory=list)
 
+    # ------------------------------------------------------------------
+    # Interfaces for external components
+    # ------------------------------------------------------------------
+    def add_visualizer(self, hook: Callable[[Dict[str, Any]], None]) -> None:
+        """Register a callback receiving runtime snapshots.
+
+        ``hook`` should accept a single ``dict`` argument.  Each invocation
+        contains the current attention score distribution, a copy of the working
+        memory and the state of the hierarchical workspaces.
+        """
+
+        self._visualizers.append(hook)
+
+    def global_workspace(self) -> List[Dict[str, Any]]:
+        return self.workspace.global_broadcasts
+
+    def local_workspace(self, module: str) -> List[Dict[str, Any]]:
+        return self.workspace.local.get(module, [])
+
+    def metacognitive_accuracy(self) -> float:
+        return self.meta.accuracy()
+
+    def regulate_emotions(self, stimulus: Dict[str, Any]) -> None:
+        self.emotion.regulate(self.attention, stimulus)
+
+    def _notify_visualizers(self, information: Dict[str, Any]) -> None:
+        if not self._visualizers:
+            return
+        snapshot = {
+            "attention_scores": [self.attention.score(item) for item in self.memory.data],
+            "memory": list(self.memory.data),
+            "global_workspace": list(self.workspace.global_broadcasts),
+            "local_workspace": {k: list(v) for k, v in self.workspace.local.items()},
+        }
+        for hook in self._visualizers:
+            hook(snapshot)
+
+    # ------------------------------------------------------------------
+    # Core processing
+    # ------------------------------------------------------------------
     def conscious_access(self, information: Dict[str, Any], stimulus: Dict[str, Any] | None = None) -> bool:
         """Process information and broadcast if salient.
 
@@ -190,6 +236,7 @@ class ConsciousnessAdvancedModel:
             truth = bool(information["ground_truth"])
             self.meta.record(is_salient, truth, self.attention if isinstance(self.attention, AdaptiveAttention) else None)
 
+        self._notify_visualizers(information)
         return is_salient
 
     # Convenience helpers -------------------------------------------------
@@ -212,6 +259,10 @@ class ConsciousnessAdvancedModel:
         return plt
 
 
+# Backwards compatibility alias
+ConsciousnessAdvancedModel = ConsciousnessAdvanced
+
+
 __all__ = [
     "AttentionStrategy",
     "ThresholdAttention",
@@ -221,5 +272,6 @@ __all__ = [
     "HierarchicalGlobalWorkspace",
     "Metacognition",
     "EmotionRegulator",
+    "ConsciousnessAdvanced",
     "ConsciousnessAdvancedModel",
 ]

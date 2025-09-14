@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(os.getcwd()))
 
 from modules.brain.consciousness import ConsciousnessModel
 from modules.brain.consciousness_advanced import (
-    ConsciousnessAdvancedModel,
+    ConsciousnessAdvanced,
     AdaptiveAttention,
 )
 
@@ -23,7 +23,7 @@ def _dataset():
 
 
 def test_hierarchical_workspace_and_metacognition():
-    model = ConsciousnessAdvancedModel()
+    model = ConsciousnessAdvanced()
     data = _dataset()
     acc = model.evaluate_dataset(data)
     assert acc >= 0.66
@@ -42,7 +42,7 @@ def test_accuracy_improvement_over_simple_model():
         correct += int(pred == bool(item["ground_truth"]))
     simple_acc = correct / len(data)
 
-    advanced = ConsciousnessAdvancedModel(attention=AdaptiveAttention())
+    advanced = ConsciousnessAdvanced(attention=AdaptiveAttention())
     adv_acc = advanced.evaluate_dataset(data)
 
     assert adv_acc > simple_acc
