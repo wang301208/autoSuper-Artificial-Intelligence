@@ -165,6 +165,9 @@ class NeuralSecurityGuard:
     memory_checker: MemoryIntegrityChecker = field(
         default_factory=MemoryIntegrityChecker
     )
+    # The guard enters ``isolated`` mode whenever a threat is detected.  The
+    # flag is cleared once recovery logic runs.
+    isolated: bool = field(default=False, init=False)
 
     # -- Input validation ----------------------------------------------------
     def validate_neural_input(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -182,6 +185,43 @@ class NeuralSecurityGuard:
         if issues:
             self.memory_checker.repair(memory)
         return issues
+
+    # -- Combined monitoring -------------------------------------------------
+    def monitor_and_harden(
+        self, input_data: Dict[str, Any], memory: Dict[str, Any]
+    ) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """Run all checks and isolate/recover on detected threats.
+
+        Returns a tuple of the possibly sanitised ``input_data`` and a dictionary
+        summarising any issues found.  If a threat is detected the guard enters
+        an isolated state, repairs memory and then exits isolation to simulate a
+        restart or downgrade of the affected module.
+        """
+
+        issues: Dict[str, Any] = {"adversarial": False, "backdoor": False, "memory": []}
+
+        if self.adversarial_detector.detect(input_data):
+            self.isolated = True
+            issues["adversarial"] = True
+            input_data = self.adversarial_detector.sanitize(input_data)
+
+        if self.backdoor_scanner.scan(input_data):
+            self.isolated = True
+            issues["backdoor"] = True
+            input_data = self.backdoor_scanner.clean(input_data)
+
+        mem_issues = self.memory_checker.scan(memory)
+        if mem_issues:
+            self.isolated = True
+            issues["memory"] = mem_issues
+
+        if self.isolated:
+            # Recovery phase: repair memory and exit isolation to mimic a
+            # restart/downgrade of the component.
+            self.memory_checker.repair(memory)
+            self.isolated = False
+
+        return input_data, issues
 
 
 __all__ = [
