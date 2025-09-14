@@ -2,6 +2,8 @@ import heapq
 import random
 from typing import List, Tuple
 
+from modules.brain.neuroplasticity import Neuroplasticity
+
 
 class EventQueue:
     """Priority queue managing spike events by timestamp."""
@@ -92,6 +94,7 @@ class SpikingNeuralNetwork:
 
         def __init__(self, weights):
             self.weights = weights
+            self.plasticity = Neuroplasticity()
 
         def propagate(self, pre_spikes):
             """Propagate spikes through the synapses to produce currents."""
@@ -101,15 +104,21 @@ class SpikingNeuralNetwork:
                     postsynaptic[i] += pre * weight
             return postsynaptic
 
-        def adapt(self, pre_spikes, post_spikes, learning_rate=0.1):
-            """Update synaptic weights using a Hebbian-like rule.
+        def adapt(self, pre_spike_times, post_spike_times, learning_rate=0.1):
+            """Update synaptic weights based on spike timing.
 
-            This simple rule is compatible with STDP formulations and serves as
-            a placeholder for more sophisticated plasticity mechanisms.
+            Delegates the actual plasticity rule to the ``Neuroplasticity``
+            module which implements a simple STDP-like update. We ignore pairs
+            for which either neuron has not spiked yet (``None`` timestamps).
             """
-            for j, pre in enumerate(pre_spikes):
-                for i, post in enumerate(post_spikes):
-                    self.weights[j][i] += learning_rate * pre * post
+            for j, pre_time in enumerate(pre_spike_times):
+                if pre_time is None:
+                    continue
+                for i, post_time in enumerate(post_spike_times):
+                    if post_time is None:
+                        continue
+                    delta = self.plasticity.adapt_connections(pre_time, post_time)
+                    self.weights[j][i] += learning_rate * delta
 
     def __init__(
         self,
@@ -134,6 +143,7 @@ class SpikingNeuralNetwork:
             noise,
         )
         self.synapses = self.DynamicSynapses(weights)
+        self.spike_times = [None] * n_neurons
 
     def run(self, input_events):
         """Run the network using an event-driven simulation.
@@ -164,7 +174,13 @@ class SpikingNeuralNetwork:
         while queue:
             time, inputs = queue.pop()
             spikes = self.neurons.step(inputs)
-            self.synapses.adapt(inputs, spikes)
+            for idx, spike in enumerate(spikes):
+                if spike:
+                    self.spike_times[idx] = time
+
+            if any(spikes):
+                self.synapses.adapt(self.spike_times, self.spike_times)
+
             outputs.append((time, spikes))
 
             currents = self.synapses.propagate(spikes)
