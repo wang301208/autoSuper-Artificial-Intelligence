@@ -1,5 +1,6 @@
-"""Reasoning subpackage exposing analogical reasoning utilities."""
+"""Reasoning subpackage exposing reasoning utilities."""
 
 from .analogical import AnalogicalReasoner
+from .commonsense import CommonSenseReasoner
 
-__all__ = ["AnalogicalReasoner"]
+__all__ = ["AnalogicalReasoner", "CommonSenseReasoner"]
