@@ -9,6 +9,11 @@ from typing import Dict
 from watchdog.events import FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+import logging
+
+
+logger = logging.getLogger(__name__)
+
 
 class AlgorithmPluginLoader(FileSystemEventHandler):
     """Discover, load and hot-reload algorithm plugins."""
@@ -42,7 +47,8 @@ class AlgorithmPluginLoader(FileSystemEventHandler):
             new_module = importlib.reload(module)
             self.modules[name] = new_module
             self._backups[name] = new_module
-        except Exception:
+        except (ImportError, ModuleNotFoundError, SyntaxError) as err:
+            logger.exception("Failed to reload plugin %s", name)
             # rollback to last good version
             self.modules[name] = self._backups[name]
 
