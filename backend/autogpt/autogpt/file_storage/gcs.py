@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import mimetypes
 from io import IOBase
 from pathlib import Path
 from typing import Literal
@@ -17,6 +18,11 @@ from google.cloud.exceptions import NotFound
 from autogpt.core.configuration.schema import UserConfigurable
 
 from .base import FileStorage, FileStorageConfiguration
+
+try:  # pragma: no cover - optional dependency
+    import magic  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    magic = None
 
 logger = logging.getLogger(__name__)
 
@@ -89,15 +95,18 @@ class GCSFileStorage(FileStorage):
         """Write to a file in the storage."""
         blob = self._get_blob(path)
 
-        blob.upload_from_string(
-            data=content,
-            content_type=(
-                "text/plain"
-                if type(content) is str
-                # TODO: get MIME type from file extension or binary content
-                else "application/octet-stream"
-            ),
-        )
+        mime_type = mimetypes.guess_type(str(path))[0]
+        if not mime_type and magic is not None:
+            try:
+                sample = content if isinstance(content, bytes) else content.encode()
+                mime_type = magic.from_buffer(sample, mime=True)
+            except Exception:
+                mime_type = None
+
+        if not mime_type:
+            mime_type = "text/plain" if isinstance(content, str) else "application/octet-stream"
+
+        blob.upload_from_string(data=content, content_type=mime_type)
 
         if self.on_write_file:
             path = Path(path)
