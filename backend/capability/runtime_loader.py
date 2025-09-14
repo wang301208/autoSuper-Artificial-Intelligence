@@ -13,6 +13,11 @@ from typing import Any, Dict, Iterable, List
 
 from .module_registry import available_modules, get_module
 
+try:  # Import the common module interface if available
+    from modules.interface import ModuleInterface
+except Exception:  # pragma: no cover - modules package may not be present
+    ModuleInterface = None  # type: ignore
+
 try:  # Optional – the manager can operate without an EventBus
     from events import EventBus  # type: ignore
 except Exception:  # pragma: no cover - events module may not be available
@@ -59,21 +64,36 @@ class RuntimeModuleManager:
         if name in self._loaded:
             return self._loaded[name]
         module = get_module(name, *args, **kwargs)
+
+        # Resolve dependencies for ModuleInterface implementations
+        if ModuleInterface is not None and isinstance(module, ModuleInterface):
+            for dep in getattr(module, "dependencies", []):
+                self.load(dep)
+            module.initialize()
+
         self._loaded[name] = module
         return module
 
     def unload(self, name: str) -> None:
         """Unload a previously loaded module."""
         module = self._loaded.pop(name)
-        # Gracefully shut down the module if it exposes a shutdown/close method.
-        for method in ("shutdown", "close", "stop"):
-            func = getattr(module, method, None)
-            if callable(func):
-                try:
-                    func()
-                except Exception:  # pragma: no cover - best effort
-                    pass
-                break
+        # Gracefully shut down modules. If a module implements ModuleInterface
+        # we call its explicit ``shutdown`` hook; otherwise fall back to common
+        # cleanup method names.
+        if ModuleInterface is not None and isinstance(module, ModuleInterface):
+            try:
+                module.shutdown()
+            except Exception:  # pragma: no cover - best effort
+                pass
+        else:
+            for method in ("shutdown", "close", "stop"):
+                func = getattr(module, method, None)
+                if callable(func):
+                    try:
+                        func()
+                    except Exception:  # pragma: no cover - best effort
+                        pass
+                    break
 
     def update(self, required: Iterable[str]) -> Dict[str, Any]:
         """Ensure ``required`` modules are loaded and drop others.

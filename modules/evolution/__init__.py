@@ -7,6 +7,7 @@ from .evolving_cognitive_architecture import (
     EvolvingCognitiveArchitecture,
     GeneticAlgorithm as EvolutionGeneticAlgorithm,
 )
+from .adapter import EvolutionModule
 
 try:  # optional dependencies
     from .ppo import PPO, PPOConfig
@@ -62,4 +63,5 @@ __all__ = [
     "A3CConfig",
     "SAC",
     "SACConfig",
+    "EvolutionModule",
 ]
