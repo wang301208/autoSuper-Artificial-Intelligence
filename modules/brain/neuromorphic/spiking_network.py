@@ -1,3 +1,23 @@
+import heapq
+from typing import List, Tuple
+
+
+class EventQueue:
+    """Priority queue managing spike events by timestamp."""
+
+    def __init__(self) -> None:
+        self._queue: List[Tuple[float, List[float]]] = []
+
+    def push(self, time: float, inputs: List[float]) -> None:
+        heapq.heappush(self._queue, (time, inputs))
+
+    def pop(self) -> Tuple[float, List[float]]:
+        return heapq.heappop(self._queue)
+
+    def __bool__(self) -> bool:  # pragma: no cover - trivial
+        return bool(self._queue)
+
+
 class SpikingNeuralNetwork:
     """A minimal spiking neural network with leaky integrate-and-fire neurons.
 
@@ -62,18 +82,41 @@ class SpikingNeuralNetwork:
         self.neurons = self.LeakyIntegrateFireNeurons(n_neurons, decay, threshold, reset)
         self.synapses = self.DynamicSynapses(weights)
 
-    def run(self, input_sequence):
-        """Run the network for a sequence of inputs.
+    def run(self, input_events):
+        """Run the network using an event-driven simulation.
 
-        Each element in ``input_sequence`` should be a list of input currents for
-        all neurons at one timestep. Returns a list of spike vectors emitted at
-        each timestep.
+        ``input_events`` may be provided either as a sequence of input vectors
+        (in which case events are assumed to occur at successive integer
+        timestamps starting at zero) or as an iterable of ``(time, inputs)``
+        pairs. Each event is processed in temporal order and any spikes produced
+        dispatch a new event at ``time + 1`` carrying the postsynaptic currents.
+
+        Returns a list of ``(time, spikes)`` tuples denoting when neurons fired.
         """
-        outputs = []
-        for inputs in input_sequence:
-            currents = self.synapses.propagate(inputs)
-            spikes = self.neurons.step(currents)
-            # The adapt call exposes an interface for plasticity rules like STDP.
+        queue = EventQueue()
+        # Allow legacy list-of-inputs style by enumerating timestamps
+        if input_events and (
+            not isinstance(input_events[0], tuple)
+            or len(input_events[0]) != 2
+            or not isinstance(input_events[0][0], (int, float))
+        ):
+            for t, inputs in enumerate(input_events):
+                queue.push(t, inputs)
+        else:
+            for t, inputs in input_events:
+                queue.push(t, inputs)
+
+        outputs: List[Tuple[float, List[int]]] = []
+
+        while queue:
+            time, inputs = queue.pop()
+            spikes = self.neurons.step(inputs)
             self.synapses.adapt(inputs, spikes)
-            outputs.append(spikes)
+            outputs.append((time, spikes))
+
+            currents = self.synapses.propagate(spikes)
+            if any(currents):
+                queue.push(time + 1, currents)
+
+        outputs.sort(key=lambda x: x[0])
         return outputs
