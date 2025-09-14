@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import ABC, abstractmethod
+from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Optional
-import time
+from uuid import uuid4
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
-from datetime import datetime
-from uuid import uuid4
-from pydantic import Field, validator
 from events import EventBus, create_event_bus
 from events.client import EventClient
 from events.coordination import TaskStatus, TaskStatusEvent
 from forge.sdk.model import Task
+from pydantic import Field, validator
 
 if TYPE_CHECKING:
     from autogpt.config import Config
@@ -32,6 +32,8 @@ from autogpt.agents.utils.prompt_scratchpad import PromptScratchpad
 from autogpt.config import ConfigBuilder
 from autogpt.config.ai_directives import AIDirectives
 from autogpt.config.ai_profile import AIProfile
+from autogpt.core.brain.config import TransformerBrainConfig
+from autogpt.core.brain.transformer_brain import TransformerBrain
 from autogpt.core.configuration import (
     Configurable,
     SystemConfiguration,
@@ -52,8 +54,6 @@ from autogpt.file_storage.base import FileStorage
 from autogpt.llm.providers.openai import get_openai_command_specs
 from autogpt.models.action_history import ActionResult, EpisodicActionHistory
 from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
-from autogpt.core.brain.config import TransformerBrainConfig
-from autogpt.core.brain.transformer_brain import TransformerBrain
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +148,7 @@ class BaseAgentConfiguration(SystemConfiguration):
 
 class BaseAgentSettings(SystemSettings):
     agent_id: str = ""
+    workspace_id: str | None = None
 
     ai_profile: AIProfile = Field(default_factory=lambda: AIProfile(ai_name="AutoGPT"))
     """The AI profile or "personality" of the agent."""

@@ -454,7 +454,9 @@ class AgentProtocolServer:
 
     def _get_task_agent_file_workspace(self, task_id: str | int) -> FileStorage:
         agent_id = task_agent_id(task_id)
-        return self.file_storage.clone_with_subroot(f"agents/{agent_id}/workspace")
+        state = self.agent_manager.load_agent_state(agent_id)
+        workspace_id = state.workspace_id or agent_id
+        return self.file_storage.clone_with_subroot(f"workspaces/{workspace_id}/")
 
     def _get_task_llm_provider(
         self, task: Task, step_id: str = ""
