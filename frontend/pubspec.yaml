@@ -48,6 +48,7 @@ dependencies:
   url_launcher: ^6.1.14
   fluttertoast: ^8.2.2
   flutter_markdown: ^0.6.18
+  web_socket_channel: ^2.4.0
 
 dev_dependencies:
   flutter_test:
