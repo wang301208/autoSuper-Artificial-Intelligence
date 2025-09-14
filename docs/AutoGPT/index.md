@@ -2,6 +2,8 @@
 
 [🔧 **Setup**](./setup)
 &ensp;|&ensp;
+[👷 **Developer guide**](./setup/for-developers.md)
+&ensp;|&ensp;
 [💻 **User guide**](./usage.md)
 &ensp;|&ensp;
 [🐙 **GitHub**](https://github.com/Significant-Gravitas/AutoGPT/tree/master/autogpts/autogpt)
