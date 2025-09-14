@@ -13,6 +13,7 @@ from .message_bus import (
 )
 from .multimodal import MultimodalFusionEngine
 from .adapter import BrainModule
+from .bci import BrainComputerInterface
 
 __all__ = [
     "VisualCortex",
@@ -30,4 +31,5 @@ __all__ = [
     "reset_message_bus",
     "MultimodalFusionEngine",
     "BrainModule",
+    "BrainComputerInterface",
 ]
