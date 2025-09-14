@@ -12,6 +12,7 @@ def memory_item(mock_embedding: Embedding):
         chunks=["test content"],
         chunk_summaries=["test content summary"],
         e_summary=mock_embedding,
+        e_weighted=mock_embedding,
         e_chunks=[mock_embedding],
         metadata={},
     )

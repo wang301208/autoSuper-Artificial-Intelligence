@@ -32,6 +32,7 @@ def mock_MemoryItem_from_text(
             chunk_summaries=[f"Summary of content '{content}'"],
             chunks=[content],
             e_summary=mock_embedding,
+            e_weighted=mock_embedding,
             e_chunks=[mock_embedding],
             metadata={"location": path, "source_type": source_type},
         )
@@ -217,6 +218,7 @@ async def test_read_file_refreshes_memory(
             chunk_summaries=[""],
             chunks=[content],
             e_summary=mock_embedding,
+            e_weighted=mock_embedding,
             e_chunks=[mock_embedding],
             metadata={"location": path, "source_type": source_type},
         )

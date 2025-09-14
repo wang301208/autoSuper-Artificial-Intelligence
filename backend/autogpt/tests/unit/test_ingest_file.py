@@ -64,6 +64,7 @@ async def test_ingest_file_updates_memory(
             chunk_summaries=[""],
             chunks=[content],
             e_summary=mock_embedding,
+            e_weighted=mock_embedding,
             e_chunks=[mock_embedding],
             metadata={"location": path, "source_type": "text_file"},
         )
@@ -102,6 +103,7 @@ async def test_ingest_file_handles_file_types(
             chunk_summaries=[""],
             chunks=[content],
             e_summary=mock_embedding,
+            e_weighted=mock_embedding,
             e_chunks=[mock_embedding],
             metadata={"location": path, "source_type": "text_file"},
         )
@@ -113,6 +115,7 @@ async def test_ingest_file_handles_file_types(
             chunk_summaries=[""],
             chunks=[content],
             e_summary=mock_embedding,
+            e_weighted=mock_embedding,
             e_chunks=[mock_embedding],
             metadata={"location": path, "source_type": "code_file"},
         )
