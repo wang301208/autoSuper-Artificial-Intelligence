@@ -4,10 +4,14 @@
 
 ### 1. CLI 入口
 
-直接运行 `./scripts/run` 不带任何参数会显示帮助信息，其中列出了可用的命令和选项。此外，你可以在任何命令后添加 `--help` 以查看该命令的专属帮助。
+直接运行 `python scripts/cli.py` 不带任何参数会显示帮助信息，其中列出了可用的命令和选项。此外，你也可以在仓库根目录运行 `./run`，或者进入 `scripts/` 目录后执行同名脚本。无论哪种方式，都可以在任何命令后添加 `--help` 以查看该命令的专属帮助。
 
 ```sh
-./scripts/run
+python scripts/cli.py
+# 或
+./run
+# 或
+cd scripts && ./run
 ```
 
 **输出**：
@@ -28,7 +32,7 @@ Commands:
 如果你需要任何命令的帮助，只需在命令末尾添加 `--help`，例如：
 
 ```sh
-./scripts/run COMMAND --help
+python scripts/cli.py COMMAND --help
 ```
 
 这会显示与该命令相关的详细帮助信息，包括可用的其他选项和参数。
@@ -36,7 +40,9 @@ Commands:
 ### 2. Setup 命令
 
 ```sh
-./scripts/run setup
+python scripts/cli.py setup
+# 或
+cd scripts && ./run setup
 ```
 
 **输出**：
@@ -53,7 +59,7 @@ Installation has been completed.
 **a. 列出所有代理**
 
 ```sh
-./scripts/run agent list
+python scripts/cli.py agent list
 ```
 
 **输出**：
@@ -69,7 +75,7 @@ Available agents: 🤖
 **b. 创建新代理**
 
 ```sh
-./scripts/run agent create my_agent
+python scripts/cli.py agent create my_agent
 ```
 
 **输出**：
@@ -83,7 +89,9 @@ Available agents: 🤖
 **c. 启动代理**
 
 ```sh
-./scripts/run agent start my_agent
+python scripts/cli.py agent start my_agent
+# 或
+cd scripts && ./run agent start my_agent
 ```
 
 **输出**：
@@ -99,7 +107,9 @@ Available agents: 🤖
 **d. 停止代理**
 
 ```sh
-./scripts/run agent stop
+python scripts/cli.py agent stop
+# 或
+cd scripts && ./run agent stop
 ```
 
 **输出**：
@@ -115,7 +125,7 @@ Agent stopped
 **a. 列出 Benchmark 类别**
 
 ```sh
-./scripts/run benchmark categories list
+python scripts/cli.py benchmark categories list
 ```
 
 **输出**：
@@ -133,7 +143,7 @@ Available categories: 📚
 **b. 列出 Benchmark 测试**
 
 ```sh
-./scripts/run benchmark tests list
+python scripts/cli.py benchmark tests list
 ```
 
 **输出**：
@@ -151,7 +161,7 @@ Available tests: 📚
 **c. 显示 Benchmark 测试详情**
 
 ```sh
-./scripts/run benchmark tests details TestWriteFile
+python scripts/cli.py benchmark tests details TestWriteFile
 ```
 
 **输出**：
@@ -170,7 +180,7 @@ TestWriteFile
 **d. 启动代理的 Benchmark**
 
 ```sh
-./scripts/run benchmark start my_agent
+python scripts/cli.py benchmark start my_agent
 ```
 
 **输出**：
@@ -187,7 +197,7 @@ TestWriteFile
 **a. 进入 Arena**
 
 ```sh
-./scripts/run arena enter my_agent
+python scripts/cli.py arena enter my_agent
 ```
 
 **输出**：
@@ -212,7 +222,7 @@ speech_to_text "audio.mp3"     # 将音频文件转录为文本
 **b. 更新 Arena 提交**
 
 ```sh
-./scripts/run arena update my_agent <commit_hash> --branch main
+python scripts/cli.py arena update my_agent <commit_hash> --branch main
 ```
 
 **输出**：
