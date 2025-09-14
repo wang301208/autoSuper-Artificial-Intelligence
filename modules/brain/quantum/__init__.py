@@ -5,6 +5,7 @@ from .quantum_attention import QuantumAttention
 from .quantum_reasoning import QuantumReasoning
 from .grover_search import grover_search
 from .quantum_ml import QuantumClassifier
+from .hardware_interface import QuantumHardwareInterface
 
 __all__ = [
     "SuperpositionState",
@@ -15,4 +16,5 @@ __all__ = [
     "QuantumReasoning",
     "grover_search",
     "QuantumClassifier",
+    "QuantumHardwareInterface",
 ]
