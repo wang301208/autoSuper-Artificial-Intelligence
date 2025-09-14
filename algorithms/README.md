@@ -48,6 +48,22 @@ algorithms/
 
 Use `template.py` as a starting point for new algorithm implementations.
 
+### Template Algorithm Example
+
+The provided `TemplateAlgorithm` demonstrates the expected interface. It
+expects a list of numbers and returns their sum:
+
+```python
+from algorithms.template import TemplateAlgorithm
+
+algo = TemplateAlgorithm()
+result = algo.execute([1, 2, 3])
+print(result)  # 6
+```
+
+Passing a non-list raises `TypeError`, and non-numeric elements raise
+`ValueError`.
+
 ## Data Structures
 
 Basic examples:
