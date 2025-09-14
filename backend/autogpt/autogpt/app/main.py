@@ -9,15 +9,15 @@ import os
 import re
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 from types import FrameType
 from typing import TYPE_CHECKING, Optional
+from uuid import uuid4
 
 from colorama import Fore, Style
 from forge.sdk.db import AgentDB
 from forge.sdk.model import Task
-from datetime import datetime
-from uuid import uuid4
 
 if TYPE_CHECKING:
     from autogpt.agents.agent import Agent
@@ -39,7 +39,8 @@ from autogpt.config import (
     ConfigBuilder,
     assert_config_has_openai_api_key,
 )
-from autogpt.core.resource.model_providers.openai import OpenAIProvider
+from autogpt.core.logging import setup_exception_hooks
+from autogpt.core.resource.model_providers.openai import OpenAIModelName, OpenAIProvider
 from autogpt.core.runner.client_lib.utils import coroutine
 from autogpt.file_storage import FileStorageBackendName, get_storage
 from autogpt.logs.config import configure_chat_plugins, configure_logging
@@ -60,8 +61,6 @@ from .utils import (
     print_motd,
     print_python_version_info,
 )
-
-from autogpt.core.logging import setup_exception_hooks
 
 setup_exception_hooks()
 
@@ -115,7 +114,10 @@ async def run_auto_gpt(
         tts_config=config.tts_config,
     )
 
-    # TODO: fill in llm values here
+    # Initialize default LLM settings
+    config.fast_llm = config.fast_llm or OpenAIModelName.GPT3_16k
+    config.smart_llm = config.smart_llm or OpenAIModelName.GPT4_TURBO
+    config.temperature = config.temperature or 0
     assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
@@ -363,14 +365,22 @@ async def run_auto_gpt(
         agent_id = agent.state.agent_id
         logger.info(f"Saving state of {agent_id}...")
 
-        # Allow user to Save As other ID
+        # Allow user to Save As other ID and/or workspace
         save_as_id = clean_input(
             config,
-            f"Press enter to save as '{agent_id}',"
+            f"Press enter to save as '{agent_id}',",
             " or enter a different ID to save to:",
         )
-        # TODO: allow many-to-one relations of agents and workspaces
-        await agent.save_state(save_as_id if not save_as_id.isspace() else None)
+        current_workspace = agent.state.workspace_id or agent_id
+        workspace_id = clean_input(
+            config,
+            f"Press enter to keep workspace '{current_workspace}',",
+            " or enter a different workspace ID:",
+        )
+        await agent.save_state(
+            save_as_id if not save_as_id.isspace() else None,
+            workspace_id if not workspace_id.isspace() else None,
+        )
 
 
 @coroutine
@@ -407,7 +417,10 @@ async def run_auto_gpt_server(
         tts_config=config.tts_config,
     )
 
-    # TODO: fill in llm values here
+    # Initialize default LLM settings
+    config.fast_llm = config.fast_llm or OpenAIModelName.GPT3_16k
+    config.smart_llm = config.smart_llm or OpenAIModelName.GPT4_TURBO
+    config.temperature = config.temperature or 0
     assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
