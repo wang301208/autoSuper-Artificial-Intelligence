@@ -25,6 +25,16 @@ class CrossModalTransformer:
     def __init__(self, output_dim: int = 16) -> None:
         self.output_dim = int(output_dim)
 
+    def project(self, x: np.ndarray) -> np.ndarray:
+        """Public wrapper around :meth:`_project` for external callers.
+
+        Exposing the projection step allows higher level modules to perform
+        more sophisticated fusion strategies (e.g. attention mechanisms)
+        while reusing the alignment logic implemented by this transformer.
+        """
+
+        return self._project(x)
+
     def _project(self, x: np.ndarray) -> np.ndarray:
         """Project an input modality to the shared representation space.
 
