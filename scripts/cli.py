@@ -717,7 +717,7 @@ def enter(agent_name, branch):
         )
         click.echo(
             click.style(
-                f"🚀 Run './run agent create {agent_name}' to create the agent.",
+                f"🚀 Run './scripts/run agent create {agent_name}' to create the agent.",
                 fg="yellow",
             )
         )
@@ -758,7 +758,7 @@ def enter(agent_name, branch):
             )
             click.echo(
                 click.style(
-                    f"3. Modify the 'arena/{agent_name}.json' to include the new commit hash of your submission (the hash you got from step 1) and an up-to-date timestamp by running './run arena update {agent_name} hash --branch x'.",
+                    f"3. Modify the 'arena/{agent_name}.json' to include the new commit hash of your submission (the hash you got from step 1) and an up-to-date timestamp by running './scripts/run arena update {agent_name} hash --branch x'.",
                     fg="yellow",
                 )
             )
@@ -965,7 +965,7 @@ def update(agent_name, hash, branch):
         )
         click.echo(
             click.style(
-                f"⚠️ You need to enter the arena first. Run './run arena enter {agent_name}'",
+                f"⚠️ You need to enter the arena first. Run './scripts/run arena enter {agent_name}'",
                 fg="yellow",
             )
         )

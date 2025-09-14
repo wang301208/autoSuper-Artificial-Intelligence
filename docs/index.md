@@ -55,10 +55,10 @@ pip install -r <module>/requirements.txt
 项目命令行工具，统一管理所有组件：
 
 ```shell
-./run agent start autogpt        # 启动 AutoGPT 代理
-./run agent create <name>        # 创建新的代理项目
-./run benchmark start <agent>    # 运行基准测试
-./run setup                      # 安装依赖
+./scripts/run agent start autogpt        # 启动 AutoGPT 代理
+./scripts/run agent create <name>        # 创建新的代理项目
+./scripts/run benchmark start <agent>    # 运行基准测试
+./scripts/run setup                      # 安装依赖
 ```
 
 ## 🌅 未来展望

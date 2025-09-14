@@ -39,7 +39,7 @@ Once you have clone the project change your directory to the newly cloned projec
 # The name of the directory will match the name you gave your fork. The default is AutoGPT
 cd AutoGPT
 ```
-To set up the project, utilize the `./run setup` command in the terminal. Follow the instructions to install necessary dependencies and set up your GitHub access token.
+To set up the project, utilize the `./scripts/run setup` command in the terminal. Follow the instructions to install necessary dependencies and set up your GitHub access token.
 
 ![Setup the Project](../../../docs/content/imgs/quickstart/005_setup.png)
 ![Setup Complete](../../../docs/content/imgs/quickstart/006_setup_complete.png)
@@ -51,7 +51,7 @@ Choose a suitable name for your agent. It should be unique and descriptive. Exam
 Create your agent template using the command:
 
 ```bash
- ./run agent create YOUR_AGENT_NAME
+ ./scripts/run agent create YOUR_AGENT_NAME
  ```
  Replacing YOUR_AGENT_NAME with the name you chose in the previous step.
 
@@ -62,7 +62,7 @@ Create your agent template using the command:
 Begin by starting your agent using the command:
 
 ```bash
-./run agent start YOUR_AGENT_NAME
+./scripts/run agent start YOUR_AGENT_NAME
 ```
 This will initiate the agent on `http://localhost:8000/`.
 
@@ -77,7 +77,7 @@ Access the frontend at `http://localhost:8000/` and log in using a Google or Git
 ### Stopping and Restarting Your Agent
 When needed, use Ctrl+C to end the session or use the stop command:
 ```bash
-./run agent stop
+./scripts/run agent stop
 ``` 
 This command forcefully stops the agent. You can also restart it using the start command.
 
