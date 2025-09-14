@@ -29,7 +29,7 @@ class AgentCoordinator:
         event = TaskDispatchEvent(task_id=task_id, payload=payload, assigned_to=agent_id)
         self._bus.publish("task.dispatch", event.to_dict())
 
-    def _on_status(self, event: Dict[str, Any]) -> None:
+    async def _on_status(self, event: Dict[str, Any]) -> None:
         status = event.get("status")
         if status == TaskStatus.COMPLETED.value:
             self._bus.publish("coordinator.task_completed", event)

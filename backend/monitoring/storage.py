@@ -60,7 +60,10 @@ class TimeSeriesStorage:
     def subscribe_to(self, bus: EventBus, topics: Iterable[str]) -> None:
         """Subscribe to *topics* on *bus* and persist events."""
         for topic in topics:
-            cancel = bus.subscribe(topic, lambda e, t=topic: self.store(t, e))
+            async def _store(event: Dict[str, Any], t: str = topic) -> None:
+                self.store(t, event)
+
+            cancel = bus.subscribe(topic, _store)
             self._subscriptions.append(cancel)
 
     # ------------------------------------------------------------------

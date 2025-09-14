@@ -16,7 +16,7 @@ class Analytics:
             lambda: deque(maxlen=window)
         )
 
-    def handle_event(self, event: Dict[str, float]) -> None:
+    async def handle_event(self, event: Dict[str, float]) -> None:
         """Process incoming metric event."""
         for key, value in event.items():
             if isinstance(value, (int, float)):

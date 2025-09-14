@@ -98,7 +98,7 @@ class AgentLifecycleManager:
             "agent.state", {"agent": name, "state": state.value, "time": time.time()}
         )
 
-    def _on_heartbeat(self, event: Dict[str, Any]) -> None:
+    async def _on_heartbeat(self, event: Dict[str, Any]) -> None:
         name = event.get("agent")
         if not name:
             return
@@ -276,7 +276,7 @@ class AgentLifecycleManager:
         )
 
     # ------------------------------------------------------------------
-    def _on_resource_event(self, event: Dict[str, float]) -> None:
+    async def _on_resource_event(self, event: Dict[str, float]) -> None:
         name = event.get("agent")
         if name not in self._resources:
             return

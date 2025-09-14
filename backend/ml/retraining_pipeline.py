@@ -43,7 +43,7 @@ HISTORY_FIELDS = [
     "status",
 ]
 
-event_bus = create_event_bus("inmemory")
+event_bus = create_event_bus()
 
 # Additional metrics considered during deployment comparison. ``direction``
 # specifies whether higher values are better ("higher") or lower values are

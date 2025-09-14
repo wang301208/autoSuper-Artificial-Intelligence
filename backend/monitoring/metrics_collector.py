@@ -25,10 +25,10 @@ class MetricsCollector:
         )
 
     # ------------------------------------------------------------------
-    def _store_lifecycle(self, event: dict) -> None:
+    async def _store_lifecycle(self, event: dict) -> None:
         self.storage.store("agent.lifecycle", event)
 
-    def _store_resource(self, event: dict) -> None:
+    async def _store_resource(self, event: dict) -> None:
         self.storage.store("agent.resource", event)
 
     # ------------------------------------------------------------------
