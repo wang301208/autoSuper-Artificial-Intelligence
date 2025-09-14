@@ -22,12 +22,13 @@ class SupplementaryMotor:
 class MotorCortex:
     """Motor cortex integrating multiple motor-related areas."""
 
-    def __init__(self, basal_ganglia=None, cerebellum=None):
+    def __init__(self, basal_ganglia=None, cerebellum=None, spiking_backend=None):
         self.primary_motor = PrimaryMotor()
         self.premotor_area = PreMotorArea()
         self.supplementary_motor = SupplementaryMotor()
         self.basal_ganglia = basal_ganglia
         self.cerebellum = cerebellum
+        self.spiking_backend = spiking_backend
 
     def plan_movement(self, intention: str) -> str:
         """Plan a movement based on an intention."""
@@ -37,8 +38,14 @@ class MotorCortex:
             plan = self.basal_ganglia.modulate(plan)
         return plan
 
-    def execute_action(self, motor_command: str) -> str:
-        """Execute a motor command, optionally refined by the cerebellum."""
+    def execute_action(self, motor_command: str):
+        """Execute a motor command, optionally using a spiking backend."""
+        if self.spiking_backend and isinstance(motor_command, (list, tuple)):
+            spikes = self.spiking_backend.run(motor_command)
+            self.spiking_backend.synapses.adapt(
+                self.spiking_backend.spike_times, self.spiking_backend.spike_times
+            )
+            return spikes
         command = motor_command
         if self.cerebellum:
             command = self.cerebellum.fine_tune(command)
