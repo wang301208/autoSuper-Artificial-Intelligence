@@ -21,6 +21,8 @@ from .sensory_cortex import VisualCortex, AuditoryCortex, SomatosensoryCortex
 from .motor_cortex import MotorCortex
 from .limbic import LimbicSystem
 from .consciousness import ConsciousnessModel
+from .neuromorphic.temporal_encoding import latency_encode
+from .neuromorphic.spiking_network import SpikingNeuralNetwork
 
 
 class CognitiveModule:
@@ -51,6 +53,8 @@ class WholeBrainSimulation:
     emotion: LimbicSystem = field(default_factory=LimbicSystem)
     consciousness: ConsciousnessModel = field(default_factory=ConsciousnessModel)
     motor: MotorCortex = field(default_factory=MotorCortex)
+    neuromorphic: bool = True
+    last_perception: Dict[str, Any] = field(init=False, default_factory=dict)
 
     def process_cycle(self, input_data: Dict[str, Any]) -> str:
         """Run a single perception‑cognition‑action cycle.
@@ -70,12 +74,32 @@ class WholeBrainSimulation:
 
         # --- Sensory processing -------------------------------------------------
         perception = {}
-        if "image" in input_data:
-            perception["vision"] = self.visual.process(input_data["image"])
-        if "sound" in input_data:
-            perception["audio"] = self.auditory.process(input_data["sound"])
-        if "touch" in input_data:
-            perception["touch"] = self.somatosensory.process(input_data["touch"])
+        if self.neuromorphic:
+            def _encode_and_run(signal: Any, key: str) -> None:
+                events = latency_encode(signal)
+                n = len(signal)
+                weights = [[0.0] * n for _ in range(n)]
+                network = SpikingNeuralNetwork(n_neurons=n, weights=weights)
+                outputs = network.run(events)
+                spike_counts = [0] * n
+                for _, spikes in outputs:
+                    for i, spike in enumerate(spikes):
+                        spike_counts[i] += spike
+                perception[key] = {"spike_counts": spike_counts}
+
+            if "image" in input_data:
+                _encode_and_run(input_data["image"], "vision")
+            if "sound" in input_data:
+                _encode_and_run(input_data["sound"], "audio")
+            if "touch" in input_data:
+                _encode_and_run(input_data["touch"], "touch")
+        else:
+            if "image" in input_data:
+                perception["vision"] = self.visual.process(input_data["image"])
+            if "sound" in input_data:
+                perception["audio"] = self.auditory.process(input_data["sound"])
+            if "touch" in input_data:
+                perception["touch"] = self.somatosensory.process(input_data["touch"])
 
         # --- Emotional appraisal ------------------------------------------------
         text_stimulus = input_data.get("text", "")
@@ -92,6 +116,7 @@ class WholeBrainSimulation:
         # --- Motor execution ----------------------------------------------------
         plan = self.motor.plan_movement(intention)
         action = self.motor.execute_action(plan)
+        self.last_perception = perception
         return action
 
 
