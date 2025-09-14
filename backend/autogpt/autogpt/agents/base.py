@@ -53,10 +53,13 @@ from autogpt.core.runner.client_lib.logging.helpers import dump_prompt
 from autogpt.file_storage.base import FileStorage
 from autogpt.llm.providers.openai import get_openai_command_specs
 from autogpt.models.action_history import (
+    Action,
     ActionHistoryConfiguration,
     ActionResult,
     EpisodicActionHistory,
 )
+from autogpt.models.context_item import StaticContextItem
+from .features.context import get_agent_context
 from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -506,9 +509,31 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
             The parsed command name and command args, if any, and the agent thoughts.
         """
 
-        return llm_response.parsed_result
+        command_name, command_args, agent_thoughts = llm_response.parsed_result
 
-        # TODO: update memory/context
+        if command_name:
+            reasoning = (
+                agent_thoughts.get("thoughts", {}).get("reasoning", "")
+                if isinstance(agent_thoughts, dict)
+                else ""
+            )
+            self.event_history.register_action(
+                Action(name=command_name, args=command_args, reasoning=reasoning)
+            )
+
+        agent_context = get_agent_context(self)
+        if agent_context and isinstance(agent_thoughts, dict):
+            context_text = agent_thoughts.get("context")
+            if context_text:
+                agent_context.add(
+                    StaticContextItem(
+                        description="assistant_context",
+                        source=None,
+                        content=context_text,
+                    )
+                )
+
+        return command_name, command_args, agent_thoughts
 
     @abstractmethod
     def parse_and_process_response(

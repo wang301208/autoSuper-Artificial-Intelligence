@@ -26,7 +26,6 @@ from autogpt.logs.log_cycle import (
 )
 from autogpt.logs.utils import fmt_kwargs
 from autogpt.models.action_history import (
-    Action,
     ActionErrorResult,
     ActionInterruptedByHuman,
     ActionResult,
@@ -208,15 +207,6 @@ class Agent(
             assistant_reply_dict,
             NEXT_ACTION_FILE_NAME,
         )
-
-        if command_name:
-            self.event_history.register_action(
-                Action(
-                    name=command_name,
-                    args=arguments,
-                    reasoning=assistant_reply_dict["thoughts"]["reasoning"],
-                )
-            )
 
         return command_name, arguments, assistant_reply_dict
 
