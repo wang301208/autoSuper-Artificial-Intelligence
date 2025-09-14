@@ -147,7 +147,46 @@ Options:
 
 For more information about the API of the application, see [agentprotocol.ai](https://agentprotocol.ai).
 
-<!-- TODO: add guide/manual for frontend -->
+### 前端使用
+
+AutoGPT 提供一个基于 Flutter 的 Web 前端，默认由 `./autogpt.sh serve` 命令在
+`http://localhost:8000` 提供。你也可以在本地单独构建并调试该前端以便开发。
+
+#### 环境准备
+
+1. 安装 Flutter 3.x（附带 Dart 3.x），参见 [Flutter 官方安装文档](https://docs.flutter.dev/get-started/install)。
+2. 进入仓库的 `frontend` 目录。
+3. 获取依赖：
+
+   ```bash
+   flutter pub get
+   ```
+
+4. 在 Linux 使用 Chromium 时，需将 `CHROME_EXECUTABLE` 指向 Chromium 可执行文件，例如：
+
+   ```bash
+   export CHROME_EXECUTABLE=/usr/bin/chromium
+   ```
+
+#### 构建
+
+* Web 版本：`flutter build web`，构建产物位于 `build/web`，可配合 `./autogpt.sh serve` 一同部署。
+* 其他平台：根据目标平台使用 `flutter build macos`、`flutter build windows`、`flutter build apk` 等命令。
+
+#### 运行
+
+* **后端模式**：运行 `./autogpt.sh serve` 后，在浏览器访问 `http://localhost:8000` 即可使用前端。
+* **开发模式**：在 `frontend` 目录运行下列命令，然后在浏览器访问 `http://localhost:5000`：
+
+  ```bash
+  flutter run -d chrome --web-port 5000
+  ```
+
+#### 常见问题
+
+* **找不到 Chrome 可执行文件**：在 Linux 上设置 `CHROME_EXECUTABLE` 环境变量指向 Chromium 路径。
+* **`flutter pub get` 失败或缓慢**：检查网络连接，可使用国内镜像源。
+* **前端无法连接后端**：确保已经执行 `./autogpt.sh serve` 并确认端口未被防火墙或其他进程占用。
 
 ### Arguments
 
