@@ -73,9 +73,26 @@ class AgentFileManagerMixin:
         """Get the agent's file operation logs as list of strings."""
         return self._file_logs_cache
 
-    async def save_state(self, save_as: Optional[str] = None) -> None:
-        """Save the agent's state to the state file."""
+    async def save_state(
+        self,
+        save_as: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+    ) -> None:
+        """Save the agent's state to disk.
+
+        Args:
+            save_as: Optional new agent id to save the state under.
+            workspace_id: Optional workspace identifier to associate with the saved
+                state. If provided, the workspace directory will be created if it does
+                not yet exist.
+        """
+
         state: BaseAgentSettings = getattr(self, "state")
+
+        if workspace_id:
+            state.workspace_id = workspace_id
+            self._file_storage.make_dir(f"workspaces/{workspace_id}")
+
         if save_as:
             temp_id = state.agent_id
             state.agent_id = save_as
