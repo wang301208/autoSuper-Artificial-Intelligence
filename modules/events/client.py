@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from typing import Any, Awaitable, Callable, Dict
 
 from . import EventBus
 
@@ -21,11 +21,11 @@ class EventClient:
         self._bus.publish(topic, event)
 
     def subscribe(
-        self, topic: str, handler: Callable[[Dict[str, Any]], None]
+        self, topic: str, handler: Callable[[Dict[str, Any]], Awaitable[None]]
     ) -> Callable[[], None]:
         return self._bus.subscribe(topic, handler)
 
     def unsubscribe(
-        self, topic: str, handler: Callable[[Dict[str, Any]], None]
+        self, topic: str, handler: Callable[[Dict[str, Any]], Awaitable[None]]
     ) -> None:
         self._bus.unsubscribe(topic, handler)

@@ -32,7 +32,7 @@ class RuntimeModuleManager:
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
-    def _on_request(self, event: Dict[str, Any]) -> None:
+    async def _on_request(self, event: Dict[str, Any]) -> None:
         name = event.get("module")
         if not isinstance(name, str):
             return
@@ -40,7 +40,7 @@ class RuntimeModuleManager:
         if self._bus:
             self._bus.publish("module.loaded", {"module": name})
 
-    def _on_release(self, event: Dict[str, Any]) -> None:
+    async def _on_release(self, event: Dict[str, Any]) -> None:
         name = event.get("module")
         if not isinstance(name, str):
             return

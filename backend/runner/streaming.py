@@ -27,10 +27,14 @@ class StreamingDataIngestor:
         topic: str = "training.sample",
         sampler: ActiveLearningSampler | None = None,
     ) -> None:
-        self.bus = bus or create_event_bus("inmemory")
+        self.bus = bus or create_event_bus()
         self.topic = topic
         self.queue: Queue[Dict[str, Any]] = Queue()
-        self.bus.subscribe(topic, self.queue.put)
+
+        async def _enqueue(event: Dict[str, Any]) -> None:
+            self.queue.put(event)
+
+        self.bus.subscribe(topic, _enqueue)
         self.sampler = sampler
 
     def drain(self) -> List[Dict[str, Any]]:
