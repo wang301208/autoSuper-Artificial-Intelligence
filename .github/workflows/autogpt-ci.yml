@@ -1,18 +1,20 @@
 name: AutoGPT Python CI
 
 on:
-  push:
-    branches: [ master, development, ci-test* ]
-    paths:
-      - '.github/workflows/autogpt-ci.yml'
-      - 'autogpts/autogpt/**'
-      - '!autogpts/autogpt/tests/vcr_cassettes'
-  pull_request:
-    branches: [ master, development, release-* ]
-    paths:
-      - '.github/workflows/autogpt-ci.yml'
-      - 'autogpts/autogpt/**'
-      - '!autogpts/autogpt/tests/vcr_cassettes'
+    push:
+      branches: [ master, development, ci-test* ]
+      paths:
+        - '.github/workflows/autogpt-ci.yml'
+        - 'autogpts/autogpt/**'
+        - '!autogpts/autogpt/tests/vcr_cassettes'
+        - 'tests/**'
+    pull_request:
+      branches: [ master, development, release-* ]
+      paths:
+        - '.github/workflows/autogpt-ci.yml'
+        - 'autogpts/autogpt/**'
+        - '!autogpts/autogpt/tests/vcr_cassettes'
+        - 'tests/**'
 
 concurrency:
   group: ${{ format('autogpt-ci-{0}', github.head_ref && format('{0}-{1}', github.event_name, github.event.pull_request.number) || github.sha) }}
