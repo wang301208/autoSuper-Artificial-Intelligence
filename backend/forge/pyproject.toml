@@ -9,6 +9,7 @@ packages = [{ include = "forge" }]
 
 [tool.poetry.dependencies]
 python = { workspace = true }
+python-dotenv = ">=1.0.0,<2.0.0"
 
 [tool.poetry.extras]
 benchmark = ["agbenchmark"]
