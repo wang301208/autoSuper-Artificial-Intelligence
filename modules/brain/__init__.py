@@ -12,6 +12,7 @@ from .message_bus import (
     subscribe_to_brain_region,
 )
 from .multimodal import MultimodalFusionEngine
+from .adapter import BrainModule
 
 __all__ = [
     "VisualCortex",
@@ -28,4 +29,5 @@ __all__ = [
     "subscribe_to_brain_region",
     "reset_message_bus",
     "MultimodalFusionEngine",
+    "BrainModule",
 ]
