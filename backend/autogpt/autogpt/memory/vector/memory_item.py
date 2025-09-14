@@ -170,8 +170,9 @@ class MemoryItemFactory:
 
         e_chunks = await get_embedding(chunks, config, self.embedding_provider)
 
-        weights = [len(c) for c in chunks]
-        e_weighted = np.average(e_chunks, axis=0, weights=weights)
+        # Weight chunk embeddings by token count to capture their relative size
+        chunk_token_lengths = [len(tokenizer.encode(c)) for c in chunks]
+        e_weighted = np.average(e_chunks, axis=0, weights=chunk_token_lengths)
 
         summary = (
             chunk_summaries[0]
@@ -303,8 +304,8 @@ class MemoryItemFactory:
         ]
         e_chunks = await get_embedding(chunks, config, self.embedding_provider)
 
-        weights = [len(c) for c in chunks]
-        e_weighted = np.average(e_chunks, axis=0, weights=weights)
+        chunk_token_lengths = [len(tokenizer.encode(c)) for c in chunks]
+        e_weighted = np.average(e_chunks, axis=0, weights=chunk_token_lengths)
 
         summary = (
             chunk_summaries[0]

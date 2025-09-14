@@ -55,3 +55,16 @@ python benchmarks/run_ab_test.py --algoA benchmarks.ab_testing.sample_algorithms
 In continuous integration, run the script with your production algorithm as
 `--algoA` and the candidate change as `--algoB`. Fail the pipeline if the
 reported p-value indicates a significant drop in accuracy.
+
+## Memory embedding strategy
+
+`memory_embedding_strategy.py` benchmarks two approaches for representing
+stored memories: using a summary embedding or a weighted average of chunk
+embeddings. It reports recall and latency for both strategies and stores the
+metrics in `benchmarks/results/memory_embedding_strategy.json`.
+
+### Running the benchmark
+
+```
+python benchmarks/memory_embedding_strategy.py
+```
