@@ -19,7 +19,9 @@
     - 提供详细的操作日志和错误信息
 """
 
+import base64
 import logging
+import mimetypes
 import os
 from typing import ClassVar
 
@@ -103,21 +105,61 @@ class ReadFile(Ability):
         if result := self._check_preconditions(filename):
             return result
 
-        from unstructured.partition.auto import partition
-
         file_path = self._workspace.get_path(filename)
+        mime_type, _ = mimetypes.guess_type(str(file_path))
         try:
-            elements = partition(str(file_path))
-            # TODO: Lots of other potentially useful information is available
-            #   in the partitioned file. Consider returning more of it.
+            # Special handling for images and other binary files
+            if mime_type and mime_type.startswith("image"):
+                from PIL import Image
+
+                with Image.open(file_path) as img:
+                    width, height = img.size
+                content = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+                metadata = {
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "width": width,
+                    "height": height,
+                    "encoding": "base64",
+                }
+            elif mime_type and not mime_type.startswith("text"):
+                content = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+                metadata = {
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "encoding": "base64",
+                }
+            else:
+                from unstructured.partition.auto import partition
+
+                elements = partition(str(file_path))
+                content = "\n\n".join([element.text for element in elements])
+                headings = [
+                    el.text
+                    for el in elements
+                    if getattr(el, "category", "") == "Title"
+                ]
+                tables = []
+                for el in elements:
+                    if getattr(el, "category", "") == "Table":
+                        meta_dict = (
+                            el.metadata.to_dict() if hasattr(el, "metadata") else {}
+                        )
+                        tables.append(meta_dict.get("text_as_html", el.text))
+                metadata = {"filename": filename}
+                if headings:
+                    metadata["headings"] = headings
+                if tables:
+                    metadata["tables"] = tables
+
             new_knowledge = Knowledge(
-                content="\n\n".join([element.text for element in elements]),
+                content=content,
                 content_type=ContentType.TEXT,
-                content_metadata={"filename": filename},
+                content_metadata=metadata,
             )
             success = True
             message = f"File {file_path} read successfully."
-        except IOError as e:
+        except Exception as e:
             new_knowledge = None
             success = False
             message = str(e)
