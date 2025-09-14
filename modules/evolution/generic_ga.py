@@ -10,9 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, List, Sequence, Tuple
 import random
+import math
 
 # Optional plugin support for multi-metric fitness evaluation
 from .fitness_plugins import load_from_config
+from .strategy import innovation_protection
 
 
 def _clip(value: float, low: float, high: float) -> float:
@@ -27,6 +29,10 @@ class GAConfig:
     crossover_rate: float = 0.9
     mutation_rate: float = 0.1
     mutation_sigma: float = 0.1
+    # Additional exploration parameters
+    perturbation_rate: float = 0.05
+    diversity_threshold: float = 0.1
+    innovation_distance: float = 1e-3
 
 
 class GeneticAlgorithm:
@@ -62,6 +68,7 @@ class GeneticAlgorithm:
         self.num_genes = len(self.bounds)
         self.best_individual: List[float] | None = None
         self.best_fitness: float | None = None
+        self.diversity_history: List[float] = []
 
     # Population utilities -------------------------------------------------
     def _random_individual(self) -> List[float]:
@@ -119,7 +126,24 @@ class GeneticAlgorithm:
                 self._mutate(c1)
                 self._mutate(c2)
                 new_population.extend([c1, c2])
-            population = new_population[: self.config.population_size]
+
+            new_population = new_population[: self.config.population_size]
+            # Replace overly similar individuals to protect innovation
+            new_population = innovation_protection(
+                new_population, self.bounds, self.config.innovation_distance
+            )
+
+            diversity = self._population_diversity(new_population)
+            self.diversity_history.append(diversity)
+
+            if diversity < self.config.diversity_threshold:
+                # Inject random individuals to increase exploration
+                num = max(1, int(self.config.population_size * self.config.perturbation_rate))
+                for _ in range(num):
+                    idx = random.randrange(self.config.population_size)
+                    new_population[idx] = self._random_individual()
+
+            population = new_population
             fitnesses = self._evaluate(population)
             self._update_best(population, fitnesses)
 
@@ -135,3 +159,19 @@ class GeneticAlgorithm:
         if self.best_fitness is None or best_fit > self.best_fitness:
             self.best_fitness = best_fit
             self.best_individual = population[best_idx][:]
+
+    def _population_diversity(self, population: List[List[float]]) -> float:
+        """Compute a simple diversity metric based on gene variance."""
+        if not population:
+            return 0.0
+        mean = [0.0] * self.num_genes
+        for ind in population:
+            for i, v in enumerate(ind):
+                mean[i] += v
+        mean = [m / len(population) for m in mean]
+        var = 0.0
+        for ind in population:
+            for i, v in enumerate(ind):
+                var += (v - mean[i]) ** 2
+        var /= len(population) * self.num_genes
+        return math.sqrt(var)

@@ -11,6 +11,7 @@ from .self_evolving_cognition import SelfEvolvingCognition
 from .self_evolving_ai_architecture import SelfEvolvingAIArchitecture
 from .evolution_engine import EvolutionEngine
 from .adapter import EvolutionModule
+from . import strategy
 
 try:  # optional dependencies
     from .ppo import PPO, PPOConfig
@@ -67,7 +68,8 @@ __all__ = [
     "PPOConfig",
     "A3C",
     "A3CConfig",
-    "SAC",
-    "SACConfig",
-    "EvolutionModule",
+    "SAC", 
+    "SACConfig", 
+    "EvolutionModule", 
+    "strategy",
 ]
