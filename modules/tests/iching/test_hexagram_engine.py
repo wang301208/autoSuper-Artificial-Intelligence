@@ -44,3 +44,19 @@ def test_all_combinations_covered():
         for lower in trigrams:
             numbers.add(engine.interpret(upper, lower).number)
     assert len(numbers) == 64
+
+
+def test_predict_transformations_line_change():
+    engine = HexagramEngine()
+    result = engine.predict_transformations("Qian", "Qian", changing_lines=[6])
+    numbers = [h.number for h in result["path"]]
+    assert numbers == [1, 9]
+    assert result["trend"] == "decreasing yang"
+
+
+def test_predict_transformations_time_steps():
+    engine = HexagramEngine()
+    result = engine.predict_transformations("Kun", "Kun", time_steps=2)
+    numbers = [h.number for h in result["path"]]
+    assert numbers == [2, 15, 46]
+    assert result["trend"] == "increasing yang"

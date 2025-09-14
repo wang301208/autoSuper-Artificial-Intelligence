@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 
 from .bagua import PreHeavenBagua, PostHeavenBagua
 from .time_context import TimeContext
 from .ai_interpreter import AIEnhancedInterpreter
+
+# Binary line patterns for each trigram (least significant bit is the bottom line)
+_TRIGRAM_PATTERNS = {
+    "Qian": 0b111,
+    "Dui": 0b110,
+    "Li": 0b101,
+    "Zhen": 0b100,
+    "Xun": 0b011,
+    "Kan": 0b010,
+    "Gen": 0b001,
+    "Kun": 0b000,
+}
 
 
 @dataclass(frozen=True)
@@ -163,11 +175,26 @@ def _build_name_map() -> Dict[Tuple[str, str], Hexagram]:
 HEXAGRAM_MAP = _build_name_map()
 
 
+def _build_pattern_map() -> Dict[int, Hexagram]:
+    """Map binary line patterns to hexagram data."""
+    mapping: Dict[int, Hexagram] = {}
+    for hexagram in _hexagrams:
+        upper_bits = _TRIGRAM_PATTERNS[hexagram.upper]
+        lower_bits = _TRIGRAM_PATTERNS[hexagram.lower]
+        code = lower_bits | (upper_bits << 3)
+        mapping[code] = hexagram
+    return mapping
+
+
+HEXAGRAM_BINARY_MAP = _build_pattern_map()
+
+
 class HexagramEngine:
     """Simple engine to fetch hexagram interpretations by trigram pairing."""
 
     def __init__(self, interpreter: Optional[AIEnhancedInterpreter] = None) -> None:
         self._map = HEXAGRAM_MAP
+        self._pattern_map = HEXAGRAM_BINARY_MAP
         # Map possible trigram inputs (English/Chinese) to canonical English names
         self._trigram_names: Dict[str, str] = {}
         for bagua_cls in (PreHeavenBagua, PostHeavenBagua):
@@ -183,6 +210,15 @@ class HexagramEngine:
         if normalized not in self._trigram_names:
             raise KeyError(f"Unknown trigram '{name}'")
         return self._trigram_names[normalized]
+
+    def _code_from_trigrams(self, upper: str, lower: str) -> int:
+        """Return the binary pattern code for given trigrams."""
+        return _TRIGRAM_PATTERNS[lower] | (_TRIGRAM_PATTERNS[upper] << 3)
+
+    def _from_pattern(self, pattern: int) -> Hexagram:
+        if pattern not in self._pattern_map:
+            raise KeyError("Unknown hexagram pattern")
+        return self._pattern_map[pattern]
 
     def interpret(
         self,
@@ -232,4 +268,63 @@ class HexagramEngine:
         if context:
             hexagram = self._interpreter.enhance(hexagram, context)
         return hexagram
+
+    def predict_transformations(
+        self,
+        upper: str,
+        lower: str,
+        changing_lines: Optional[List[int]] = None,
+        time_steps: int = 0,
+    ) -> Dict[str, object]:
+        """Predict future hexagrams from line changes or time progression.
+
+        Parameters
+        ----------
+        upper, lower:
+            Starting trigrams for the hexagram.
+        changing_lines:
+            Sequence of line numbers (1-6, bottom to top) that will change in
+            order. Each change produces a new hexagram in the path.
+        time_steps:
+            If ``changing_lines`` is not provided, ``time_steps`` flips one line
+            per step starting from the bottom, cycling upward.
+
+        Returns
+        -------
+        dict
+            Dictionary containing ``path`` (list of :class:`Hexagram`),
+            ``trend`` (str) and a textual ``report`` summarizing the
+            transformation.
+        """
+
+        start = self.interpret(upper, lower)
+        code = self._code_from_trigrams(start.upper, start.lower)
+        path = [start]
+        current = code
+
+        if changing_lines:
+            for line in changing_lines:
+                idx = line - 1
+                if idx < 0 or idx >= 6:
+                    raise ValueError("line numbers must be between 1 and 6")
+                current ^= 1 << idx
+                path.append(self._from_pattern(current))
+        elif time_steps > 0:
+            for step in range(time_steps):
+                idx = step % 6
+                current ^= 1 << idx
+                path.append(self._from_pattern(current))
+
+        initial_yang = bin(code).count("1")
+        final_yang = bin(current).count("1")
+        if final_yang > initial_yang:
+            trend = "increasing yang"
+        elif final_yang < initial_yang:
+            trend = "decreasing yang"
+        else:
+            trend = "stable"
+
+        report = " -> ".join(f"{h.number}:{h.name}" for h in path)
+        report += f" | Trend: {trend}"
+        return {"path": path, "trend": trend, "report": report}
 
