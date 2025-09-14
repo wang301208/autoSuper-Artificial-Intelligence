@@ -43,3 +43,9 @@ class MotorCortex:
         if self.cerebellum:
             command = self.cerebellum.fine_tune(command)
         return self.primary_motor.execute(command)
+
+    def train(self, error_signal: str) -> str:
+        """Adjust motor output based on feedback using the cerebellum."""
+        if self.cerebellum:
+            return self.cerebellum.motor_learning(error_signal)
+        return f"no cerebellum to learn from {error_signal}"
