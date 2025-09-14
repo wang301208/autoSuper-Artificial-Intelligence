@@ -124,7 +124,7 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
     memory_backend: str = UserConfigurable("json_file", from_env="MEMORY_BACKEND")
     memory_index: str = UserConfigurable("auto-gpt-memory", from_env="MEMORY_INDEX")
     memory_embedding_strategy: str = UserConfigurable(
-        "summary", from_env="MEMORY_EMBEDDING_STRATEGY"
+        "weighted", from_env="MEMORY_EMBEDDING_STRATEGY"
     )
     redis_host: str = UserConfigurable("localhost", from_env="REDIS_HOST")
     redis_port: int = UserConfigurable(default=6379, from_env="REDIS_PORT")
