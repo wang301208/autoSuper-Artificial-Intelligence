@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:auto_gpt_flutter_client/viewmodels/collaboration_viewmodel.dart';
 import 'package:auto_gpt_flutter_client/views/collaboration/collaboration_panel.dart';
+import 'package:auto_gpt_flutter_client/views/shared/app_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -53,6 +54,8 @@ void main() {
     expect(find.text('Plan: P1'), findsOneWidget);
     expect(find.text('World Model: WM'), findsOneWidget);
     expect(find.text('Metrics: M'), findsOneWidget);
+    // Two primary buttons for Inject and Correct
+    expect(find.byType(PrimaryButton), findsNWidgets(2));
 
     await tester.enterText(find.byType(TextField), 'hello');
     await tester.tap(find.text('Inject'));

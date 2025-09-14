@@ -1,4 +1,5 @@
 import 'package:auto_gpt_flutter_client/views/chat/user_message_tile.dart';
+import 'package:auto_gpt_flutter_client/views/shared/message_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,7 +13,7 @@ void main() {
           body: UserMessageTile(message: 'Hello, User!'),
         ),
       ));
-      expect(find.byType(UserMessageTile), findsOneWidget);
+      expect(find.byType(MessageTile), findsOneWidget);
     });
 
     // Test to check if the widget displays the correct user message

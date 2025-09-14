@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../viewmodels/collaboration_viewmodel.dart';
+import '../shared/app_button.dart';
 
 class CollaborationPanel extends StatefulWidget {
   final CollaborationViewModel viewModel;
@@ -28,20 +29,20 @@ class _CollaborationPanelState extends State<CollaborationPanel> {
             TextField(controller: _controller),
             Row(
               children: [
-                ElevatedButton(
+                PrimaryButton(
+                  label: 'Inject',
                   onPressed: () {
                     vm.sendKnowledge(_controller.text);
                     _controller.clear();
                   },
-                  child: const Text('Inject'),
                 ),
                 const SizedBox(width: 8),
-                ElevatedButton(
+                PrimaryButton(
+                  label: 'Correct',
                   onPressed: () {
                     vm.sendCorrection(_controller.text);
                     _controller.clear();
                   },
-                  child: const Text('Correct'),
                 ),
               ],
             )
