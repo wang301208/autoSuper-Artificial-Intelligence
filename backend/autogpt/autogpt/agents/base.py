@@ -52,7 +52,8 @@ from autogpt.core.resource.model_providers.openai import (
 from autogpt.core.runner.client_lib.logging.helpers import dump_prompt
 from autogpt.file_storage.base import FileStorage
 from autogpt.llm.providers.openai import get_openai_command_specs
-from autogpt.models.action_history import ActionResult, EpisodicActionHistory
+from autogpt.models.action_history import Action, ActionResult, EpisodicActionHistory
+from autogpt.models.context_item import StaticContextItem
 from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -500,9 +501,51 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
             The parsed command name and command args, if any, and the agent thoughts.
         """
 
-        return llm_response.parsed_result
+        result = llm_response.parsed_result
 
-        # TODO: update memory/context
+        # Update memory (action history) if a command was proposed
+        try:
+            command_name, arguments, thoughts = result
+            if command_name:
+                reasoning = ""
+                if isinstance(thoughts, dict):
+                    reasoning = (
+                        thoughts.get("thoughts", {}).get("reasoning")
+                        or thoughts.get("reasoning", "")
+                    )
+                self.event_history.register_action(
+                    Action(name=command_name, args=arguments, reasoning=reasoning)
+                )
+        except Exception:  # pragma: no cover - best effort
+            logger.debug("Failed to update memory", exc_info=True)
+
+        # Update context with the latest model response when supported
+        if hasattr(self, "context"):
+            try:
+                self.context.add(
+                    StaticContextItem(
+                        description="Last model response",
+                        source=None,
+                        content=llm_response.response.content or "",
+                    )
+                )
+            except Exception:  # pragma: no cover - best effort
+                logger.debug("Failed to update context", exc_info=True)
+
+        # Allow plugins to react to the model response
+        for plugin in getattr(self.config, "plugins", []):
+            if not plugin.can_handle_on_response():
+                continue
+            try:
+                plugin.on_response(llm_response.response.content or "")
+            except Exception:  # pragma: no cover - best effort
+                logger.debug(
+                    "Plugin %s failed to handle on_response",
+                    plugin.__class__.__name__,
+                    exc_info=True,
+                )
+
+        return result
 
     @abstractmethod
     def parse_and_process_response(
