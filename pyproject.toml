@@ -73,7 +73,7 @@ jinja2 = ">=3.1.2,<4.0.0"
 litellm = ">=1.17.9,<2.0.0"
 bs4 = ">=0.0.1,<0.0.2"
 packaging = ">=23.1,<26.0"
-auto-gpt-plugin-template = { git = "https://github.com/Significant-Gravitas/Auto-GPT-Plugin-Template", rev = "0.1.0" }
+auto-gpt-plugin-template = { git = "https://github.com/Significant-Gravitas/Auto-GPT-Plugin-Template", rev = "7612a14c629dc64ad870eee4d05850d60e1dd9ce" } # 0.1.0
 autogpt-forge = { path = "autogpts/forge" }
 agbenchmark = { path = "benchmark", optional = true }
 pytest-benchmark = ">=3.4.1,<4.0.0"
@@ -95,6 +95,7 @@ flake8 = ">=6.0.0,<7.0.0"
 isort = ">=5.12.0,<6.0.0"
 mypy = ">=1.4.1,<2.0.0"
 pre-commit = ">=3.3.3,<4.0.0"
+pip-audit = ">=2.9.0,<3.0.0"
 autoflake = ">=2.2.0,<3.0.0"
 types-requests = ">=2.31.0.2,<3.0.0"
 ruff = ">=0.1.11,<0.2.0"

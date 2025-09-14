@@ -58,6 +58,9 @@ jobs:
       - name: Check dependency conflicts
         run: poetry run pip check
 
+      - name: Run pip-audit
+        run: poetry run pip-audit
+
       - name: Run lint checks
         run: ../scripts/lint.sh
 
@@ -199,6 +202,9 @@ jobs:
 
       - name: Check dependency conflicts
         run: poetry run pip check
+
+      - name: Run pip-audit
+        run: poetry run pip-audit
 
       - name: Run pytest with coverage
         run: |
