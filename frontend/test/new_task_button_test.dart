@@ -1,3 +1,4 @@
+import 'package:auto_gpt_flutter_client/views/shared/app_button.dart';
 import 'package:auto_gpt_flutter_client/views/task/new_task_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,7 +19,7 @@ void main() {
     expect(find.text('New Task'), findsOneWidget);
 
     // Tap the button and verify if the onPressed callback is triggered.
-    await tester.tap(find.byType(ElevatedButton));
+    await tester.tap(find.byType(PrimaryButton));
     expect(wasPressed, true);
   });
 }

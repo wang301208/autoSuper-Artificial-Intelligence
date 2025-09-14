@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../shared/message_tile.dart';
 import 'json_code_snippet_view.dart';
 
 class AgentMessageTile extends StatefulWidget {
@@ -15,22 +16,23 @@ class _AgentMessageTileState extends State<AgentMessageTile> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Agent'),
-        Text(widget.message),
-        IconButton(
-          icon: Icon(expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down),
-          onPressed: () {
-            setState(() {
-              expanded = !expanded;
-            });
-          },
-        ),
-        if (expanded)
-          const JsonCodeSnippetView(jsonString: '{}'),
-      ],
+    return MessageTile(
+      title: 'Agent',
+      message: widget.message,
+      trailing: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          IconButton(
+            icon: Icon(expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down),
+            onPressed: () {
+              setState(() {
+                expanded = !expanded;
+              });
+            },
+          ),
+          if (expanded) const JsonCodeSnippetView(jsonString: '{}'),
+        ],
+      ),
     );
   }
 }
