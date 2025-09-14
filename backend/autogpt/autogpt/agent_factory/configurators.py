@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Optional
 
 from forge.sdk.model import Task
@@ -10,6 +12,7 @@ from autogpt.file_storage.base import FileStorage
 from autogpt.logs.config import configure_chat_plugins
 from autogpt.models.command_registry import CommandRegistry
 from autogpt.plugins import scan_plugins
+from autogpt.memory.vector import get_memory
 
 if TYPE_CHECKING:
     from knowledge import UnifiedKnowledgeBase
@@ -106,10 +109,16 @@ def _configure_agent(
         directives=directives,
         app_config=app_config,
     )
+    # Configure vector memory based on app configuration
+    # Ensure the workspace path is available for memory backends
+    object.__setattr__(
+        app_config,
+        "workspace_path",
+        getattr(app_config, "workspace_path", file_storage.root),
+    )
+    memory = get_memory(app_config)
 
-    # TODO: configure memory
-
-    return Agent(
+    agent = Agent(
         settings=agent_state,
         llm_provider=llm_provider,
         command_registry=command_registry,
@@ -119,6 +128,11 @@ def _configure_agent(
         knowledge_base=knowledge_base,
         decision_engine=decision_engine,
     )
+
+    # Attach memory to the agent instance
+    agent.memory = memory
+
+    return agent
 
 
 def create_agent_state(
