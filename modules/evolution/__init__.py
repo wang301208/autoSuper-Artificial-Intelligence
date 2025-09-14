@@ -9,6 +9,7 @@ from .evolving_cognitive_architecture import (
 )
 from .self_evolving_cognition import SelfEvolvingCognition
 from .self_evolving_ai_architecture import SelfEvolvingAIArchitecture
+from .evolution_engine import EvolutionEngine
 from .adapter import EvolutionModule
 
 try:  # optional dependencies
@@ -61,6 +62,7 @@ __all__ = [
     "EvolutionGeneticAlgorithm",
     "SelfEvolvingCognition",
     "SelfEvolvingAIArchitecture",
+    "EvolutionEngine",
     "PPO",
     "PPOConfig",
     "A3C",
