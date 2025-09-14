@@ -2,3 +2,5 @@ PyYAML
 jsonschema
 watchdog
 numpy>=1.24
+chinese-calendar
+lunardate

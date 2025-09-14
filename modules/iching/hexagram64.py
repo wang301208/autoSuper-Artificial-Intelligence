@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 from .bagua import PreHeavenBagua, PostHeavenBagua
+from .time_context import TimeContext
 
 
 @dataclass(frozen=True)
@@ -180,13 +181,38 @@ class HexagramEngine:
             raise KeyError(f"Unknown trigram '{name}'")
         return self._trigram_names[normalized]
 
-    def interpret(self, upper: str, lower: str) -> Hexagram:
-        """Return the hexagram for the given upper and lower trigrams."""
+    def interpret(
+        self, upper: str, lower: str, time_ctx: Optional[TimeContext] = None
+    ) -> Hexagram:
+        """Return the hexagram for the given upper and lower trigrams.
+
+        If ``time_ctx`` is provided, the judgement and line texts are annotated
+        with contextual information from the lunar calendar, solar term, and
+        shichen.
+        """
 
         upper_name = self._normalize(upper)
         lower_name = self._normalize(lower)
         key = (upper_name.lower(), lower_name.lower())
         if key not in self._map:
             raise KeyError(f"Combination ({upper}, {lower}) not found")
-        return self._map[key]
+        hexagram = self._map[key]
+        if not time_ctx:
+            return hexagram
+
+        extras = []
+        if time_ctx.solar_term:
+            extras.append(f"Solar term: {time_ctx.solar_term}")
+        extras.append(f"Shichen: {time_ctx.shichen}")
+        judgement = f"{hexagram.judgement} ({'; '.join(extras)})"
+        lines = tuple(f"{line} ({time_ctx.shichen})" for line in hexagram.lines)
+        return Hexagram(
+            number=hexagram.number,
+            name=hexagram.name,
+            chinese=hexagram.chinese,
+            judgement=judgement,
+            lines=lines,
+            upper=hexagram.upper,
+            lower=hexagram.lower,
+        )
 
