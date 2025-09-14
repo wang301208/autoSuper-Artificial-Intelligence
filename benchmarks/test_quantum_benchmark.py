@@ -10,9 +10,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from modules.brain.quantum.quantum_cognition import (
     EntanglementNetwork,
     QuantumCognition,
-    QuantumMemory,
     SuperpositionState,
 )
+from modules.brain.quantum.quantum_memory import QuantumMemory
 
 
 def test_make_decision_benchmark(benchmark):
