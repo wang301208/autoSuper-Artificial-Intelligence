@@ -174,7 +174,12 @@ class SimplePlanner(Configurable):
                 multimodal_input, _embed
             )
         template_kwargs.update(kwargs)
-        prompt = prompt_strategy.build_prompt(**template_kwargs)
+        prompt = prompt_strategy.build_prompt(
+            count_message_tokens=lambda m: provider.count_message_tokens(
+                m, model_configuration["model_name"]
+            ),
+            **template_kwargs,
+        )
 
         self._logger.debug(f"Using prompt:\n{dump_prompt(prompt)}\n")
         response = await provider.create_chat_completion(
