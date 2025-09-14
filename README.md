@@ -41,7 +41,7 @@ pip install -r algorithms/requirements.txt
 pip install -r modules/requirements.txt
 ```
 
-**📖 [完整文档](https://docs.agpt.co)** | **🚀 [贡献指南](CONTRIBUTING.md)**
+**📖 [完整文档](https://docs.agpt.co)** | **⚙️ [配置说明](docs/configuration.md)** | **🚀 [贡献指南](CONTRIBUTING.md)**
 
 ## 🔌 硬件支持
 
