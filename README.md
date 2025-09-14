@@ -28,8 +28,8 @@ autogpt-v0.5.1/
 ### 安装步骤
 1. 克隆项目并进入目录
 2. 复制 `.env.example` 为 `.env` 并配置API密钥
-3. 运行 `./run setup` 安装依赖
-4. 使用 `./run agent start <agent-name>` 启动代理
+3. 运行 `./scripts/run setup` 安装依赖
+4. 使用 `./scripts/run agent start <agent-name>` 启动代理
 
 ### 模块级依赖
 
@@ -67,9 +67,9 @@ pip install -r modules/requirements.txt
 统一的CLI工具，支持代理管理、基准测试等功能：
 
 ```bash
-./run agent start <agent-name>    # 启动代理
-./run benchmark start             # 运行基准测试  
-./run setup                       # 安装依赖
+./scripts/run agent start <agent-name>    # 启动代理
+./scripts/run benchmark start             # 运行基准测试
+./scripts/run setup                       # 安装依赖
 ```
 
 ### 🎤 音频能力

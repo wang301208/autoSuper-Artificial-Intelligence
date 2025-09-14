@@ -436,7 +436,7 @@ async def execute_step(self, task_id: str, step_request: StepRequestBody) -> Ste
 
 With the heavy lifting of crafting our Smart Agent behind us, it’s high time to see it in action. Kick things off by firing up the agent with this command:
 ```bash
-./run agent start SmartAgent.
+./scripts/run agent start SmartAgent.
 ```
 
 Once your digital playground is all set, your terminal should light up with:
