@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Dict, Iterable, Mapping, Union, TYPE_CHECKING, Callable
+from typing import Dict, Iterable, Mapping, Union, TYPE_CHECKING, Callable, Any
 
 import numpy as np
 
@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover - for type checking only
     from .quantum_memory import QuantumMemory
     from .quantum_reasoning import QuantumReasoning
     from .quantum_ml import QuantumClassifier
+    from .hardware_interface import QuantumHardwareInterface
 
 
 @dataclass
@@ -91,12 +92,16 @@ class QuantumCognition:
         reasoning: QuantumReasoning | None = None,
         search: Callable | None = None,
         classifier: "QuantumClassifier" | None = None,
+        *,
+        backend: str = "local",
+        hardware: "QuantumHardwareInterface" | None = None,
     ) -> None:
         from .quantum_attention import QuantumAttention as QA
         from .quantum_memory import QuantumMemory as QM
         from .quantum_reasoning import QuantumReasoning as QR
         from .grover_search import grover_search
         from .quantum_ml import QuantumClassifier as QC
+        from .hardware_interface import QuantumHardwareInterface
 
         self.network = network or EntanglementNetwork()
         self.memory = memory or QM()
@@ -104,6 +109,12 @@ class QuantumCognition:
         self.reasoning = reasoning or QR()
         self.search = search or grover_search
         self.classifier = classifier or QC()
+
+        self.backend = backend
+        self.hardware = hardware
+        if self.backend != "local" and self.hardware is None:
+            self.hardware = QuantumHardwareInterface(self.backend)
+        self.task_queue: list[tuple[Any, int]] = []
 
     def evaluate_probabilities(
         self, input_state: Union[SuperpositionState, np.ndarray]
@@ -168,6 +179,41 @@ class QuantumCognition:
         """Classify ``sample`` using the trained quantum classifier."""
 
         return self.classifier.predict(sample)
+
+    # ------------------------------------------------------------------
+    # Hardware/backend integration
+    def add_task(self, circuit: Any, shots: int = 1024) -> None:
+        """Queue a quantum task for later execution."""
+
+        self.task_queue.append((circuit, shots))
+
+    def run_tasks(self) -> list[Mapping[str, int]]:
+        """Execute all queued tasks and return parsed measurement results."""
+
+        results: list[Mapping[str, int]] = []
+        for circuit, shots in self.task_queue:
+            if self.hardware:
+                raw = self.hardware.run(circuit, shots=shots)
+                results.append(self.hardware.parse_counts(raw))
+            else:
+                raw = self._run_local(circuit, shots)
+                results.append(self._parse_local(raw))
+        self.task_queue.clear()
+        return results
+
+    def _run_local(self, circuit: Any, shots: int) -> Any:
+        if callable(circuit):
+            return circuit()
+        if hasattr(circuit, "simulate"):
+            return circuit.simulate(shots=shots)
+        return circuit
+
+    def _parse_local(self, result: Any) -> Mapping[str, int]:
+        if isinstance(result, Mapping):
+            return dict(result)
+        if hasattr(result, "get_counts"):
+            return dict(result.get_counts())
+        return {"result": result}
 
 
 __all__ = ["SuperpositionState", "EntanglementNetwork", "QuantumCognition"]
