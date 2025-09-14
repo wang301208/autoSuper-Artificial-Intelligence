@@ -1,4 +1,5 @@
 import logging
+from typing import Callable
 
 from autogpt.core.configuration import SystemConfiguration, UserConfigurable
 from autogpt.core.planning.schema import Task, TaskType
@@ -144,6 +145,7 @@ class InitialPlan(PromptStrategy):
         os_info: str,
         api_budget: float,
         current_time: str,
+        count_message_tokens: Callable[[ChatMessage | list[ChatMessage]], int] | None = None,
         **kwargs,
     ) -> ChatPrompt:
         template_kwargs = {
@@ -168,12 +170,16 @@ class InitialPlan(PromptStrategy):
         user_prompt = ChatMessage.user(
             self._user_prompt_template.format(**template_kwargs),
         )
+        messages = [system_prompt, user_prompt]
+        tokens_used = (
+            count_message_tokens(messages) if count_message_tokens is not None else 0
+        )
+        logger.debug(f"Constructed prompt uses {tokens_used} tokens")
 
         return ChatPrompt(
-            messages=[system_prompt, user_prompt],
+            messages=messages,
             functions=[self._create_plan_function],
-            # TODO:
-            tokens_used=0,
+            tokens_used=tokens_used,
         )
 
     def parse_response_content(

@@ -1,4 +1,5 @@
 import logging
+from typing import Callable
 
 from autogpt.core.configuration import SystemConfiguration, UserConfigurable
 from autogpt.core.prompting import PromptStrategy
@@ -106,18 +107,27 @@ class NameAndGoals(PromptStrategy):
     def model_classification(self) -> LanguageModelClassification:
         return self._model_classification
 
-    def build_prompt(self, user_objective: str = "", **kwargs) -> ChatPrompt:
+    def build_prompt(
+        self,
+        user_objective: str = "",
+        count_message_tokens: Callable[[ChatMessage | list[ChatMessage]], int] | None = None,
+        **kwargs,
+    ) -> ChatPrompt:
         system_message = ChatMessage.system(self._system_prompt_message)
         user_message = ChatMessage.user(
             self._user_prompt_template.format(
                 user_objective=user_objective,
             )
         )
+        messages = [system_message, user_message]
+        tokens_used = (
+            count_message_tokens(messages) if count_message_tokens is not None else 0
+        )
+        logger.debug(f"Constructed prompt uses {tokens_used} tokens")
         prompt = ChatPrompt(
-            messages=[system_message, user_message],
+            messages=messages,
             functions=[self._create_agent_function],
-            # TODO
-            tokens_used=0,
+            tokens_used=tokens_used,
         )
         return prompt
 

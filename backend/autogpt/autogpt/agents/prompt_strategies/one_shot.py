@@ -214,13 +214,17 @@ class OneShotAgentPromptStrategy(PromptStrategy):
                 ChatMessage.system(f"## Progress\n\n{progress}"),
             )
 
+        prompt_messages = [
+            ChatMessage.system(system_prompt),
+            ChatMessage.user(user_task),
+            *extra_messages,
+            final_instruction_msg,
+        ]
+        tokens_used = count_message_tokens(prompt_messages)
+        self.logger.debug(f"Constructed prompt uses {tokens_used} tokens")
         prompt = ChatPrompt(
-            messages=[
-                ChatMessage.system(system_prompt),
-                ChatMessage.user(user_task),
-                *extra_messages,
-                final_instruction_msg,
-            ],
+            messages=prompt_messages,
+            tokens_used=tokens_used,
         )
 
         return prompt

@@ -24,6 +24,7 @@ class LanguageModelClassification(str, enum.Enum):
 class ChatPrompt(BaseModel):
     messages: list[ChatMessage]
     functions: list[CompletionModelFunction] = Field(default_factory=list)
+    tokens_used: int = 0
 
     def raw(self) -> list[ChatMessageDict]:
         return [m.dict() for m in self.messages]
