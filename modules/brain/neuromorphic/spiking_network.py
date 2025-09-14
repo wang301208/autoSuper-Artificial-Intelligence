@@ -148,14 +148,20 @@ class SpikingNeuralNetwork:
         self.spike_times = [None] * n_neurons
         self.idle_skip = idle_skip
         self.energy_usage = 0
+        self.idle_skipped_cycles = 0
 
     def _run_internal(self, input_events, encoder=None, **encoder_kwargs):
         """Shared implementation for running the network."""
         queue = EventQueue()
+        self.energy_usage = 0
+        self.idle_skipped_cycles = 0
         if encoder is not None:
             for t, analog in enumerate(input_events):
-                for time, inputs in encoder(analog, t_start=t, **encoder_kwargs):
-                    queue.push(time, inputs)
+                if not self.idle_skip or any(analog):
+                    for time, inputs in encoder(analog, t_start=t, **encoder_kwargs):
+                        queue.push(time, inputs)
+                else:
+                    self.idle_skipped_cycles += 1
         elif input_events and (
             not isinstance(input_events[0], tuple)
             or len(input_events[0]) != 2
@@ -164,13 +170,16 @@ class SpikingNeuralNetwork:
             for t, inputs in enumerate(input_events):
                 if not self.idle_skip or any(inputs):
                     queue.push(t, inputs)
+                else:
+                    self.idle_skipped_cycles += 1
         else:
             for t, inputs in input_events:
                 if not self.idle_skip or any(inputs):
                     queue.push(t, inputs)
+                else:
+                    self.idle_skipped_cycles += 1
 
         outputs: List[Tuple[float, List[int]]] = []
-        self.energy_usage = 0
 
         while queue:
             time, inputs = queue.pop()
