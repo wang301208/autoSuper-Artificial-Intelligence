@@ -31,13 +31,20 @@ class MT:
 class VisualCortex:
     """Visual cortex with hierarchical processing areas."""
 
-    def __init__(self):
+    def __init__(self, spiking_backend=None):
         self.v1 = V1()
         self.v2 = V2()
         self.v4 = V4()
         self.mt = MT()
+        self.spiking_backend = spiking_backend
 
     def process(self, image):
+        if self.spiking_backend:
+            spikes = self.spiking_backend.run(image)
+            self.spiking_backend.synapses.adapt(
+                self.spiking_backend.spike_times, self.spiking_backend.spike_times
+            )
+            return spikes
         return {
             "edges": self.v1.process(image),
             "form": self.v2.process(image),
@@ -69,11 +76,18 @@ class A2:
 class AuditoryCortex:
     """Auditory cortex with primary and secondary areas."""
 
-    def __init__(self):
+    def __init__(self, spiking_backend=None):
         self.a1 = A1()
         self.a2 = A2()
+        self.spiking_backend = spiking_backend
 
     def process(self, sound):
+        if self.spiking_backend:
+            spikes = self.spiking_backend.run(sound)
+            self.spiking_backend.synapses.adapt(
+                self.spiking_backend.spike_times, self.spiking_backend.spike_times
+            )
+            return spikes
         return {
             "frequencies": self.a1.process(sound),
             "interpretation": self.a2.process(sound),
@@ -90,8 +104,15 @@ class TouchProcessor:
 class SomatosensoryCortex:
     """Somatosensory cortex for processing tactile information."""
 
-    def __init__(self):
+    def __init__(self, spiking_backend=None):
         self.processor = TouchProcessor()
+        self.spiking_backend = spiking_backend
 
     def process(self, stimulus):
+        if self.spiking_backend:
+            spikes = self.spiking_backend.run(stimulus)
+            self.spiking_backend.synapses.adapt(
+                self.spiking_backend.spike_times, self.spiking_backend.spike_times
+            )
+            return spikes
         return self.processor.process(stimulus)
