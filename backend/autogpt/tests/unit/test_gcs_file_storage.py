@@ -76,6 +76,11 @@ TEST_FILES: list[tuple[str | Path, str]] = [
     (Path(f"{NESTED_DIR}/test_file_4"), "test content 4"),
 ]
 
+PNG_CONTENT = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\nIDATx\xdac\xf8\x0f\x00\x01\x01\x01\x00\x18\xdd\xdc\x89\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
 
 @pytest_asyncio.fixture
 async def gcs_storage_with_files(gcs_storage: GCSFileStorage) -> GCSFileStorage:
@@ -135,6 +140,26 @@ def test_list_folders(gcs_storage_with_files: GCSFileStorage):
 async def test_write_read_file(gcs_storage: GCSFileStorage):
     await gcs_storage.write_file("test_file", "test_content")
     assert gcs_storage.read_file("test_file") == "test_content"
+
+
+@pytest.mark.asyncio
+async def test_write_read_common_file_types(gcs_storage: GCSFileStorage):
+    text_cases = [
+        ("example.txt", "plain text", "text/plain"),
+        ("data.json", "{}", "application/json"),
+    ]
+    for filename, content, expected_type in text_cases:
+        await gcs_storage.write_file(filename, content)
+        assert gcs_storage.read_file(filename) == content
+        blob = gcs_storage._get_blob(filename)
+        blob.reload()
+        assert blob.content_type == expected_type
+
+    await gcs_storage.write_file("image.png", PNG_CONTENT)
+    assert gcs_storage.read_file("image.png", binary=True) == PNG_CONTENT
+    blob = gcs_storage._get_blob("image.png")
+    blob.reload()
+    assert blob.content_type == "image/png"
 
 
 @pytest.mark.asyncio
