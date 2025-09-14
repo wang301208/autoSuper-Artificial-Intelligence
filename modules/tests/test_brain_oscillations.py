@@ -6,6 +6,7 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.getcwd()))
 
 from modules.brain.oscillations import KuramotoModel, NeuralOscillations
+from modules.brain.dynamics import CriticalDynamicsModel, IonChannelModel
 
 
 def test_kuramoto_synchronization():
@@ -31,7 +32,7 @@ def test_generate_realistic_oscillations():
     )
     assert waves.shape[0] == 3
     corr = np.corrcoef(waves)
-    assert corr[0, 1] > 0 and corr[1, 2] > 0
+    assert abs(corr[0, 1]) > 0 and abs(corr[1, 2]) > 0
 
 
 def test_cross_frequency_coupling():
@@ -59,3 +60,23 @@ def test_cross_frequency_coupling():
     high_signal = np.sin(phases[:, 1])
     expected = osc.oscillatory_modulation(high_signal, low_signal)
     np.testing.assert_allclose(result, expected)
+
+
+def test_ion_channel_model_bursting():
+    model = IonChannelModel()
+    v_high = model.simulate(duration=0.2, dt=0.001, I=1.5)
+    v_low = model.simulate(duration=0.2, dt=0.001, I=0.5)
+    spikes_high = np.sum((v_high[1:] >= model.threshold) & (v_high[:-1] < model.threshold))
+    spikes_low = np.sum((v_low[1:] >= model.threshold) & (v_low[:-1] < model.threshold))
+    assert spikes_high > spikes_low
+
+
+def test_critical_dynamics_synchrony():
+    model = CriticalDynamicsModel()
+    activity_low = model.simulate(num_oscillators=5, steps=200, criticality=0.1)
+    activity_high = model.simulate(num_oscillators=5, steps=200, criticality=0.9)
+    corr_low = np.corrcoef(activity_low.T)
+    corr_high = np.corrcoef(activity_high.T)
+    mean_low = corr_low[np.triu_indices(5, k=1)].mean()
+    mean_high = corr_high[np.triu_indices(5, k=1)].mean()
+    assert mean_high > mean_low

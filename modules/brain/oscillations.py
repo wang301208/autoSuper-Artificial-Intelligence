@@ -2,6 +2,8 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
+from .dynamics import CriticalDynamicsModel, IonChannelModel
+
 
 @dataclass
 class KuramotoModel:
@@ -199,6 +201,8 @@ class NeuralOscillations:
         self.theta_waves = self.ThetaGenerator()
         self.kuramoto = KuramotoModel()
         self.wilson_cowan = WilsonCowanModel()
+        self.ion_channel = IonChannelModel()
+        self.critical_dynamics = CriticalDynamicsModel()
 
     def generate_realistic_oscillations(
         self,
@@ -206,11 +210,23 @@ class NeuralOscillations:
         duration: float = 1.0,
         sample_rate: int = 1000,
         coupling_strength: float = 1.0,
+        stimulus: float = 1.5,
+        criticality: float = 1.0,
     ) -> np.ndarray:
-        """Generate synchronized oscillations using Wilson-Cowan and Kuramoto models."""
+        """Generate synchronized oscillations using multiple neural models.
+
+        The resulting signals combine Wilson-Cowan population dynamics,
+        ion-channel bursting and critical network modulation before phase
+        coupling via the Kuramoto model.
+        """
+
         dt = 1.0 / sample_rate
+        steps = int(duration / dt)
         E, I = self.wilson_cowan.simulate(duration=duration, dt=dt, P_e=1.25, P_i=0.5)
         base_wave = E - I
+        ion = self.ion_channel.simulate(duration=duration, dt=dt, I=stimulus)
+        ion /= np.max(np.abs(ion)) + 1e-6
+        activity = self.critical_dynamics.simulate(num_oscillators, steps, criticality)
         natural_freqs = np.linspace(30.0, 50.0, num_oscillators) * 2 * np.pi
         initial_phases = np.linspace(0, np.pi, num_oscillators)
         phases = self.kuramoto.simulate(
@@ -221,7 +237,8 @@ class NeuralOscillations:
             sample_rate,
         )
         return np.array([
-            base_wave * np.sin(phases[:, i]) for i in range(num_oscillators)
+            base_wave * ion * activity[:, i] * np.sin(phases[:, i])
+            for i in range(num_oscillators)
         ])
 
     def synchronize_regions(
