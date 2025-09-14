@@ -9,6 +9,10 @@ packages = [{ include = "agbenchmark" }]
 
 [tool.poetry.dependencies]
 python = { workspace = true }
+gspread = ">=5.12.4,<7.0.0"
+oauth2client = ">=4.1.3,<5.0.0"
+pandas = ">=2.0.3,<3.0.0"
+python-dotenv = ">=1.0.0,<2.0.0"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
