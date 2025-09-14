@@ -29,6 +29,10 @@ class TaskViewModel extends ChangeNotifier {
   }
 
   void deleteTask(int id) {
+    final taskExists = tasks.any((task) => task.id == id);
+    if (!taskExists) {
+      throw ArgumentError('Task with id $id not found');
+    }
     tasks.removeWhere((task) => task.id == id);
     notifyListeners();
   }
