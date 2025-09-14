@@ -130,6 +130,7 @@ class SpikingNeuralNetwork:
         refractory_period=0,
         dynamic_threshold=0.0,
         noise=None,
+        idle_skip=False,
     ):
         if weights is None:
             weights = [[1.0] * n_neurons for _ in range(n_neurons)]
@@ -144,6 +145,8 @@ class SpikingNeuralNetwork:
         )
         self.synapses = self.DynamicSynapses(weights)
         self.spike_times = [None] * n_neurons
+        self.idle_skip = idle_skip
+        self.energy_usage = 0
 
     def run(self, input_events, encoder=None, **encoder_kwargs):
         """Run the network using an event-driven simulation.
@@ -172,15 +175,19 @@ class SpikingNeuralNetwork:
             or not isinstance(input_events[0][0], (int, float))
         ):
             for t, inputs in enumerate(input_events):
-                queue.push(t, inputs)
+                if not self.idle_skip or any(inputs):
+                    queue.push(t, inputs)
         else:
             for t, inputs in input_events:
-                queue.push(t, inputs)
+                if not self.idle_skip or any(inputs):
+                    queue.push(t, inputs)
 
         outputs: List[Tuple[float, List[int]]] = []
+        self.energy_usage = 0
 
         while queue:
             time, inputs = queue.pop()
+            self.energy_usage += 1
             spikes = self.neurons.step(inputs)
             for idx, spike in enumerate(spikes):
                 if spike:
