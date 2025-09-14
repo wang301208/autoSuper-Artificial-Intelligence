@@ -63,7 +63,7 @@
 | `browse_spacy_language_model` | `"en_core_web_sm"` |  |
 | `memory_backend` | `"json_file"` |  |
 | `memory_index` | `"auto-gpt-memory"` |  |
-| `memory_embedding_strategy` | `"summary"` |  |
+| `memory_embedding_strategy` | `"weighted"` | Memory representation for search: `"summary"` or token-length `"weighted"` average of chunk embeddings. |
 | `redis_host` | `"localhost"` |  |
 | `redis_port` | `6379` |  |
 | `redis_password` | `""` |  |

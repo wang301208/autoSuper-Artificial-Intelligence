@@ -8,14 +8,15 @@ approaches:
 * **Weighted-average** – compute embeddings for each chunk of a document and use
   the token-length weighted average as the document representation.
 
-The benchmark (see `modules/benchmark/embedding_search_benchmark.py`) evaluated retrieval
-accuracy on a small corpus of animal facts. Results:
+The benchmark (`benchmarks/memory_embedding_strategy.py`) evaluated recall and
+latency on randomly generated embeddings. Results:
 
 ```
-Summary-based accuracy: 3/3
-Weighted-average accuracy: 3/3
-Chosen approach: summary-based
+Summary recall: 12%, latency: 0.0132s
+Weighted-average recall: 12%, latency: 0.0130s
+Chosen approach: weighted-average
 ```
 
-Both strategies performed similarly on this dataset; summary-based search is
-retained as the default for its simplicity and efficiency.
+Both strategies produced the same recall on this dataset, but the weighted
+average was marginally faster, so it is the default. You can switch strategies
+via the `memory_embedding_strategy` configuration option.
