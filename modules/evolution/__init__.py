@@ -7,6 +7,7 @@ from .evolving_cognitive_architecture import (
     EvolvingCognitiveArchitecture,
     GeneticAlgorithm as EvolutionGeneticAlgorithm,
 )
+from .self_evolving_cognition import SelfEvolvingCognition
 from .adapter import EvolutionModule
 
 try:  # optional dependencies
@@ -57,6 +58,7 @@ __all__ = [
     "ReplayBuffer",
     "EvolvingCognitiveArchitecture",
     "EvolutionGeneticAlgorithm",
+    "SelfEvolvingCognition",
     "PPO",
     "PPOConfig",
     "A3C",
