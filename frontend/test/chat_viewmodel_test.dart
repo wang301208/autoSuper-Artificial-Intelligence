@@ -1,47 +1,72 @@
+import 'package:auto_gpt_flutter_client/models/chat.dart';
 import 'package:auto_gpt_flutter_client/models/message_type.dart';
 import 'package:auto_gpt_flutter_client/viewmodels/chat_viewmodel.dart';
+import 'package:auto_gpt_flutter_client/viewmodels/mock_data.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-void main() {
-  // Initialize the ChatViewModel
-  // TODO: Dependency injection in view models for testing purposes when we implement services
-  final viewModel = ChatViewModel();
+class FakeChatService implements ChatService {
+  bool throwOnFetch = false;
+  bool throwOnSend = false;
 
+  @override
+  Future<List<Chat>> fetchChatsForTask(int taskId) async {
+    if (throwOnFetch) {
+      throw Exception('fetch error');
+    }
+    return mockChats.where((c) => c.taskId == taskId).toList();
+  }
+
+  @override
+  Future<Chat> sendChatMessage(int taskId, String message) async {
+    if (throwOnSend) {
+      throw Exception('send error');
+    }
+    return Chat(
+      id: mockChats.length + 1,
+      taskId: taskId,
+      message: 'reply',
+      timestamp: DateTime.now(),
+      messageType: MessageType.agent,
+    );
+  }
+}
+
+void main() {
   group('ChatViewModel', () {
-    test('fetch chats for a specific task', () {
-      viewModel
-          .fetchChatsForTask(1); // Assuming task with ID 1 exists in mock data
+    late ChatViewModel viewModel;
+    late FakeChatService service;
+
+    setUp(() {
+      service = FakeChatService();
+      viewModel = ChatViewModel(chatService: service);
+    });
+
+    test('fetch chats for a specific task', () async {
+      await viewModel.fetchChatsForTask(1);
       expect(viewModel.chats.isNotEmpty, true);
       expect(viewModel.chats.every((chat) => chat.taskId == 1), true);
     });
 
-    test('send chat message for a specific task', () {
+    test('send chat message for a specific task', () async {
       final initialChatsLength = viewModel.chats.length;
-      viewModel.sendChatMessage(1, 'Test message');
-      expect(viewModel.chats.length,
-          initialChatsLength + 2); // One user message and one agent reply
-      expect(viewModel.chats.last.messageType,
-          MessageType.agent); // Last message should be agent's reply
+      await viewModel.sendChatMessage(1, 'Test message');
+      expect(viewModel.chats.length, initialChatsLength + 2);
+      expect(viewModel.chats.last.messageType, MessageType.agent);
     });
 
-    // TODO: Refactor to return errors when we implement service
-    test('fetch chats for invalid task id', () {
-      viewModel.fetchChatsForTask(
-          9999); // Assuming task with ID 9999 does not exist in mock data
-      expect(
-          viewModel.chats.where((chat) => chat.taskId == 9999).isEmpty, true);
+    test('handles error when fetching chats', () async {
+      service.throwOnFetch = true;
+      await viewModel.fetchChatsForTask(1);
+      expect(viewModel.errorMessage, isNotNull);
+      expect(viewModel.chats, isEmpty);
     });
 
-    // TODO: Refactor to return errors when we implement service
-    test('send chat message for invalid task id', () {
+    test('handles error when sending chat message', () async {
+      service.throwOnSend = true;
       final initialChatsLength = viewModel.chats.length;
-      viewModel.sendChatMessage(9999, 'Invalid test message');
-      expect(
-          viewModel.chats.length,
-          initialChatsLength +
-              2); // Even for invalid tasks, we're currently adding mock replies
-      expect(viewModel.chats.last.messageType,
-          MessageType.agent); // Last message should be agent's reply
+      await viewModel.sendChatMessage(1, 'Test message');
+      expect(viewModel.errorMessage, isNotNull);
+      expect(viewModel.chats.length, initialChatsLength);
     });
   });
 }
