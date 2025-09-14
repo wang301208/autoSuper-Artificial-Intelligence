@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from typing import Any, Awaitable
 
 
@@ -71,3 +72,48 @@ def run_async(coro: Awaitable[Any]) -> Any:
         future = asyncio.run_coroutine_threadsafe(coro, loop)
         # 等待协程完成并返回结果
         return future.result()
+
+
+class AsyncTaskQueue:
+    """线程安全的异步任务队列。
+
+    该队列通过专用事件循环和 :class:`asyncio.Queue` 实现任务调度，
+    允许从任意线程提交协程而无需显式加锁。内部使用
+    ``asyncio.run_coroutine_threadsafe`` 将任务放入队列，从而利用
+    ``asyncio`` 的无锁队列特性保证线程安全。
+    """
+
+    def __init__(self, workers: int = 4) -> None:
+        self._loop = asyncio.new_event_loop()
+        self._queue: asyncio.Queue[Awaitable[Any]] = asyncio.Queue()
+        self._workers = workers
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+        # 启动指定数量的工作协程
+        for _ in range(self._workers):
+            self._submit_to_loop(self._worker())
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_forever()
+
+    def _submit_to_loop(self, coro: Awaitable[Any]) -> asyncio.Future:
+        return asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+    async def _worker(self) -> None:
+        while True:
+            task = await self._queue.get()
+            try:
+                await task
+            finally:
+                self._queue.task_done()
+
+    def submit(self, coro: Awaitable[Any]) -> None:
+        """提交协程任务到队列。"""
+
+        self._submit_to_loop(self._queue.put(coro))
+
+    def wait_all(self) -> None:
+        """等待所有已提交的任务完成。"""
+
+        self._submit_to_loop(self._queue.join()).result()
