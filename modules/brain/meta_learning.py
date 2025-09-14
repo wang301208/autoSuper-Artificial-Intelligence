@@ -109,6 +109,91 @@ class ReptileOptimizer:
         return w
 
 
+class FewShotAdapter:
+    """Light-weight adapter for incremental few-shot updates.
+
+    The adapter performs gradient steps on support data and retains the
+    last adapted weights to allow incremental updates instead of always
+    starting from scratch.
+    """
+
+    def __init__(self, inner_lr: float = 0.1, adapt_steps: int = 1) -> None:
+        self.inner_lr = inner_lr
+        self.adapt_steps = adapt_steps
+        self._prev: np.ndarray | None = None
+
+    def _loss_and_grad(self, w: np.ndarray, X: np.ndarray, y: np.ndarray) -> tuple[float, np.ndarray]:
+        preds = X @ w
+        diff = preds - y
+        loss = float(np.mean(diff ** 2))
+        grad = 2 * X.T @ diff / len(X)
+        return loss, grad
+
+    def adapt(self, w: np.ndarray, task: FewShotTask, incremental: bool = False) -> np.ndarray:
+        """Return weights adapted to ``task``.
+
+        If ``incremental`` is True and previous adapted weights exist, they
+        will be used as the starting point, enabling continual refinement of
+        knowledge across tasks.
+        """
+
+        start = self._prev if incremental and self._prev is not None else w
+        w_new = start.copy()
+        for _ in range(self.adapt_steps):
+            _, grad = self._loss_and_grad(w_new, task.support_x, task.support_y)
+            w_new -= self.inner_lr * grad
+        self._prev = w_new.copy()
+        return w_new
+
+
+class ContinualLearningEngine:
+    """Engine managing sequential task learning and forgetting evaluation."""
+
+    def __init__(self, input_dim: int, adapter: FewShotAdapter | None = None) -> None:
+        self.adapter = adapter or FewShotAdapter()
+        self.weights = np.zeros(input_dim)
+        self.task_history: List[FewShotTask] = []
+
+    def train_on_task(self, task: FewShotTask) -> float:
+        """Adapt to a new task incrementally and record its loss."""
+
+        self.weights = self.adapter.adapt(self.weights, task, incremental=True)
+        self.task_history.append(task)
+        loss, _ = self.adapter._loss_and_grad(self.weights, task.query_x, task.query_y)
+        return loss
+
+    def evaluate_forgetting(self) -> float:
+        """Return average loss over previously seen tasks."""
+
+        if len(self.task_history) <= 1:
+            return 0.0
+        losses = []
+        for t in self.task_history[:-1]:
+            loss, _ = self.adapter._loss_and_grad(self.weights, t.query_x, t.query_y)
+            losses.append(loss)
+        return float(np.mean(losses)) if losses else 0.0
+
+
+def cross_task_experiment(engine: ContinualLearningEngine, tasks: List[FewShotTask]) -> tuple[List[float], List[float]]:
+    """Run a simple cross-task continual learning experiment.
+
+    The engine is trained sequentially on ``tasks``.  After each task the
+    function records the transfer efficiency (loss improvement on the new
+    task) and the average forgetting across previously seen tasks.
+    """
+
+    transfer_eff: List[float] = []
+    forgetting: List[float] = []
+    for task in tasks:
+        before_loss, _ = engine.adapter._loss_and_grad(engine.weights, task.query_x, task.query_y)
+        engine.train_on_task(task)
+        after_loss, _ = engine.adapter._loss_and_grad(engine.weights, task.query_x, task.query_y)
+        transfer_eff.append(before_loss - after_loss)
+        forgetting.append(engine.evaluate_forgetting())
+    return transfer_eff, forgetting
+
+
+
 class MAMLEngine:
     """Simplified MAML style learner with memory and reflection."""
 
@@ -139,7 +224,7 @@ class MAMLEngine:
     def _adapt(self, w: np.ndarray, task: FewShotTask, steps: int | None = None) -> np.ndarray:
         """Inner-loop adaptation on the support set."""
 
-        steps = steps or self.adapt_steps
+        steps = self.adapt_steps if steps is None else steps
         w = w.copy()
         for _ in range(steps):
             _, grad = self._loss_and_grad(w, task.support_x, task.support_y)
@@ -180,8 +265,13 @@ class MAMLEngine:
         :class:`SelfReflectionModule`.
         """
 
-        before_loss, _ = self._loss_and_grad(self.weights, task.query_x, task.query_y)
-        adapted = self._adapt(self.weights, task, steps)
+        # Try to leverage past experience by initialising from the best
+        # previously seen weights if available.  This enables incremental
+        # updates rather than relearning from scratch for every task.
+        record = self.memory.recall_best()
+        start_w = record["weights"].copy() if record is not None else self.weights
+        before_loss, _ = self._loss_and_grad(start_w, task.query_x, task.query_y)
+        adapted = self._adapt(start_w, task, steps)
         after_loss, _ = self._loss_and_grad(adapted, task.query_x, task.query_y)
         self.memory.store({"loss": after_loss, "weights": adapted.copy()})
         reflection = self.reflection.assess(before_loss, after_loss)
@@ -193,5 +283,8 @@ __all__ = [
     "MetaMemorySystem",
     "SelfReflectionModule",
     "ReptileOptimizer",
+    "FewShotAdapter",
+    "ContinualLearningEngine",
+    "cross_task_experiment",
     "MAMLEngine",
 ]
