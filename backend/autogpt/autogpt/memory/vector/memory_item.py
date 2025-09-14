@@ -51,11 +51,17 @@ class MemoryItem(BaseModel, arbitrary_types_allowed=True):
     chunks: list[str]
     chunk_summaries: list[str]
     e_summary: Embedding
+    e_weighted: Embedding
     e_chunks: list[Embedding]
     metadata: dict
 
-    def relevance_for(self, query: str, e_query: Embedding | None = None):
-        return MemoryItemRelevance.of(self, query, e_query)
+    def relevance_for(
+        self,
+        query: str,
+        e_query: Embedding | None = None,
+        strategy: Literal["summary", "weighted"] = "summary",
+    ):
+        return MemoryItemRelevance.of(self, query, e_query, strategy)
 
     def dump(self, calculate_length=False) -> str:
         n_chunks = len(self.e_chunks)
@@ -84,6 +90,14 @@ Metadata: {json.dumps(self.metadata, indent=2)}
                 other.e_summary
                 if isinstance(other.e_summary, np.ndarray)
                 else np.array(other.e_summary, dtype=np.float32),
+            )
+            and np.array_equal(
+                self.e_weighted
+                if isinstance(self.e_weighted, np.ndarray)
+                else np.array(self.e_weighted, dtype=np.float32),
+                other.e_weighted
+                if isinstance(other.e_weighted, np.ndarray)
+                else np.array(other.e_weighted, dtype=np.float32),
             )
             and np.array_equal(
                 self.e_chunks
@@ -156,6 +170,9 @@ class MemoryItemFactory:
 
         e_chunks = await get_embedding(chunks, config, self.embedding_provider)
 
+        weights = [len(c) for c in chunks]
+        e_weighted = np.average(e_chunks, axis=0, weights=weights)
+
         summary = (
             chunk_summaries[0]
             if len(chunks) == 1
@@ -183,6 +200,7 @@ class MemoryItemFactory:
             chunks=chunks,
             chunk_summaries=chunk_summaries,
             e_summary=e_summary,
+            e_weighted=e_weighted,
             e_chunks=e_chunks,
             metadata=metadata,
         )
@@ -285,6 +303,9 @@ class MemoryItemFactory:
         ]
         e_chunks = await get_embedding(chunks, config, self.embedding_provider)
 
+        weights = [len(c) for c in chunks]
+        e_weighted = np.average(e_chunks, axis=0, weights=weights)
+
         summary = (
             chunk_summaries[0]
             if len(chunks) == 1
@@ -312,6 +333,7 @@ class MemoryItemFactory:
             chunks=chunks,
             chunk_summaries=chunk_summaries,
             e_summary=e_summary,
+            e_weighted=e_weighted,
             e_chunks=e_chunks,
             metadata=metadata,
         )
@@ -376,10 +398,15 @@ class MemoryItemRelevance(BaseModel):
 
     @staticmethod
     def of(
-        memory_item: MemoryItem, for_query: str, e_query: Embedding | None = None
+        memory_item: MemoryItem,
+        for_query: str,
+        e_query: Embedding | None = None,
+        strategy: Literal["summary", "weighted"] = "summary",
     ) -> MemoryItemRelevance:
         e_query = e_query if e_query is not None else get_embedding(for_query)
-        _, srs, crs = MemoryItemRelevance.calculate_scores(memory_item, e_query)
+        _, srs, crs = MemoryItemRelevance.calculate_scores(
+            memory_item, e_query, strategy
+        )
         return MemoryItemRelevance(
             for_query=for_query,
             memory_item=memory_item,
@@ -389,7 +416,9 @@ class MemoryItemRelevance(BaseModel):
 
     @staticmethod
     def calculate_scores(
-        memory: MemoryItem, compare_to: Embedding
+        memory: MemoryItem,
+        compare_to: Embedding,
+        strategy: Literal["summary", "weighted"] = "summary",
     ) -> tuple[float, float, list[float]]:
         """
         Calculates similarity between given embedding and all embeddings of the memory
@@ -399,7 +428,8 @@ class MemoryItemRelevance(BaseModel):
             float: the relevance score of the memory summary
             list: the relevance scores of the memory chunks
         """
-        summary_relevance_score = np.dot(memory.e_summary, compare_to)
+        base_embedding = memory.e_weighted if strategy == "weighted" else memory.e_summary
+        summary_relevance_score = np.dot(base_embedding, compare_to)
         chunk_relevance_scores = np.dot(memory.e_chunks, compare_to).tolist()
         logger.debug(f"Relevance of summary: {summary_relevance_score}")
         logger.debug(f"Relevance of chunks: {chunk_relevance_scores}")

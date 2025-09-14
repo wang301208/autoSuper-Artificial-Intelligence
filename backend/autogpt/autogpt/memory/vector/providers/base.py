@@ -69,7 +69,10 @@ class VectorMemoryProvider(MutableSet[MemoryItem]):
         Implementations may override this function for performance purposes.
         """
         e_query: Embedding = get_embedding(for_query, config)
-        return [m.relevance_for(for_query, e_query) for m in self]
+        return [
+            m.relevance_for(for_query, e_query, config.memory_embedding_strategy)
+            for m in self
+        ]
 
     def get_stats(self) -> tuple[int, int]:
         """
