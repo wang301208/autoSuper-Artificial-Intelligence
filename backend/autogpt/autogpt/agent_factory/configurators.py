@@ -1,5 +1,7 @@
 from typing import Optional, TYPE_CHECKING
 
+from forge.sdk.model import Task
+
 from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
 from autogpt.commands import COMMAND_CATEGORIES
 from autogpt.config import AIDirectives, AIProfile, Config
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 
 def create_agent(
     agent_id: str,
-    task: str,
+    task: Task,
     ai_profile: AIProfile,
     app_config: Config,
     file_storage: FileStorage,
@@ -28,7 +30,7 @@ def create_agent(
     knowledge_base: "UnifiedKnowledgeBase" | None = None,
     decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
-    if not task:
+    if not task or not task.input:
         raise ValueError("No task specified for new agent")
     if not directives:
         directives = AIDirectives.from_file(app_config.prompt_settings_file)
@@ -74,7 +76,7 @@ def _configure_agent(
     llm_provider: ChatModelProvider,
     file_storage: FileStorage,
     agent_id: str = "",
-    task: str = "",
+    task: Task | None = None,
     ai_profile: Optional[AIProfile] = None,
     directives: Optional[AIDirectives] = None,
     state: Optional[AgentSettings] = None,
@@ -82,7 +84,7 @@ def _configure_agent(
     knowledge_base: "UnifiedKnowledgeBase" | None = None,
     decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
-    if not (state or agent_id and task and ai_profile and directives):
+    if not (state or (agent_id and task and ai_profile and directives)):
         raise TypeError(
             "Either (state) or (agent_id, task, ai_profile, directives)"
             " must be specified"
@@ -121,7 +123,7 @@ def _configure_agent(
 
 def create_agent_state(
     agent_id: str,
-    task: str,
+    task: Task,
     ai_profile: AIProfile,
     directives: AIDirectives,
     app_config: Config,

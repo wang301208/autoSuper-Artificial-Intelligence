@@ -144,7 +144,7 @@ class AgentProtocolServer:
         logger.debug(f"Creating agent for task: '{task.input}'")
         task_agent = await generate_agent_for_task(
             agent_id=task_agent_id(task.task_id),
-            task=task.input,
+            task=task,
             app_config=self.app_config,
             file_storage=self.file_storage,
             llm_provider=self._get_task_llm_provider(task),

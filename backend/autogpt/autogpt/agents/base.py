@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING, Any, Optional
 import time
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
+from datetime import datetime
+from uuid import uuid4
 from pydantic import Field, validator
 from events import EventBus, create_event_bus
 from events.client import EventClient
 from events.coordination import TaskStatus, TaskStatusEvent
+from forge.sdk.model import Task
 
 if TYPE_CHECKING:
     from autogpt.config import Config
@@ -156,8 +159,17 @@ class BaseAgentSettings(SystemSettings):
     )
     """Directives (general instructional guidelines) for the agent."""
 
-    task: str = "Terminate immediately"  # FIXME: placeholder for forge.sdk.schema.Task
-    """The user-given task that the agent is working on."""
+    task: Task = Field(
+        default_factory=lambda: Task(
+            input="Terminate immediately",
+            additional_input=None,
+            created_at=datetime.now(),
+            modified_at=datetime.now(),
+            task_id=str(uuid4()),
+            artifacts=[],
+        ),
+        description="The user-given task that the agent is working on.",
+    )
 
     config: BaseAgentConfiguration = Field(default_factory=BaseAgentConfiguration)
     """The configuration for this BaseAgent subsystem instance."""

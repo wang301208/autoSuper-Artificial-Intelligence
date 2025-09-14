@@ -7,6 +7,7 @@ from logging import Logger
 from typing import TYPE_CHECKING, Callable, Optional
 
 import distro
+from forge.sdk.model import Task
 
 if TYPE_CHECKING:
     from autogpt.agents.agent import Agent
@@ -156,7 +157,7 @@ class OneShotAgentPromptStrategy(PromptStrategy):
     def build_prompt(
         self,
         *,
-        task: str,
+        task: Task,
         ai_profile: AIProfile,
         ai_directives: AIDirectives,
         commands: list[CompletionModelFunction],
@@ -185,7 +186,7 @@ class OneShotAgentPromptStrategy(PromptStrategy):
         )
         system_prompt_tlength = count_message_tokens(ChatMessage.system(system_prompt))
 
-        user_task = f'"""{task}"""'
+        user_task = f'"""{task.input}"""'
         user_task_tlength = count_message_tokens(ChatMessage.user(user_task))
 
         response_format_instr = self.response_format_instruction(

@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING, Optional
 
 from colorama import Fore, Style
 from forge.sdk.db import AgentDB
+from forge.sdk.model import Task
+from datetime import datetime
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from autogpt.agents.agent import Agent
@@ -278,13 +281,22 @@ async def run_auto_gpt(
     # Set up a new Agent #
     ######################
     if not agent:
-        task = ""
-        while task.strip() == "":
-            task = clean_input(
+        task_input = ""
+        while task_input.strip() == "":
+            task_input = clean_input(
                 config,
                 "Enter the task that you want AutoGPT to execute,"
                 " with as much detail as possible:",
             )
+
+        task = Task(
+            input=task_input,
+            additional_input=None,
+            created_at=datetime.now(),
+            modified_at=datetime.now(),
+            task_id=str(uuid4()),
+            artifacts=[],
+        )
 
         base_ai_directives = AIDirectives.from_file(config.prompt_settings_file)
 

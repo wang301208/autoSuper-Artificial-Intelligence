@@ -2,6 +2,8 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from datetime import datetime
+from uuid import uuid4
 
 from autogpt.agent_manager.agent_manager import AgentManager
 from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
@@ -12,6 +14,7 @@ from autogpt.file_storage import FileStorageBackendName, get_storage
 from autogpt.logs.config import configure_logging
 from autogpt.models.command_registry import CommandRegistry
 from common.async_utils import run_async
+from forge.sdk.model import Task
 
 LOG_DIR = Path(__file__).parent / "logs"
 
@@ -42,12 +45,22 @@ def bootstrap_agent(task: str, continuous_mode: bool) -> Agent:
         ai_goals=[task],
     )
 
+    task_model = Task(
+        input=task,
+        additional_input=None,
+        created_at=datetime.now(),
+        modified_at=datetime.now(),
+        task_id=str(uuid4()),
+        artifacts=[],
+    )
+
     agent_prompt_config = Agent.default_settings.prompt_config.copy(deep=True)
     agent_prompt_config.use_functions_api = config.openai_functions
     agent_settings = AgentSettings(
         name=Agent.default_settings.name,
         agent_id=AgentManager.generate_id("AutoGPT-benchmark"),
         description=Agent.default_settings.description,
+        task=task_model,
         ai_profile=ai_profile,
         config=AgentConfiguration(
             fast_llm=config.fast_llm,
