@@ -168,11 +168,14 @@ class MemoryItemFactory:
         ]
         logger.debug("Chunk summaries: " + str(chunk_summaries))
 
-        e_chunks = await get_embedding(chunks, config, self.embedding_provider)
+        e_chunks_list = await get_embedding(chunks, config, self.embedding_provider)
+        e_chunks = np.array(e_chunks_list, dtype=np.float32)
 
         # Weight chunk embeddings by token count to capture their relative size
         chunk_token_lengths = [len(tokenizer.encode(c)) for c in chunks]
-        e_weighted = np.average(e_chunks, axis=0, weights=chunk_token_lengths)
+        e_weighted = np.average(e_chunks, axis=0, weights=chunk_token_lengths).astype(
+            np.float32
+        )
 
         summary = (
             chunk_summaries[0]
@@ -191,7 +194,10 @@ class MemoryItemFactory:
 
         # TODO: investigate search performance of weighted average vs summary
         # e_average = np.average(e_chunks, axis=0, weights=[len(c) for c in chunks])
-        e_summary = await get_embedding(summary, config, self.embedding_provider)
+        e_summary = np.array(
+            await get_embedding(summary, config, self.embedding_provider),
+            dtype=np.float32,
+        )
 
         metadata["source_type"] = source_type
 

@@ -33,6 +33,7 @@ Configuration is controlled through the `Config` object. You can set configurati
 - `IMAGE_SIZE`: Default size of image to generate. Default: 256
 - `MEMORY_BACKEND`: Memory back-end to use. Options are `json_file`, `redis`, and `no_memory`. Default: json_file
 - `MEMORY_INDEX`: Value used in the Memory backend for scoping, naming, or indexing. Default: auto-gpt
+- `MEMORY_EMBEDDING_STRATEGY`: Representation for stored memories. Options: `summary` or `weighted`. Default: weighted
 - `OPENAI_API_KEY`: *REQUIRED*- Your [OpenAI API Key](https://platform.openai.com/account/api-keys).
 - `OPENAI_ORGANIZATION`: Organization ID in OpenAI. Optional.
 - `PLAIN_OUTPUT`: Plain output, which disables the spinner. Default: False
