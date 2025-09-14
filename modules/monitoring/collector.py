@@ -7,6 +7,8 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 import time
 
+from backend.monitoring import PerformanceMonitor
+
 try:
     import psutil  # type: ignore
 except Exception:  # pragma: no cover - psutil optional
@@ -36,8 +38,13 @@ class RealTimeMetricsCollector:
         event = collector.end("module")
     """
 
-    def __init__(self, detector: Optional[BottleneckDetector] = None) -> None:
+    def __init__(
+        self,
+        detector: Optional[BottleneckDetector] = None,
+        monitor: PerformanceMonitor | None = None,
+    ) -> None:
         self._detector = detector
+        self._monitor = monitor
         self._events: List[MetricEvent] = []
         self._starts: Dict[str, tuple[float, float]] = {}
         self._counts: Dict[str, int] = defaultdict(int)
@@ -61,10 +68,15 @@ class RealTimeMetricsCollector:
         latency = end_time - start_time
 
         energy = 0.0
+        cpu_percent = 0.0
+        mem_percent = 0.0
         if self._process is not None:
             cpu = self._process.cpu_times()
             end_cpu = cpu.user + cpu.system
             energy = max(end_cpu - start_cpu, 0.0)
+            if latency > 0:
+                cpu_percent = max((end_cpu - start_cpu) / latency * 100.0, 0.0)
+            mem_percent = self._process.memory_percent()
 
         self._counts[module] += items
         throughput = 0.0
@@ -82,6 +94,10 @@ class RealTimeMetricsCollector:
 
         if self._detector is not None:
             self._detector.record(module, latency)
+
+        if self._monitor is not None:
+            self._monitor.log_resource_usage(module, cpu_percent, mem_percent)
+            self._monitor.log_task_completion(module)
 
         return event
 
