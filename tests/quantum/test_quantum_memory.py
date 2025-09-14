@@ -7,7 +7,8 @@ import pytest
 # Ensure repo root in path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from modules.brain.quantum.quantum_cognition import QuantumMemory, QuantumCognition, SuperpositionState
+from modules.brain.quantum.quantum_cognition import QuantumCognition, SuperpositionState
+from modules.brain.quantum.quantum_memory import QuantumMemory
 
 
 def test_store_and_retrieve():

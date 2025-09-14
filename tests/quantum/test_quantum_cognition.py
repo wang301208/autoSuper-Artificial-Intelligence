@@ -10,10 +10,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 
 from modules.brain.quantum.quantum_cognition import (
     EntanglementNetwork,
-    QuantumMemory,
     QuantumCognition,
     SuperpositionState,
 )
+from modules.brain.quantum.quantum_memory import QuantumMemory
 
 
 def test_superposition_probabilities():
