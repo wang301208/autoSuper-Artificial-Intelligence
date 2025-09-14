@@ -1,6 +1,7 @@
 import json
 import logging
 
+from forge.sdk.model import Task
 from autogpt.config import AIDirectives, AIProfile, Config
 from autogpt.core.configuration import SystemConfiguration, UserConfigurable
 from autogpt.core.prompting import (
@@ -219,7 +220,7 @@ class AgentProfileGenerator(PromptStrategy):
 
 
 async def generate_agent_profile_for_task(
-    task: str,
+    task: Task,
     app_config: Config,
     llm_provider: ChatModelProvider,
 ) -> tuple[AIProfile, AIDirectives]:
@@ -232,7 +233,7 @@ async def generate_agent_profile_for_task(
         **AgentProfileGenerator.default_configuration.dict()  # HACK
     )
 
-    prompt = agent_profile_generator.build_prompt(task)
+    prompt = agent_profile_generator.build_prompt(task.input)
 
     # Call LLM with the string as user input
     output = await llm_provider.create_chat_completion(

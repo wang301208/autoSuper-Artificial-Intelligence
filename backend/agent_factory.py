@@ -18,6 +18,8 @@ import hashlib
 import logging
 from functools import lru_cache
 from json import JSONDecodeError
+from datetime import datetime
+from uuid import uuid4
 
 import aiofiles
 import yaml
@@ -31,6 +33,7 @@ from autogpt.config.ai_directives import AIDirectives
 from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.models.command_registry import CommandRegistry
+from forge.sdk.model import Task
 
 from autogpts.autogpt.autogpt.core.errors import (
     AutoGPTError,
@@ -190,9 +193,18 @@ def create_agent_from_blueprint(
     knowledge_base = UnifiedKnowledgeBase() if enable_kb else None
     decision_engine = DecisionEngine() if enable_de else None
 
+    task_model = Task(
+        input=blueprint["core_prompt"],
+        additional_input=None,
+        created_at=datetime.now(),
+        modified_at=datetime.now(),
+        task_id=str(uuid4()),
+        artifacts=[],
+    )
+
     agent = create_agent(
         agent_id=blueprint["role_name"],
-        task=blueprint["core_prompt"],
+        task=task_model,
         ai_profile=profile,
         directives=directives,
         app_config=config,

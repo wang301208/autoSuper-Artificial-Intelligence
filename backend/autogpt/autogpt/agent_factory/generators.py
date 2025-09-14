@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from autogpt.config.ai_directives import AIDirectives
 from autogpt.file_storage.base import FileStorage
+from forge.sdk.model import Task
 
 from .configurators import _configure_agent
 from .profile_generator import generate_agent_profile_for_task
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 async def generate_agent_for_task(
     agent_id: str,
-    task: str,
+    task: Task,
     app_config: Config,
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
