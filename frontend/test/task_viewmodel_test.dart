@@ -1,5 +1,6 @@
 import 'package:auto_gpt_flutter_client/viewmodels/task_viewmodel.dart';
 import 'package:auto_gpt_flutter_client/viewmodels/mock_data.dart';
+import 'package:auto_gpt_flutter_client/models/task.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -8,6 +9,12 @@ void main() {
 
     setUp(() {
       viewModel = TaskViewModel();
+      mockTasks
+        ..clear()
+        ..addAll([
+          Task(id: 1, title: 'Sample Task 1'),
+          Task(id: 2, title: 'Sample Task 2'),
+        ]);
     });
 
     test('Fetches tasks successfully', () {
@@ -63,10 +70,10 @@ void main() {
     });
 
     test('Deletes a task with invalid id', () {
-      // TODO: Update this test to expect an error once we have TaskService implemented
+      viewModel.fetchTasks();
       final initialCount = viewModel.tasks.length;
-      viewModel.deleteTask(9999); // Assuming no task with this id exists
-      expect(viewModel.tasks.length, initialCount); // Count remains same
+      expect(() => viewModel.deleteTask(9999), throwsA(isA<ArgumentError>()));
+      expect(viewModel.tasks.length, initialCount);
     });
 
     test('Select a task that doesn\'t exist', () {
