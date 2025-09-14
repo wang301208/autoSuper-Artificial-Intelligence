@@ -25,6 +25,7 @@ jobs:
       - name: Generate configuration reference
         run: |
           python scripts/generate_user_config_docs.py --output docs/configuration.md
+          git diff --exit-code docs/configuration.md
 
       - name: Build documentation
         run: |

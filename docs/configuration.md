@@ -63,7 +63,7 @@
 | `browse_spacy_language_model` | `"en_core_web_sm"` |  |
 | `memory_backend` | `"json_file"` |  |
 | `memory_index` | `"auto-gpt-memory"` |  |
-| `memory_embedding_strategy` | `"weighted"` | Memory representation for search: `"summary"` or token-length `"weighted"` average of chunk embeddings. |
+| `memory_embedding_strategy` | `"weighted"` |  |
 | `redis_host` | `"localhost"` |  |
 | `redis_port` | `6379` |  |
 | `redis_password` | `""` |  |
@@ -229,6 +229,12 @@
 | `log_format` | `LogFormatName.SIMPLE` |  |
 | `plain_console_output` | `False` |  |
 | `log_file_format` | `LogFormatName.SIMPLE` |  |
+
+## `models.action_history.ActionHistoryConfiguration`
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `summary_max_tlength` | `1000` | Maximum token length for the action history summary. |
 
 ## `speech.eleven_labs.ElevenLabsConfig`
 
