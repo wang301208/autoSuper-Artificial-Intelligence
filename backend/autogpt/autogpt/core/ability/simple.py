@@ -1,7 +1,4 @@
-import importlib
 import logging
-import subprocess
-import sys
 from typing import ClassVar
 
 import inflection
@@ -21,6 +18,7 @@ from autogpt.core.resource.model_providers.schema import (
 from autogpt.core.utils.json_schema import JSONSchema
 from autogpt.core.workspace.base import Workspace
 from autogpt.core.multimodal import MultimodalInput, embed_multimodal_input
+from modules.deps import ModernDependencyManager
 
 
 class SelfAssess(Ability):
@@ -129,6 +127,7 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
         self._memory = memory
         self._workspace = workspace
         self._model_providers = model_providers
+        self._dependency_manager = ModernDependencyManager(logger)
         self._abilities: list[Ability] = []
         for (
             ability_name,
@@ -145,27 +144,9 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
             "configuration": ability_configuration,
         }
         if ability_configuration.packages_required:
-            for package in ability_configuration.packages_required:
-                try:
-                    importlib.import_module(package)
-                except ImportError:
-                    self._logger.warning(
-                        "Required package '%s' is not installed. Attempting installation.",
-                        package,
-                    )
-                    try:
-                        subprocess.run(
-                            [sys.executable, "-m", "pip", "install", package],
-                            check=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                        )
-                    except subprocess.CalledProcessError:
-                        self._logger.warning(
-                            "Failed to install package '%s'. Ability '%s' may not work properly.",
-                            package,
-                            ability_name,
-                        )
+            self._dependency_manager.ensure_all(
+                ability_configuration.packages_required
+            )
         if ability_configuration.memory_provider_required:
             ability_args["memory"] = self._memory
         if ability_configuration.workspace_required:
