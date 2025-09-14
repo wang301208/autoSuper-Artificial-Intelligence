@@ -6,6 +6,7 @@ from autogpt.core.configuration.schema import (
     UserConfigurable,
 )
 from .learning import LearningConfiguration, LearningSettings
+from .registry import ConfigRegistry
 
 __all__ = [
     "Configurable",
@@ -14,4 +15,5 @@ __all__ = [
     "UserConfigurable",
     "LearningConfiguration",
     "LearningSettings",
+    "ConfigRegistry",
 ]
