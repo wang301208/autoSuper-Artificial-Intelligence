@@ -4,6 +4,7 @@ from .cerebellum import Cerebellum
 from .limbic import LimbicSystem
 from .oscillations import NeuralOscillations
 from .whole_brain import WholeBrainSimulation
+from .message_bus import publish_neural_event, subscribe_to_brain_region
 
 __all__ = [
     "VisualCortex",
@@ -14,4 +15,6 @@ __all__ = [
     "LimbicSystem",
     "NeuralOscillations",
     "WholeBrainSimulation",
+    "publish_neural_event",
+    "subscribe_to_brain_region",
 ]
