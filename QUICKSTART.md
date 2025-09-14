@@ -39,12 +39,12 @@
    - 在终端中运行 `cd AutoGPT`（或你克隆的仓库名称）以进入项目根目录。
 
 4. **设置项目**
-    接下来我们需要安装所需依赖。我们提供了一个工具帮助你完成仓库中的所有任务。在终端输入 `./run` 即可访问。
+    接下来我们需要安装所需依赖。我们提供了一个工具帮助你完成仓库中的所有任务。在终端输入 `python scripts/cli.py` 或 `./scripts/run` 即可访问。
 
-    首个需要使用的命令是 `./run setup`，它会引导你完成系统设置。
+    首个需要使用的命令是 `python scripts/cli.py setup`（或 `./scripts/run setup`），它会引导你完成系统设置。
     最初你会收到安装 flutter、chrome 以及设置 GitHub 访问令牌的指示，如下图所示：
 
-    > 注意：对于高级用户，GitHub 访问令牌仅在运行 `./run arena enter` 命令时需要，以便系统能自动创建 PR
+    > 注意：对于高级用户，GitHub 访问令牌仅在运行 `python scripts/cli.py arena enter`（或 `./scripts/run arena enter`）命令时需要，以便系统能自动创建 PR
 
     ![Setup the Project](docs/content/imgs/quickstart/005_setup.png)
 
@@ -66,17 +66,17 @@ wsl --install
 更多详细信息和额外步骤请参阅[微软的 WSL 环境设置文档](https://learn.microsoft.com/en-us/windows/wsl/setup/environment)。
 
 #### 解决 FileNotFoundError 或 “No such file or directory” 错误
-运行 `./run setup` 时，如果遇到 `No such file or directory` 或 `FileNotFoundError` 等错误，可能是因为 Windows 风格的行结尾（CRLF）与 Unix/Linux 风格的行结尾（LF）不兼容。
+运行 `python scripts/cli.py setup`（或 `./scripts/run setup`）时，如果遇到 `No such file or directory` 或 `FileNotFoundError` 等错误，可能是因为 Windows 风格的行结尾（CRLF）与 Unix/Linux 风格的行结尾（LF）不兼容。
 
 要解决此问题，可以使用 `dos2unix` 工具将脚本中的行结尾从 CRLF 转换为 LF。安装并运行 `dos2unix` 的方法如下：
 
 ```shell
 sudo apt update
 sudo apt install dos2unix
-dos2unix ./run
+dos2unix scripts/run
 ```
 
-执行上述命令后，运行 `./run setup` 应该就能成功。
+执行上述命令后，运行 `python scripts/cli.py setup` 或 `./scripts/run setup` 应该就能成功。
 
 #### 将项目文件存储在 WSL 文件系统内
 如果问题仍然存在，请考虑将项目文件存储在 WSL 文件系统中，而非 Windows 文件系统。这能避免路径转换和权限相关的问题，并提供更一致的开发环境。
@@ -89,7 +89,7 @@ dos2unix ./run
 ## 创建你的代理
 
 完成设置后，下一步是创建代理模板。
-执行命令 `./run agent create YOUR_AGENT_NAME`，其中 `YOUR_AGENT_NAME` 替换为你选择的名称。
+执行命令 `python scripts/cli.py agent create YOUR_AGENT_NAME`（或 `./scripts/run agent create YOUR_AGENT_NAME`），其中 `YOUR_AGENT_NAME` 替换为你选择的名称。
 
 命名代理的提示：
 * 给它一个独特的名字，或以你的名字命名
@@ -101,7 +101,7 @@ dos2unix ./run
 
 ### 可选：进入 Arena
 
-进入 Arena 是可选步骤，适用于希望参与代理排行榜的用户。如果你决定参与，可运行 `./run arena enter YOUR_AGENT_NAME` 进入 Arena。此步骤对代理的开发或测试并非必需。
+进入 Arena 是可选步骤，适用于希望参与代理排行榜的用户。如果你决定参与，可运行 `python scripts/cli.py arena enter YOUR_AGENT_NAME`（或 `./scripts/run arena enter YOUR_AGENT_NAME`）进入 Arena。此步骤对代理的开发或测试并非必需。
 
 名称如 `agent`、`ExampleAgent`、`test_agent` 或 `MyExampleGPT` 的条目不会被合并。我们也不接受使用其他项目名称的模仿条目，如 `AutoGPT` 或 `evo.ninja`。
 
@@ -124,7 +124,7 @@ dos2unix ./run
 
 ## 运行你的代理
 
-使用 `./run agent start YOUR_AGENT_NAME` 可以启动代理。
+使用 `python scripts/cli.py agent start YOUR_AGENT_NAME`（或 `./scripts/run agent start YOUR_AGENT_NAME`）可以启动代理。
 
 它会在 `http://localhost:8000/` 上启动代理。
 
@@ -140,14 +140,14 @@ dos2unix ./run
 
 使用完代理或需要重启时，按 Ctrl-C 结束会话，然后重新运行启动命令。
 
-如果遇到问题并想确保代理已停止，可以使用 `./run agent stop`，该命令会终止占用 8000 端口的进程，即该代理。
+如果遇到问题并想确保代理已停止，可以使用 `python scripts/cli.py agent stop`（或 `./scripts/run agent stop`），该命令会终止占用 8000 端口的进程，即该代理。
 
 ## 为代理运行基准测试
 
 基准测试系统同样可通过 CLI 访问：
 
 ```bash
-agpt % ./run benchmark
+agpt % python scripts/cli.py benchmark
 Usage: cli.py benchmark [OPTIONS] COMMAND [ARGS]...
 
   Commands to start the benchmark and list tests and categories
@@ -159,7 +159,7 @@ Commands:
   categories  Benchmark categories group command
   start       Starts the benchmark command
   tests       Benchmark tests group command
-agpt % ./run benchmark categories
+agpt % python scripts/cli.py benchmark categories
 Usage: cli.py benchmark categories [OPTIONS] COMMAND [ARGS]...
 
   Benchmark categories group command
@@ -169,7 +169,7 @@ Options:
 
 Commands:
   list  List benchmark categories command
-agpt % ./run benchmark tests
+agpt % python scripts/cli.py benchmark tests
 Usage: cli.py benchmark tests [OPTIONS] COMMAND [ARGS]...
 
   Benchmark tests group command
@@ -184,9 +184,9 @@ Commands:
 
 基准测试被划分为不同技能类别，可用于测试你的代理。使用以下命令查看可用类别：
 ```bash
-./run benchmark categories list
+python scripts/cli.py benchmark categories list
 # 查看可用测试
-./run benchmark tests list
+python scripts/cli.py benchmark tests list
 ```
 
 ![Login](docs/content/imgs/quickstart/012_tests.png)
@@ -194,7 +194,7 @@ Commands:
 最后，可以通过以下命令运行基准测试：
 
 ```bash
-./run benchmark start YOUR_AGENT_NAME
+python scripts/cli.py benchmark start YOUR_AGENT_NAME
 
 ```
 
