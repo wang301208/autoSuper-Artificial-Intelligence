@@ -3,6 +3,7 @@
 from .bagua import PreHeavenBagua, PostHeavenBagua, get_trigram
 from .yinyang_wuxing import YinYangFiveElements
 from .hexagram64 import HexagramEngine
+from .ai_interpreter import AIEnhancedInterpreter
 from .time_context import (
     TimeContext,
     get_lunar_date,
@@ -17,6 +18,7 @@ __all__ = [
     "get_trigram",
     "YinYangFiveElements",
     "HexagramEngine",
+    "AIEnhancedInterpreter",
     "TimeContext",
     "get_lunar_date",
     "get_solar_term",
