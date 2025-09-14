@@ -135,20 +135,28 @@ class SpikingNeuralNetwork:
         )
         self.synapses = self.DynamicSynapses(weights)
 
-    def run(self, input_events):
+    def run(self, input_events, encoder=None, **encoder_kwargs):
         """Run the network using an event-driven simulation.
 
         ``input_events`` may be provided either as a sequence of input vectors
         (in which case events are assumed to occur at successive integer
         timestamps starting at zero) or as an iterable of ``(time, inputs)``
-        pairs. Each event is processed in temporal order and any spikes produced
+        pairs. If an ``encoder`` callable is supplied, ``input_events`` is
+        interpreted as a sequence of analog vectors which are converted into
+        temporally encoded spike events by the encoder. The encoder is invoked
+        for each vector with ``t_start`` set to its index in the sequence.
+
+        Each event is processed in temporal order and any spikes produced
         dispatch a new event at ``time + 1`` carrying the postsynaptic currents.
 
         Returns a list of ``(time, spikes)`` tuples denoting when neurons fired.
         """
         queue = EventQueue()
-        # Allow legacy list-of-inputs style by enumerating timestamps
-        if input_events and (
+        if encoder is not None:
+            for t, analog in enumerate(input_events):
+                for time, inputs in encoder(analog, t_start=t, **encoder_kwargs):
+                    queue.push(time, inputs)
+        elif input_events and (
             not isinstance(input_events[0], tuple)
             or len(input_events[0]) != 2
             or not isinstance(input_events[0][0], (int, float))
