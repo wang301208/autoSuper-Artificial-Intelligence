@@ -3,6 +3,8 @@ from .quantum_cognition import SuperpositionState, EntanglementNetwork, QuantumC
 from .quantum_memory import QuantumMemory
 from .quantum_attention import QuantumAttention
 from .quantum_reasoning import QuantumReasoning
+from .grover_search import grover_search
+from .quantum_ml import QuantumClassifier
 
 __all__ = [
     "SuperpositionState",
@@ -11,4 +13,6 @@ __all__ = [
     "QuantumMemory",
     "QuantumAttention",
     "QuantumReasoning",
+    "grover_search",
+    "QuantumClassifier",
 ]

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Dict, Iterable, Mapping, Union, TYPE_CHECKING
+from typing import Dict, Iterable, Mapping, Union, TYPE_CHECKING, Callable
 
 import numpy as np
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover - for type checking only
     from .quantum_attention import QuantumAttention
     from .quantum_memory import QuantumMemory
     from .quantum_reasoning import QuantumReasoning
+    from .quantum_ml import QuantumClassifier
 
 
 @dataclass
@@ -88,15 +89,21 @@ class QuantumCognition:
         memory: QuantumMemory | None = None,
         attention: QuantumAttention | None = None,
         reasoning: QuantumReasoning | None = None,
+        search: Callable | None = None,
+        classifier: "QuantumClassifier" | None = None,
     ) -> None:
         from .quantum_attention import QuantumAttention as QA
         from .quantum_memory import QuantumMemory as QM
         from .quantum_reasoning import QuantumReasoning as QR
+        from .grover_search import grover_search
+        from .quantum_ml import QuantumClassifier as QC
 
         self.network = network or EntanglementNetwork()
         self.memory = memory or QM()
         self.attention = attention or QA()
         self.reasoning = reasoning or QR()
+        self.search = search or grover_search
+        self.classifier = classifier or QC()
 
     def evaluate_probabilities(
         self, input_state: Union[SuperpositionState, np.ndarray]
@@ -146,6 +153,21 @@ class QuantumCognition:
         if focus:
             state = self.attention.apply(state, focus)
         return state
+
+    def grover_search(self, items: Iterable, oracle) -> object:
+        """Run Grover search over *items* using *oracle* function."""
+
+        return self.search(list(items), oracle)
+
+    def train_classifier(self, X: np.ndarray, y: np.ndarray) -> None:
+        """Train internal quantum classifier on dataset."""
+
+        self.classifier.train(X, y)
+
+    def classify(self, sample: Iterable[float]) -> int:
+        """Classify ``sample`` using the trained quantum classifier."""
+
+        return self.classifier.predict(sample)
 
 
 __all__ = ["SuperpositionState", "EntanglementNetwork", "QuantumCognition"]
