@@ -52,7 +52,11 @@ from autogpt.core.resource.model_providers.openai import (
 from autogpt.core.runner.client_lib.logging.helpers import dump_prompt
 from autogpt.file_storage.base import FileStorage
 from autogpt.llm.providers.openai import get_openai_command_specs
-from autogpt.models.action_history import ActionResult, EpisodicActionHistory
+from autogpt.models.action_history import (
+    ActionHistoryConfiguration,
+    ActionResult,
+    EpisodicActionHistory,
+)
 from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -111,8 +115,10 @@ class BaseAgentConfiguration(SystemConfiguration):
     defaults to 75% of `llm.max_tokens`.
     """
 
-    summary_max_tlength: Optional[int] = None
-    # TODO: move to ActionHistoryConfiguration
+    history: ActionHistoryConfiguration = Field(
+        default_factory=ActionHistoryConfiguration
+    )
+    """Configuration for action history handling."""
 
     plugins: list[AutoGPTPluginTemplate] = Field(default_factory=list, exclude=True)
 
