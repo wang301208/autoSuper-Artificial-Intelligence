@@ -3,6 +3,7 @@ from .motor_cortex import MotorCortex
 from .cerebellum import Cerebellum
 from .limbic import LimbicSystem
 from .oscillations import NeuralOscillations
+from .whole_brain import WholeBrainSimulation
 
 __all__ = [
     "VisualCortex",
@@ -12,4 +13,5 @@ __all__ = [
     "Cerebellum",
     "LimbicSystem",
     "NeuralOscillations",
+    "WholeBrainSimulation",
 ]
