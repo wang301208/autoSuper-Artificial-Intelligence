@@ -68,3 +68,15 @@ metrics in `benchmarks/results/memory_embedding_strategy.json`.
 ```
 python benchmarks/memory_embedding_strategy.py
 ```
+
+## Performance monitor benchmark
+
+`performance_monitor_benchmark.py` compares a baseline implementation of a
+simple workload with an optimized version and records CPU, memory, and
+throughput via `PerformanceMonitor`.
+
+### Running the benchmark
+
+```
+python benchmarks/performance_monitor_benchmark.py
+```
