@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import tracemalloc
 from email.message import EmailMessage
 from typing import Any, Callable, Iterable, List
 import smtplib
@@ -12,6 +13,42 @@ from sklearn.ensemble import IsolationForest
 from .storage import TimeSeriesStorage
 from common import AutoGPTException, log_and_format_exception
 from smtplib import SMTPException
+
+
+class SpikeRateMonitor:
+    """Track spike rates for agents and store them in the time-series storage."""
+
+    def __init__(self, storage: TimeSeriesStorage) -> None:
+        self.storage = storage
+
+    def log(self, agent: str, rate: float) -> None:
+        self.storage.store("agent.spike", {"agent": agent, "rate": rate})
+
+    def average(self, agent: str | None = None, interval: float = 60.0) -> float:
+        start = time.time() - interval
+        events = self.storage.events("agent.spike", start_ts=start)
+        samples = [e for e in events if agent is None or e.get("agent") == agent]
+        if not samples:
+            return 0.0
+        return sum(float(e.get("rate", 0.0)) for e in samples) / len(samples)
+
+
+class EnergyConsumptionMonitor:
+    """Track energy consumption for agents."""
+
+    def __init__(self, storage: TimeSeriesStorage) -> None:
+        self.storage = storage
+
+    def log(self, agent: str, energy: float) -> None:
+        self.storage.store("agent.energy", {"agent": agent, "energy": energy})
+
+    def average(self, agent: str | None = None, interval: float = 60.0) -> float:
+        start = time.time() - interval
+        events = self.storage.events("agent.energy", start_ts=start)
+        samples = [e for e in events if agent is None or e.get("agent") == agent]
+        if not samples:
+            return 0.0
+        return sum(float(e.get("energy", 0.0)) for e in samples) / len(samples)
 
 AlertHandler = Callable[[str, str], None]
 
@@ -28,6 +65,9 @@ class PerformanceMonitor:
         cpu_threshold: float | None = None,
         memory_threshold: float | None = None,
         throughput_threshold: float | None = None,
+        spike_rate_threshold: float | None = None,
+        energy_threshold: float | None = None,
+        memory_leak_threshold: float | None = None,
         *,
         enable_anomaly_detection: bool = False,
         model_update_interval: float = 3600.0,
@@ -40,11 +80,22 @@ class PerformanceMonitor:
         self.cpu_threshold = cpu_threshold
         self.memory_threshold = memory_threshold
         self.throughput_threshold = throughput_threshold
+        self.spike_rate_threshold = spike_rate_threshold
+        self.energy_threshold = energy_threshold
+        self.memory_leak_threshold = memory_leak_threshold
         self.enable_anomaly_detection = enable_anomaly_detection
         self.model_update_interval = model_update_interval
         self.contamination = contamination
         self._anomaly_model: IsolationForest | None = None
         self._last_model_update = 0.0
+
+        # monitors for additional metrics
+        self.spike_monitor = SpikeRateMonitor(storage)
+        self.energy_monitor = EnergyConsumptionMonitor(storage)
+
+        # baseline snapshot for memory leak detection
+        tracemalloc.start()
+        self._baseline_snapshot = tracemalloc.take_snapshot()
 
     # ------------------------------------------------------------------
     # logging
@@ -72,6 +123,14 @@ class PerformanceMonitor:
     def log_resource_usage(self, agent: str, cpu: float, memory: float) -> None:
         """Persist resource usage for *agent*."""
         self.storage.store("agent.resource", {"agent": agent, "cpu": cpu, "memory": memory})
+
+    def log_spike_rate(self, agent: str, rate: float) -> None:
+        """Persist spike rate for *agent*."""
+        self.spike_monitor.log(agent, rate)
+
+    def log_energy_consumption(self, agent: str, energy: float) -> None:
+        """Persist energy consumption for *agent*."""
+        self.energy_monitor.log(agent, energy)
 
     def log_task_completion(self, agent: str) -> None:
         """Record completion of a task by *agent*."""
@@ -101,6 +160,14 @@ class PerformanceMonitor:
         events = self.storage.events("task", start_ts=start)
         count = sum(1 for e in events if agent is None or e.get("agent") == agent)
         return count / interval if interval > 0 else 0.0
+
+    def spike_rate(self, agent: str | None = None, interval: float = 60.0) -> float:
+        """Return average spike rate for *agent* over *interval* seconds."""
+        return self.spike_monitor.average(agent, interval)
+
+    def energy_consumption(self, agent: str | None = None, interval: float = 60.0) -> float:
+        """Return average energy consumption for *agent* over *interval* seconds."""
+        return self.energy_monitor.average(agent, interval)
 
     def _resource_samples(self) -> list[list[float]]:
         events = self.storage.events("agent.resource")
@@ -149,6 +216,33 @@ class PerformanceMonitor:
                 self._alert(
                     "Memory usage high",
                     f"Average memory usage {mem:.2f}% exceeds {self.memory_threshold:.2f}%",
+                )
+
+        if self.spike_rate_threshold is not None:
+            sr = self.spike_rate()
+            if sr > self.spike_rate_threshold:
+                self._alert(
+                    "Spike rate high",
+                    f"Average spike rate {sr:.2f} exceeds {self.spike_rate_threshold:.2f}",
+                )
+
+        if self.energy_threshold is not None:
+            energy = self.energy_consumption()
+            if energy > self.energy_threshold:
+                self._alert(
+                    "Energy consumption high",
+                    f"Average energy {energy:.2f} exceeds {self.energy_threshold:.2f}",
+                )
+
+        if self.memory_leak_threshold is not None:
+            current = tracemalloc.take_snapshot()
+            stats = current.compare_to(self._baseline_snapshot, "lineno")
+            leak = sum(stat.size_diff for stat in stats)
+            self.storage.store("memory.sample", {"leak": leak})
+            if leak > self.memory_leak_threshold:
+                self._alert(
+                    "Potential memory leak",
+                    f"Memory usage increased by {leak/1024:.2f} KiB over baseline",
                 )
 
         if self.throughput_threshold is not None:
