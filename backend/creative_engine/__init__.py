@@ -23,10 +23,12 @@ nodes so callers can implement custom handling.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Any
+from typing import Callable, Dict, List, Any, Optional
 
 from modules.common.concepts import ConceptNode
 from backend.concept_alignment import ConceptAligner
+from modules.metrics.creative_evaluator import CreativeEvaluator, CreativeScore
+from modules.optimization.meta_learner import MetaLearner
 
 
 @dataclass
@@ -49,6 +51,8 @@ class CrossModalCreativeEngine:
     aligner: ConceptAligner
     encoders: Dict[str, Callable[[str], List[float]]]
     generators: Dict[str, Callable[[str, List[ConceptNode]], Any]] = None
+    evaluator: Optional[CreativeEvaluator] = None
+    meta_learner: Optional[MetaLearner] = None
 
     def __post_init__(self) -> None:
         if self.generators is None:
@@ -72,6 +76,13 @@ class CrossModalCreativeEngine:
             generator = self.generators.get(modality)
             output = generator(prompt, concepts) if generator else None
             results[modality] = {"concepts": concepts, "output": output}
+
+        if self.evaluator is not None:
+            scores = self.evaluator.evaluate(results)
+            self.evaluator.feedback(self.meta_learner, scores)
+            for modality, score in scores.items():
+                results[modality]["creative_score"] = score
+
         return results
 
 
