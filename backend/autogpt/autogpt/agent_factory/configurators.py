@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from forge.sdk.model import Task
 
@@ -11,11 +11,11 @@ from autogpt.logs.config import configure_chat_plugins
 from autogpt.models.command_registry import CommandRegistry
 from autogpt.plugins import scan_plugins
 
-
 if TYPE_CHECKING:
-    from autogpt.core.brain.transformer_brain import TransformerBrain
     from knowledge import UnifiedKnowledgeBase
     from reasoning import DecisionEngine
+
+    from autogpt.core.brain.transformer_brain import TransformerBrain
 
 
 def create_agent(
@@ -133,6 +133,7 @@ def create_agent_state(
 
     return AgentSettings(
         agent_id=agent_id,
+        workspace_id=agent_id,
         name=Agent.default_settings.name,
         description=Agent.default_settings.description,
         task=task,
