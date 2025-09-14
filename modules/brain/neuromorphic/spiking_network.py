@@ -1,3 +1,4 @@
+import asyncio
 import heapq
 import random
 from typing import List, Tuple
@@ -148,22 +149,8 @@ class SpikingNeuralNetwork:
         self.idle_skip = idle_skip
         self.energy_usage = 0
 
-    def run(self, input_events, encoder=None, **encoder_kwargs):
-        """Run the network using an event-driven simulation.
-
-        ``input_events`` may be provided either as a sequence of input vectors
-        (in which case events are assumed to occur at successive integer
-        timestamps starting at zero) or as an iterable of ``(time, inputs)``
-        pairs. If an ``encoder`` callable is supplied, ``input_events`` is
-        interpreted as a sequence of analog vectors which are converted into
-        temporally encoded spike events by the encoder. The encoder is invoked
-        for each vector with ``t_start`` set to its index in the sequence.
-
-        Each event is processed in temporal order and any spikes produced
-        dispatch a new event at ``time + 1`` carrying the postsynaptic currents.
-
-        Returns a list of ``(time, spikes)`` tuples denoting when neurons fired.
-        """
+    def _run_internal(self, input_events, encoder=None, **encoder_kwargs):
+        """Shared implementation for running the network."""
         queue = EventQueue()
         if encoder is not None:
             for t, analog in enumerate(input_events):
@@ -204,3 +191,18 @@ class SpikingNeuralNetwork:
 
         outputs.sort(key=lambda x: x[0])
         return outputs
+
+    def run(self, input_events, encoder=None, **encoder_kwargs):
+        """Run the network using an event-driven simulation."""
+        return self._run_internal(input_events, encoder, **encoder_kwargs)
+
+    async def run_async(self, input_events, encoder=None, **encoder_kwargs):
+        """Asynchronously run the network using ``asyncio``.
+
+        This method executes the same simulation logic as :meth:`run` but
+        offloads the computation to a background thread so multiple networks can
+        be processed concurrently within an asyncio event loop.
+        """
+        return await asyncio.to_thread(
+            self._run_internal, input_events, encoder, **encoder_kwargs
+        )
