@@ -24,7 +24,8 @@ jobs:
 
       - name: Generate configuration reference
         run: |
-          python scripts/generate_user_config_docs.py --output docs/configuration.md
+          python scripts/generate_user_config_docs.py --output docs/configuration.md docs/AutoGPT/configuration/user_configurable.md
+          git diff --exit-code docs/configuration.md docs/AutoGPT/configuration/user_configurable.md
 
       - name: Build documentation
         run: |
