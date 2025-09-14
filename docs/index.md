@@ -9,6 +9,7 @@ AutoGPT 项目包含四个主要组件：
 * [Forge](#forge) - 代理开发框架
 * [Frontend](#frontend) - 用户界面
 * [Algorithms](#algorithms) - 常见算法与数据结构实现
+* [API Reference](#api-reference) - AutoGPT Python 接口文档
 
 ## 🤖 Agent
 
@@ -39,6 +40,12 @@ AutoGPT 项目包含四个主要组件：
 **[📘 使用说明](../algorithms/README.md)**
 
 提供排序、搜索、数据结构以及存储与缓存等常见算法实现，例如 `LRUCache`、`LFUCache`、`BTreeIndex` 等。新增的 `DynamicNetwork` 模块支持在训练过程中动态增删隐藏层。
+
+## 📖 API Reference
+
+**[📘 API 参考](api.md)**
+
+AutoGPT Python 包的 API 文档。
 
 ## 依赖管理
 
