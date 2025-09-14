@@ -10,6 +10,7 @@ from .message_bus import (
     reset_message_bus,
     subscribe_to_brain_region,
 )
+from .multimodal import MultimodalFusionEngine
 
 __all__ = [
     "VisualCortex",
@@ -24,4 +25,5 @@ __all__ = [
     "publish_neural_event",
     "subscribe_to_brain_region",
     "reset_message_bus",
+    "MultimodalFusionEngine",
 ]
