@@ -40,7 +40,8 @@ from .consciousness import ConsciousnessModel
 from .neuromorphic.spiking_network import SpikingNetworkConfig, NeuromorphicBackend, NeuromorphicRunResult
 from .self_learning import SelfLearningBrain
 from .neuromorphic.temporal_encoding import latency_encode, rate_encode, decode_spike_counts
-from .perception import SensoryPipeline
+from .perception import SensoryPipeline, EncodedSignal
+from .motor.precision import PrecisionMotorSystem
 
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ class CognitiveModule:
         weights = {k: v / total for k, v in options.items()}
         intention = max(weights.items(), key=lambda item: item[1])[0]
         confidence = weights[intention]
-        plan = self._build_plan(intention, summary, context, focus)
+        plan = self._build_plan(intention, summary, context)
         tags = [intention]
         if confidence >= 0.65:
             tags.append("high-confidence")
@@ -185,6 +186,7 @@ class WholeBrainSimulation:
     emotion: LimbicSystem = field(init=False)
     consciousness: ConsciousnessModel = field(default_factory=ConsciousnessModel)
     motor: MotorCortex = field(default_factory=MotorCortex)
+    precision_motor: PrecisionMotorSystem = field(default_factory=PrecisionMotorSystem)
     curiosity: CuriosityState = field(default_factory=CuriosityState)
     cerebellum: Cerebellum = field(default_factory=Cerebellum)
     oscillations: NeuralOscillations = field(default_factory=NeuralOscillations)
@@ -212,6 +214,9 @@ class WholeBrainSimulation:
         self.emotion = LimbicSystem(self.personality)
         self.config.use_neuromorphic = self.neuromorphic
         self.motor.cerebellum = self.cerebellum
+        self.motor.precision_system = self.precision_motor
+        if hasattr(self.precision_motor, "basal_ganglia"):
+            self.motor.basal_ganglia = self.precision_motor.basal_ganglia
         self.motor.spiking_backend = None
         self.last_oscillation_state = {}
         self.last_motor_result = None
@@ -273,15 +278,23 @@ class WholeBrainSimulation:
         weights: Dict[str, float],
         intention: str,
         encoding_mode: str,
+        modulators: Optional[Dict[str, float]] = None,
     ) -> Optional[NeuromorphicRunResult]:
-        if not self.neuromorphic or not weights:
+        if not self.neuromorphic or (not weights and not modulators):
             return None
         base_channels = ['observe', 'approach', 'withdraw', 'explore']
         extras = [key for key in weights.keys() if key not in base_channels]
-        ordering = base_channels + extras
+        mod_channels: list[str] = []
+        if modulators:
+            mod_channels = [f"mod_{key}" for key in sorted(modulators.keys())]
+        ordering = base_channels + extras + mod_channels
         vector = []
-        for key in ordering:
+        for key in base_channels + extras:
             value = float(weights.get(key, 0.0))
+            vector.append(max(0.0, min(1.0, value)))
+        for channel_name in mod_channels:
+            original = channel_name[4:]
+            value = float(modulators.get(original, 0.0)) if modulators else 0.0
             vector.append(max(0.0, min(1.0, value)))
         backend = self._ensure_motor_backend(len(vector))
         encoder_kwargs: Dict[str, Any] = {}
@@ -296,12 +309,17 @@ class WholeBrainSimulation:
             decoder_kwargs['window'] = float(steps)
             mode = 'rate'
         result = backend.run_sequence(
-            vector,
+            [vector],
             encoding=mode,
             encoder_kwargs=encoder_kwargs,
             decoder='all',
             decoder_kwargs=decoder_kwargs,
-            metadata={'intention': intention, 'channels': ordering},
+            metadata={
+                'intention': intention,
+                'channels': ordering,
+                'weights': dict(weights),
+                'modulators': dict(modulators) if modulators else {},
+            },
             reset=True,
         )
         self.last_motor_result = result
@@ -349,30 +367,58 @@ class WholeBrainSimulation:
             return dict(self.last_oscillation_state)
 
 
-
-def _compose_thought_snapshot(
-    self,
-    decision: Dict[str, Any],
-    memory_refs: List[dict[str, Any]],
-) -> ThoughtSnapshot:
-    plan_steps = list(decision.get("plan", []))
-    summary = decision.get("summary") or (
-        ', '.join(plan_steps) if plan_steps else decision.get("intention", "")
-    )
-    return ThoughtSnapshot(
-        focus=str(decision.get("focus", decision.get("intention", "unknown"))),
-        summary=summary,
-        plan=plan_steps,
-        confidence=float(decision.get("confidence", 0.5)),
-        memory_refs=memory_refs[-3:],
-        tags=list(decision.get("tags", [])),
-    )
-
-def _compose_feeling_snapshot(
-    self,
-    emotion: EmotionSnapshot,
-    oscillation_state: Dict[str, float],
-    context_features: Dict[str, Any],
+
+    def _compose_thought_snapshot(
+        self,
+        decision: Dict[str, Any],
+        memory_refs: List[dict[str, Any]],
+    ) -> ThoughtSnapshot:
+        plan_steps = list(decision.get("plan", []))
+        summary = decision.get("summary") or (
+            ', '.join(plan_steps) if plan_steps else decision.get("intention", "")
+        )
+        return ThoughtSnapshot(
+            focus=str(decision.get("focus", decision.get("intention", "unknown"))),
+            summary=summary,
+            plan=plan_steps,
+            confidence=float(decision.get("confidence", 0.5)),
+            memory_refs=memory_refs[-3:],
+            tags=list(decision.get("tags", [])),
+        )
+
+    def _compose_feeling_snapshot(
+        self,
+        emotion: EmotionSnapshot,
+        oscillation_state: Dict[str, float],
+        context_features: Dict[str, Any],
+    ) -> FeelingSnapshot:
+        descriptor = emotion.primary.value.lower()
+        valence = float(emotion.dimensions.get("valence", emotion.mood))
+        arousal = float(emotion.dimensions.get("arousal", abs(emotion.mood)))
+        confidence = max(0.0, min(1.0, 1.0 - float(emotion.decay)))
+        context_tags = {
+            key
+            for key, value in context_features.items()
+            if isinstance(value, (int, float)) and value != 0
+        }
+        for key in oscillation_state:
+            context_tags.add(f"osc_{key}")
+        return FeelingSnapshot(
+            descriptor=descriptor,
+            valence=valence,
+            arousal=arousal,
+            mood=emotion.mood,
+            confidence=confidence,
+            context_tags=sorted(context_tags),
+        )
+
+    def process_cycle(self, input_data: Dict[str, Any]) -> BrainCycleResult:
+                try:
+                    encoded = self.perception_pipeline.encode(key, signal)
+                except Exception as exc:
+                    logger.debug("Perception encoding failed for %s: %s", key, exc)
+                    encoded = EncodedSignal()
+                source_vector = encoded.vector or _flatten_signal(signal)
 ) -> FeelingSnapshot:
     descriptor = emotion.primary.value.lower()
     valence = float(emotion.dimensions.get("valence", emotion.mood))
@@ -561,33 +607,67 @@ def _compose_feeling_snapshot(
                 if isinstance(value, Real):
                     float_value = float(value)
                     context_features[key] = float_value
-                    cognitive_context[key] = float_value
-                else:
-                    cognitive_context[key] = value
-        if novelty > 0:
-            context_features.setdefault("novelty", novelty)
-        cognitive_context.setdefault("novelty", novelty)
+        def _clamp(value: float, *, offset: float = 0.0, scale: float = 1.0) -> float:
+            raw = offset + scale * float(value)
+            return max(0.0, min(1.0, raw))
 
-        oscillation_state = self._compute_oscillation_state(perception_snapshot, novelty)
+        modulators: Dict[str, float] = {}
+        modulators["confidence"] = _clamp(decision.get("confidence", 0.5))
+        modulators["novelty"] = _clamp(novelty)
+        modulators["curiosity"] = _clamp(self.curiosity.drive)
+        modulators["fatigue"] = _clamp(self.curiosity.fatigue)
+        modulators["emotion_intensity"] = _clamp(emotion_snapshot.intensity)
+        valence = emotion_snapshot.dimensions.get("valence")
+        if isinstance(valence, Real):
+            modulators["emotion_valence"] = _clamp(valence, offset=0.5, scale=0.5)
+        arousal = emotion_snapshot.dimensions.get("arousal")
+        if isinstance(arousal, Real):
+            modulators["emotion_arousal"] = _clamp(arousal)
         if oscillation_state:
             for key, value in oscillation_state.items():
-                context_features.setdefault(f"osc_{key}", float(value))
-                cognitive_context.setdefault(f"osc_{key}", float(value))
-        else:
-            oscillation_state = dict(self.last_oscillation_state) if self.last_oscillation_state else {}
+                modulators[f"osc_{key}"] = _clamp(value)
+        energy_factor = energy_used / (energy_used + 1.0) if energy_used > 0 else 0.0
+        modulators["energy_load"] = _clamp(energy_factor)
+        if learning_prediction:
+            for key, value in learning_prediction.items():
+                modulators[f"learn_{key}"] = _clamp(value)
 
-        if self.config.enable_curiosity_feedback:
-            self.curiosity.update(novelty, self.personality)
-        else:
-            self.curiosity.decay()
+        motor_result: Optional[NeuromorphicRunResult] = self._run_motor_neuromorphic(
+            decision.get("weights", {}),
+            intention,
+            self.neuromorphic_encoding or "rate",
+            modulators=modulators,
+        )
+        if motor_result:
+            decision["motor_channels"] = list(motor_result.metadata.get("channels", []))
+            decision["motor_spike_counts"] = list(motor_result.spike_counts)
+        elif self.last_motor_result is not None:
+            self.last_motor_result = None
+        if decision.get("weights"):
+            plan_parameters["weights"] = {key: float(value) for key, value in decision["weights"].items()}
         if oscillation_state:
-            modulation = float(oscillation_state.get('modulation', 0.0))
-            if modulation:
-                self.curiosity.drive = max(0.0, min(1.0, self.curiosity.drive * (1.0 + 0.05 * modulation)))
-        self.curiosity.last_novelty = novelty
+            plan_parameters["oscillation"] = dict(oscillation_state)
+        balance_hint = self.cerebellum.balance_control(f"novelty:{novelty:.3f}")
+        plan_parameters["cerebellum_hint"] = balance_hint
+        if modulators:
+            plan_parameters["modulators"] = modulators
+        if motor_result:
+            plan_parameters["neuromorphic_result"] = motor_result
+            plan_parameters["motor_channels"] = list(motor_result.metadata.get("channels", []))
+            if motor_result.average_rate:
+                plan_parameters["motor_rate"] = list(motor_result.average_rate)
+        plan = self.motor.plan_movement(intention, parameters=plan_parameters)
+        if motor_result:
+            plan.metadata["neuromorphic"] = motor_result.to_dict()
+        action = self.motor.execute_action(plan)
 
-        text_stimulus = input_data.get("text", "")
-        emotional_state = self.emotion.react(text_stimulus, context=context_features, config=self.config)
+        if motor_result:
+            precision_cerebellum = getattr(self.precision_motor, "cerebellum", None)
+            if precision_cerebellum and hasattr(precision_cerebellum, "learn"):
+                try:
+                    precision_cerebellum.learn(f"energy:{motor_result.energy_used:.3f}")
+                except Exception as exc:
+                    logger.debug("Precision cerebellum learn failed: %s", exc)
 
         emotion_snapshot = EmotionSnapshot(
             primary=emotional_state.emotion,

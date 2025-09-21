@@ -6,6 +6,11 @@ sys.path.insert(0, os.path.abspath(os.getcwd()))
 
 from modules.brain.whole_brain import WholeBrainSimulation
 from modules.brain.state import BrainCycleResult, BrainRuntimeConfig
+from modules.brain.motor_cortex import MotorCortex
+from modules.brain.motor.precision import PrecisionMotorSystem
+from modules.brain.cerebellum import Cerebellum
+from modules.brain.motor.actions import MotorCommand
+from modules.brain.neuromorphic.spiking_network import NeuromorphicRunResult
 
 
 def test_process_cycle_returns_action_and_broadcast():
@@ -31,6 +36,11 @@ def test_process_cycle_returns_action_and_broadcast():
     assert 0.0 <= result.intent.confidence <= 1.0
     assert result.metadata["context_task"] == "greet"
     assert brain.get_decision_trace()
+    assert brain.precision_motor.basal_ganglia.gating_history
+    assert brain.last_motor_result is not None
+    assert "motor_energy" in result.metrics
+    assert "osc_amplitude" in result.metrics
+    assert "novelty" in brain.last_motor_result.metadata.get("modulators", {})
 
 
 def test_process_cycle_handles_nested_signals():
@@ -49,6 +59,7 @@ def test_process_cycle_handles_nested_signals():
     assert vision is not None
     assert len(vision["spike_counts"]) <= brain.max_neurons
     assert "novelty_signal" in result.metrics
+    assert "motor_spike_counts" in result.metadata
 
 
 def test_process_cycle_logs_invalid_signal(caplog):
@@ -77,6 +88,40 @@ def test_process_cycle_latency_encoding():
     assert vision is not None
     assert len(vision["spike_counts"]) <= brain.max_neurons
     assert result.metrics.get("cycle_index", 0.0) >= 1.0
+    assert brain.precision_motor.basal_ganglia.gating_history
+
+
+def test_motor_cortex_accepts_neuromorphic_inputs():
+    cortex = MotorCortex()
+    precision = PrecisionMotorSystem()
+    cortex.precision_system = precision
+    cortex.basal_ganglia = precision.basal_ganglia
+    cortex.cerebellum = Cerebellum()
+
+    run_result = NeuromorphicRunResult(
+        spike_events=[(0.0, [1, 0, 1, 0])],
+        energy_used=0.42,
+        idle_skipped=2,
+        spike_counts=[1, 0, 1, 0],
+        average_rate=[0.2, 0.0, 0.1, 0.0],
+        metadata={"intention": "wave", "channels": ["observe", "approach", "withdraw", "explore"]},
+    )
+
+    plan = cortex.plan_movement(
+        "wave",
+        parameters={
+            "neuromorphic_result": run_result,
+            "modulators": {"novelty": 0.5},
+            "weights": {"approach": 0.7},
+        },
+    )
+
+    assert isinstance(plan.command, MotorCommand)
+    assert plan.command.metadata.get("neuromorphic", {}).get("spike_counts") == [1, 0, 1, 0]
+
+    action = cortex.execute_action(run_result)
+    assert isinstance(action, str)
+    assert precision.basal_ganglia.gating_history
 
 
 def test_update_config_disables_metrics():
