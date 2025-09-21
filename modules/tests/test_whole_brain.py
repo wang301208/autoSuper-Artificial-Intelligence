@@ -29,6 +29,10 @@ def test_process_cycle_returns_action_and_broadcast():
     assert isinstance(result, BrainCycleResult)
     assert result.metadata["executed_action"].startswith("executed")
     assert result.energy_used >= 0
+    assert result.thoughts is not None
+    assert result.thoughts.summary
+    assert result.feeling is not None
+    assert result.feeling.descriptor
     assert "curiosity_drive" in result.metrics
     assert "plan_length" in result.metrics
     assert "strategy_bias_approach" in result.metrics
@@ -56,6 +60,8 @@ def test_process_cycle_handles_nested_signals():
     vision = brain.last_perception.modalities.get("vision")
     assert result.intent.intention
     assert result.energy_used >= 0
+    assert result.thoughts is not None
+    assert result.feeling is not None
     assert vision is not None
     assert len(vision["spike_counts"]) <= brain.max_neurons
     assert "novelty_signal" in result.metrics
