@@ -2,8 +2,11 @@ from __future__ import annotations
 
 """Self-learning brain module with curiosity-driven updates."""
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, Set
+from dataclasses import dataclass, field, asdict
+from typing import Any, Dict, Set, Mapping, TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from modules.brain.neuromorphic.spiking_network import NeuromorphicRunResult
 
 try:  # pragma: no cover - fallback if ML dependencies are missing
     from backend.ml.experience_collector import ActiveCuriositySelector
@@ -105,6 +108,52 @@ class SelfLearningBrain:
                 self.world_model.update_resources(agent_id, usage)
 
         return self.world_model.predict(agent_id)
+
+
+    @staticmethod
+    def build_neuromorphic_sample(
+        label: str,
+        run_result: "NeuromorphicRunResult",
+        metrics: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Create a curiosity-ready sample from neuromorphic telemetry."""
+
+        if isinstance(metrics, Mapping):
+            metrics_dict = dict(metrics)
+        else:
+            metrics_dict = asdict(metrics)  # type: ignore[arg-type]
+        spikes = run_result.spike_counts or [0]
+        state_signature = "-".join(str(v) for v in spikes) or "0"
+        usage = {
+            "energy": float(run_result.energy_used),
+            "spikes": float(sum(spikes)),
+            "idle": float(run_result.idle_skipped),
+        }
+        reward = 1.0 - float(metrics_dict.get("mse", 0.0)) - 0.5 * float(metrics_dict.get("avg_rate_diff", 0.0))
+        reward = max(-1.0, min(1.0, reward))
+        sample: Dict[str, Any] = {
+            "state": f"{label}:{state_signature}",
+            "agent_id": label,
+            "usage": usage,
+            "reward": reward,
+            "metrics": metrics_dict,
+        }
+        if run_result.average_rate:
+            sample["metrics"]["average_rate"] = list(run_result.average_rate)
+        sample["metrics"]["spike_counts"] = list(spikes)
+        return sample
+
+    def ingest_neuromorphic_metrics(
+        self,
+        label: str,
+        run_result: "NeuromorphicRunResult",
+        metrics: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        """Feed neuromorphic evaluation metrics into the curiosity loop."""
+
+        sample = self.build_neuromorphic_sample(label, run_result, metrics)
+        self.curiosity_driven_learning(sample)
+        return sample
 
 
 __all__ = ["SelfLearningBrain"]

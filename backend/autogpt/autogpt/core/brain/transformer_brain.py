@@ -1,9 +1,15 @@
-from __future__ import annotations
+﻿from __future__ import annotations
+
+import logging
+from pathlib import Path
 
 import torch
 from torch import nn
 
 from .config import TransformerBrainConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class TransformerBrain(nn.Module):
@@ -28,6 +34,19 @@ class TransformerBrain(nn.Module):
             batch_first=True,
         )
         self.action_head = nn.Linear(self.config.dim, self.config.dim)
+
+        weights = self.config.weights_path
+        if weights:
+            path = Path(weights)
+            try:
+                state = torch.load(path, map_location=torch.device("cpu"))
+                if isinstance(state, dict) and "state_dict" in state:
+                    state = state["state_dict"]
+                self.load_state_dict(state, strict=False)
+            except FileNotFoundError:
+                logger.warning("Transformer brain weights not found at %s", path)
+            except Exception:  # pragma: no cover - informative logging only
+                logger.exception("Failed to load transformer brain weights from %s", path)
 
     def think(self, observation, memory_ctx=None):
         """Encode observation and optional memory context into a thought vector."""

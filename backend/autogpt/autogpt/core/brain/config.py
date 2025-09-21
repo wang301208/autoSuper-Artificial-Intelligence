@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from autogpt.core.configuration import SystemConfiguration, UserConfigurable
 
@@ -17,6 +17,12 @@ class TransformerBrainConfig(SystemConfiguration):
 
     dropout: float = UserConfigurable(default=0.1)
     """Dropout probability used in transformer layers."""
+
+    weights_path: str | None = UserConfigurable(default=None)
+    """Optional path to load pretrained weights at initialization."""
+
+    dataset_logging_path: str | None = UserConfigurable(default=None)
+    """If set, write per-cycle brain samples to this JSONL file."""
 
     # Training configuration
     learning_rate: float = UserConfigurable(default=1e-3)

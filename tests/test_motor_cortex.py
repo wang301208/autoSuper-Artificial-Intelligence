@@ -4,6 +4,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from modules.brain import MotorCortex
+from modules.brain.motor.actions import MotorPlan
 from modules.brain.neuromorphic.spiking_network import SpikingNeuralNetwork
 
 
@@ -13,15 +14,21 @@ class StubBasalGanglia:
 
 
 class StubCerebellum:
-    def fine_tune(self, command: str) -> str:
-        return command + " tuned"
+    def fine_tune(self, command):
+        if isinstance(command, str):
+            return command + " tuned"
+        return command.with_updates(metadata={"stub": True})
 
 
 def test_motor_cortex_plan_execute():
     cortex = MotorCortex(basal_ganglia=StubBasalGanglia(), cerebellum=StubCerebellum())
     plan = cortex.plan_movement("wave")
-    assert "modulated" in plan
+    assert isinstance(plan, MotorPlan)
+    assert plan.command is not None
+    assert any("modulated" in stage for stage in plan.stages)
+
     result = cortex.execute_action(plan)
+    assert isinstance(result, str)
     assert "executed" in result and "tuned" in result
 
 

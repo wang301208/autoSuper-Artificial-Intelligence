@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 import sentry_sdk
 from pydantic import Field
@@ -17,6 +19,8 @@ from autogpt.core.resource.model_providers import (
     ChatModelProvider,
 )
 from autogpt.core.learning import ExperienceLearner
+from autogpt.core.learning.experience_store import ExperienceLogStore, ExperienceRecorder
+from autogpt.core.self_improvement import SelfImprovementEngine
 from autogpt.file_storage.base import FileStorage
 from autogpt.logs.log_cycle import (
     CURRENT_CONTEXT_FILE_NAME,
@@ -122,11 +126,39 @@ class Agent(
             knowledge_base=knowledge_base,
             decision_engine=decision_engine,
         )
+        log_path = Path(self.config.learning.log_path)
+        self._experience_store = ExperienceLogStore(
+            log_path=log_path,
+            max_bytes=self.config.learning.max_log_bytes if self.config.learning.max_log_bytes else None,
+        )
+        self._experience_recorder = ExperienceRecorder(
+            store=self._experience_store,
+            max_summary_chars=self.config.learning.max_summary_chars,
+        )
         self._experience_learner = ExperienceLearner(
-            memory=self.event_history,
+            memory=self._experience_store,
             config=self.config.learning,
             logger=logger,
         )
+        self._baseline_command_availability = {
+            name: cmd.available
+            for name, cmd in self.command_registry.commands.items()
+            if not callable(cmd.available)
+        }
+        self._self_improvement_engine = (
+            SelfImprovementEngine(
+                config=self.config.learning,
+                store=self._experience_store,
+                logger=logger,
+            )
+            if self.config.learning.auto_improve
+            else None
+        )
+        self._current_improvement_plan: dict[str, Any] | None = None
+        self._preferred_commands: set[str] = set()
+        self._improvement_hint: str | None = None
+        self._cycles_since_improvement = 0
+        self._load_improvement_plan()
 
         self.created_at = datetime.now().strftime("%Y%m%d_%H%M%S")
         """Timestamp the agent was created; only used for structured debug logging."""
@@ -155,6 +187,10 @@ class Agent(
         extra_messages.append(
             ChatMessage.system(f"The current time and date is {time.strftime('%c')}"),
         )
+        if self._improvement_hint:
+            extra_messages.append(
+                ChatMessage.system(f"Strategy hint: {self._improvement_hint}")
+            )
 
         if include_os_info is None:
             include_os_info = self.legacy_config.execute_local_commands
@@ -285,6 +321,8 @@ class Agent(
             self.llm_provider, self.legacy_config
         )
 
+        self._record_experience(command_name, command_args, result)
+
         # Allow the agent to learn from its recent experience and adjust
         # command availability based on the learned success rates
         updated_weights = self._experience_learner.learn_from_experience()
@@ -293,7 +331,112 @@ class Agent(
                 # Simple heuristic: disable commands with low success rate
                 cmd.available = weight >= 0.5
 
+        self._maybe_run_auto_improvement()
+
         return result
+
+    def _record_experience(self, command_name: str, command_args: dict, result: ActionResult) -> None:
+        if not self.config.learning.enabled:
+            return
+        try:
+            serialised_args = self._serialise_args(command_args)
+        except Exception as exc:
+            logger.debug(
+                "Failed to serialise command arguments for experience log: %s",
+                exc,
+            )
+            serialised_args = {k: str(v) for k, v in command_args.items()}
+
+        if isinstance(result, ActionSuccessResult):
+            summary_source = result.outputs
+        elif isinstance(result, ActionErrorResult):
+            summary_source = result.reason or str(result.error or "")
+        elif isinstance(result, ActionInterruptedByHuman):
+            summary_source = result.feedback
+        else:
+            summary_source = str(result)
+
+        summary = (
+            summary_source
+            if isinstance(summary_source, str)
+            else json.dumps(summary_source, ensure_ascii=False, default=str)
+        )
+
+        self._experience_recorder.record(
+            task_id=self.task.task_id,
+            cycle=self.config.cycle_count,
+            command_name=command_name,
+            command_args=serialised_args,
+            result_status=getattr(result, "status", "unknown"),
+            result_summary=summary,
+            metadata={
+                "agent_id": self.settings.agent_id,
+            },
+        )
+
+    def _maybe_run_auto_improvement(self) -> None:
+        if not self.config.learning.auto_improve or not self._self_improvement_engine:
+            return
+        self._cycles_since_improvement += 1
+        interval = max(self.config.learning.improvement_interval or 1, 1)
+        if self._cycles_since_improvement < interval:
+            return
+        self._cycles_since_improvement = 0
+        plan = self._self_improvement_engine.evaluate_and_apply()
+        if plan is not None:
+            self._current_improvement_plan = plan
+            self._preferred_commands = set(plan.get("preferred_commands") or [])
+            self._update_improvement_hint(plan)
+            self._apply_current_plan()
+        else:
+            self._load_improvement_plan()
+
+    def _load_improvement_plan(self) -> None:
+        try:
+            plan_path = Path(self.config.learning.plan_output_path)
+        except Exception:
+            logger.exception("Invalid plan output path")
+            self._current_improvement_plan = None
+            self._preferred_commands = set()
+            self._improvement_hint = None
+            return
+        if plan_path.exists():
+            try:
+                plan = json.loads(plan_path.read_text(encoding='utf-8'))
+            except Exception:
+                logger.exception("Failed to load improvement plan")
+                plan = None
+        else:
+            plan = None
+        self._current_improvement_plan = plan
+        self._preferred_commands = set(plan.get("preferred_commands") or []) if plan else set()
+        self._update_improvement_hint(plan)
+        self._apply_current_plan()
+
+    def _update_improvement_hint(self, plan: dict[str, Any] | None) -> None:
+        if plan:
+            hint = (plan.get("prompt_hints") or "").strip()
+            self._improvement_hint = hint or None
+        else:
+            self._improvement_hint = None
+
+    def _apply_current_plan(self) -> None:
+        if not hasattr(self, '_baseline_command_availability'):
+            return
+        plan = self._current_improvement_plan or {}
+        disabled = set(plan.get("disabled_commands") or [])
+        for name, baseline in self._baseline_command_availability.items():
+            command = self.command_registry.get_command(name)
+            if not command or callable(command.available):
+                continue
+            command.available = bool(baseline) and name not in disabled
+
+    @staticmethod
+    def _serialise_args(args: dict) -> dict:
+        if not args:
+            return {}
+        return json.loads(json.dumps(args, ensure_ascii=False, default=str))
+
 
 
 #############

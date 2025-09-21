@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from abc import ABC, abstractmethod
 from datetime import datetime
+from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import uuid4
+
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from events import EventBus, create_event_bus
@@ -34,6 +37,7 @@ from autogpt.config.ai_directives import AIDirectives
 from autogpt.config.ai_profile import AIProfile
 from autogpt.core.brain.config import TransformerBrainConfig
 from autogpt.core.brain.transformer_brain import TransformerBrain
+from autogpt.core.brain.encoding import build_brain_inputs
 from autogpt.core.configuration import (
     Configurable,
     SystemConfiguration,
@@ -267,7 +271,6 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
             )
         except Exception:  # pragma: no cover - best effort
             logger.debug("Failed to publish heartbeat", exc_info=True)
-
     # ------------------------------------------------------------------
     # Status reporting
     # ------------------------------------------------------------------
@@ -315,10 +318,10 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
             # Scratchpad as surrogate PromptGenerator for plugin hooks
             self._prompt_scratchpad = PromptScratchpad()
             if self.config.big_brain and self.brain is not None:
-                observation = [0.0] * self.config.brain.dim
-                memory_ctx = [0.0] * self.config.brain.dim
+                observation, memory_ctx = build_brain_inputs(self, self.config.brain.dim)
                 thought = self.brain.think(observation, memory_ctx)
                 result = self.brain.propose_action(thought)
+                self._maybe_record_brain_sample(observation, memory_ctx, result, cycle)
                 self.config.cycle_count += 1
                 self.event_client.publish(
                     "agent.cycle.end",
@@ -377,6 +380,55 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
             )
             raise
 
+
+    def _maybe_record_brain_sample(
+        self,
+        observation,
+        memory_ctx,
+        brain_result: ThoughtProcessOutput,
+        cycle: int,
+    ) -> None:
+        """Optionally append a brain training sample to the configured dataset."""
+
+        log_path = self.config.brain.dataset_logging_path
+        if not log_path:
+            return
+
+        try:
+            import torch  # type: ignore
+        except ImportError:  # pragma: no cover - optional dependency
+            logger.debug("PyTorch not available; skipping brain sample logging")
+            return
+
+        try:
+            path = Path(log_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            command, args, info = brain_result
+            action_vec = info.get("action", [])
+            logits = torch.as_tensor(action_vec, dtype=torch.float32)
+            observation_tensor = torch.as_tensor(observation, dtype=torch.float32)
+            memory_tensor = torch.as_tensor(memory_ctx, dtype=torch.float32)
+
+            action_index = int(logits.argmax().item()) if logits.numel() else None
+            sample = {
+                "cycle": cycle,
+                "command": command,
+                "args": args,
+                "observation": observation_tensor.tolist(),
+                "memory": memory_tensor.tolist(),
+                "action_logits": logits.tolist(),
+                "action_index": action_index,
+            }
+            thought = info.get("thought")
+            if thought is not None:
+                sample["thought"] = thought
+
+            with path.open("a", encoding="utf-8") as handle:
+                json.dump(sample, handle, ensure_ascii=False)
+                handle.write("\n")
+        except Exception:  # pragma: no cover - logging only
+            logger.debug("Failed to record transformer brain sample", exc_info=True)
     @abstractmethod
     async def execute(
         self,

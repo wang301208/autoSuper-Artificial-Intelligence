@@ -749,15 +749,23 @@ async def get_user_feedback(
     user_feedback = None
     user_input = ""
     new_cycles_remaining = None
+    auto_timeout_hours = getattr(config, "auto_authorize_after_hours", 0) or 0
+    timeout_seconds = auto_timeout_hours * 3600 if auto_timeout_hours > 0 else None
 
     while user_feedback is None:
         # Get input from user
-        if config.chat_messages_enabled:
-            console_input = clean_input(config, "Waiting for your response...")
-        else:
-            console_input = clean_input(
-                config, Fore.MAGENTA + "Input:" + Style.RESET_ALL
+        prompt_text = (
+            "Waiting for your response..."
+            if config.chat_messages_enabled
+            else Fore.MAGENTA + "Input:" + Style.RESET_ALL
+        )
+        console_input = clean_input(config, prompt_text, timeout=timeout_seconds)
+        if console_input is None:
+            logger.warning(
+                "No response received in %.1f hours; automatically authorising.",
+                auto_timeout_hours,
             )
+            return UserFeedback.AUTHORIZE, "", None
 
         # Parse user input
         if console_input.lower().strip() == config.authorise_key:

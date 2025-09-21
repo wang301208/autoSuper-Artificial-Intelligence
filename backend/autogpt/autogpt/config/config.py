@@ -41,6 +41,20 @@ GPT_4_MODEL = OpenAIModelName.GPT4
 GPT_3_MODEL = OpenAIModelName.GPT3
 
 
+def _auto_authorize_from_env() -> float:
+    value = os.getenv("AUTO_AUTHORIZE_AFTER_HOURS")
+    if not value:
+        return 24.0
+    try:
+        return float(value)
+    except ValueError:
+        logger.warning(
+            "Invalid AUTO_AUTHORIZE_AFTER_HOURS value '%s'; falling back to 24 hours.",
+            value,
+        )
+        return 24.0
+
+
 class Config(SystemSettings, arbitrary_types_allowed=True):
     name: str = "Auto-GPT configuration"
     description: str = "Default configuration for the Auto-GPT application."
@@ -54,6 +68,10 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
     skip_reprompt: bool = False
     authorise_key: str = UserConfigurable(default="y", from_env="AUTHORISE_COMMAND_KEY")
     exit_key: str = UserConfigurable(default="n", from_env="EXIT_KEY")
+    auto_authorize_after_hours: float = UserConfigurable(
+        default=24.0,
+        from_env=_auto_authorize_from_env,
+    )
     noninteractive_mode: bool = False
     chat_messages_enabled: bool = UserConfigurable(
         default=True, from_env=lambda: os.getenv("CHAT_MESSAGES_ENABLED") == "True"

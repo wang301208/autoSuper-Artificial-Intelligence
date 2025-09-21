@@ -93,6 +93,8 @@ graph TB
 - **Memory System**: 记忆系统，支持短期和长期记忆管理
 - **Knowledge Graph**: 知识图谱，提供结构化知识存储和推理
 - **Learning System**: 学习系统，从经验中学习和改进
+- **Whole Brain Simulation**: 大脑模拟核心，统一感知、情绪、认知和动作意图，驱动智能体的内部状态循环
+- **Neuromorphic Engine**: 神经形态处理管线，提供类脑脉冲编码、能耗指标与好奇心驱动反馈，支撑高效探索和学习
 
 ## 🚀 新增功能特性
 
@@ -118,6 +120,7 @@ graph TB
 
 #### 4. 企业级特性
 - ✨ **Agent Protocol**: 标准化的智能体通信协议
+- ✨ **模型上下文协议 (MCP)**: 提供基于stdio的MCP桥接，可通过MCP客户端驱动AutoGPT任务
 - ✨ **多存储后端**: 支持本地、GCS、S3存储
 - ✨ **安全增强**: 命令执行安全控制和审计
 - ✨ **监控告警**: 集成Sentry错误监控
@@ -300,6 +303,53 @@ GET /ap/v1/agent/tasks/{task_id}/artifacts/{artifact_id}
 # 获取文件列表
 GET /ap/v1/agent/tasks/{task_id}/artifacts
 ```
+
+### 模型上下文协议 (MCP)
+
+AutoGPT 现内置符合 Model Context Protocol 的 stdio 服务器，可供支持 MCP 的宿主（如开发工具或扩展）直接驱动智能体。
+
+#### 启动方式
+
+```bash
+poetry run autogpt mcp [选项]
+```
+
+常用选项：
+- `-P/--prompt-settings`：指定自定义提示配置
+- `--gpt3only` / `--gpt4only`：限制所用模型
+- `--allow-downloads` / `--install-plugin-deps`：控制文件写入与插件依赖
+
+#### 可用工具
+
+连接后的 MCP 客户端可调用以下工具：
+- `list_tasks`：列出当前 AutoGPT 任务
+- `create_task`：创建新任务
+- `describe_task`：查看任务状态、步骤与附件
+- `advance_task`：触发下一步执行或反馈
+
+任务与步骤也会暴露为 `autogpt://tasks/...` 资源，可通过 `resources/read` 获取 JSON 结构化数据。
+
+### 自主学习与经验日志
+
+启用 `learning.enabled=true` 后，代理会将每一步的指令、参数与结果自动写入 `data/experience_logs.jsonl`，并在后续循环中实时调整指令成功率：
+
+- 日志按 JSONL 追加，超过 `learning.max_log_bytes` 会自动轮替备份；
+- `learning.max_summary_chars` 控制输出摘要的截断长度；
+- 学习模型权重保存在 `learning.model_state_path`，可跨会话复用。
+
+经验日志可直接作为离线回放/分析的数据源，为后续的自动评估、策略生成提供素材。
+
+启用 `learning.auto_improve=true`（需同时开启 `learning.enabled=true` 以记录经验）后，系统会根据该日志自动生成策略：在 `learning.plan_output_path` 下产出最新方案，在成功率下降超过 `learning.rollback_tolerance` 时自动回滚。可通过 `learning.improvement_interval`、`learning.min_records` 控制检测频率与需要的数据量。
+
+默认情况下，长时间无人响应的审批会在 24 小时后自动授权，可通过 `AUTO_AUTHORIZE_AFTER_HOURS`（或同名配置项 `auto_authorize_after_hours`）调整或关闭。
+
+激活自改进后，系统还会在 `data/self_improvement/prompt_candidates/` 目录自动生成提示候选文件（可通过 `learning.generate_prompt_candidates`、`learning.prompt_candidates_dir`、`learning.max_prompt_candidates` 配置），便于审阅与手动采纳更深入的策略。
+
+每次生成新计划时，系统会写入验证报告（`learning.validation_reports_dir`），默认要求成功率至少提升 `learning.min_success_improvement`，并且不会触碰 `learning.protected_commands` 中列出的关键能力。
+
+离线重放可通过 `learning.replay_scenarios_dir` 指定场景文件（JSON 结构含 `records`），运行结果写入 `learning.replay_reports_dir`；基准成功率会同步记录在 `learning.baseline_success_path`，用于后续策略比较。
+
+也可使用 `poetry run autogpt replay` 命令手动运行回放验证；命令支持覆盖场景目录和报告目录，并会在终端显示每个场景的通过/失败情况。
 
 ### 响应格式
 

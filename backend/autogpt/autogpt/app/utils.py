@@ -4,6 +4,7 @@ import os
 import re
 import socket
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def clean_input(config: "Config", prompt: str = ""):
+def clean_input(config: "Config", prompt: str = "", timeout: float | None = None):
     try:
         if config.chat_messages_enabled:
             for plugin in config.plugins:
@@ -48,16 +49,77 @@ def clean_input(config: "Config", prompt: str = ""):
                     return config.exit_key
                 return plugin_response
 
-        # ask for input, default when just pressing Enter is y
-        logger.debug("Asking user via keyboard...")
-
-        return click.prompt(
-            text=prompt, prompt_suffix=" ", default="", show_default=False
-        )
+        timeout = timeout if timeout and timeout > 0 else None
+        response = _prompt_with_timeout(prompt, timeout)
+        return response
     except KeyboardInterrupt:
         logger.info("You interrupted AutoGPT")
         logger.info("Quitting...")
         exit(0)
+
+
+
+
+
+
+def _prompt_with_timeout(prompt: str, timeout: float | None) -> str | None:
+    prompt_text = prompt or ""
+    if timeout is None:
+        return click.prompt(text=prompt_text, prompt_suffix=" ", default="", show_default=False)
+
+    if prompt_text:
+        click.echo(prompt_text, nl=False)
+        if not prompt_text.endswith(" "):
+            click.echo(" ", nl=False)
+    else:
+        click.echo("", nl=False)
+    sys.stdout.flush()
+
+    end_time = time.time() + timeout
+    if os.name == "nt":
+        return _prompt_windows(end_time)
+    return _prompt_posix(end_time)
+
+
+def _prompt_windows(end_time: float) -> str | None:
+    import msvcrt
+
+    buffer: list[str] = []
+    while True:
+        remaining = end_time - time.time()
+        if remaining <= 0:
+            click.echo()
+            return None
+        if msvcrt.kbhit():
+            char = msvcrt.getwche()
+            if char in ("\r", "\n"):
+                click.echo()
+                return "".join(buffer)
+            if char == "\x08":  # backspace
+                if buffer:
+                    buffer.pop()
+                    click.echo("\b \b", nl=False)
+                continue
+            if char in ("\x00", "\xe0"):
+                msvcrt.getwch()
+                continue
+            buffer.append(char)
+        else:
+            time.sleep(min(0.1, remaining))
+
+
+def _prompt_posix(end_time: float) -> str | None:
+    import select
+
+    while True:
+        remaining = end_time - time.time()
+        if remaining <= 0:
+            click.echo()
+            return None
+        ready, _, _ = select.select([sys.stdin], [], [], min(1.0, remaining))
+        if ready:
+            line = sys.stdin.readline()
+            return line.rstrip("\r\n")
 
 
 def get_bulletin_from_web():

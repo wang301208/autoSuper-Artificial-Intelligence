@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from typing import Dict
 
 
 class EmotionType(Enum):
@@ -21,6 +22,10 @@ class EmotionalState:
 
     emotion: EmotionType
     intensity: float = 0.0
+    dimensions: Dict[str, float] = field(default_factory=dict)
+    decay: float = 0.0
+    context_weights: Dict[str, float] = field(default_factory=dict)
+    intent_bias: Dict[str, float] = field(default_factory=dict)
 
 
 __all__ = ["EmotionType", "EmotionalState"]

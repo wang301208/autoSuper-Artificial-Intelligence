@@ -1,3 +1,19 @@
+from __future__ import annotations
+
+"""Motor cortex integrating cortical planning with actuators."""
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Tuple
+
+from .motor.actions import (
+    ActionMapping,
+    ActuatorInterface,
+    MotorCommand,
+    MotorExecutionResult,
+    MotorPlan,
+)
+
+
 class PrimaryMotor:
     """Primary motor cortex responsible for executing motor commands."""
 
@@ -19,56 +35,143 @@ class SupplementaryMotor:
         return f"organized {plan}"
 
 
+@dataclass
 class MotorCortex:
-    """Motor cortex integrating multiple motor-related areas."""
+    """Motor cortex orchestrating planning, ethics, and actuator dispatch."""
 
-    def __init__(
-        self,
-        basal_ganglia=None,
-        cerebellum=None,
-        spiking_backend=None,
-        ethics=None,
-    ):
+    basal_ganglia: Any = None
+    cerebellum: Any = None
+    spiking_backend: Any = None
+    ethics: Any = None
+    actuator: ActuatorInterface | None = None
+    action_map: Dict[str, ActionMapping] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
         self.primary_motor = PrimaryMotor()
         self.premotor_area = PreMotorArea()
         self.supplementary_motor = SupplementaryMotor()
-        self.basal_ganglia = basal_ganglia
-        self.cerebellum = cerebellum
-        self.spiking_backend = spiking_backend
-        # Optional ethical reasoning engine used to vet actions before
-        # execution.  The engine is expected to expose an ``evaluate_action``
-        # method returning a compliance report.
-        self.ethics = ethics
+        self.feedback_history: list[MotorExecutionResult] = []
 
-    def plan_movement(self, intention: str) -> str:
-        """Plan a movement based on an intention."""
-        plan = self.premotor_area.plan(intention)
-        plan = self.supplementary_motor.organize(plan)
+    # ------------------------------------------------------------------
+    # Planning ---------------------------------------------------------
+    # ------------------------------------------------------------------
+    def plan_movement(self, intention: str, parameters: Optional[Dict[str, Any]] = None) -> MotorPlan:
+        """Plan a movement and generate a structured `MotorPlan`."""
+
+        parameters = dict(parameters or {})
+        first_stage = self.premotor_area.plan(intention)
+        second_stage = self.supplementary_motor.organize(first_stage)
+        stages = [first_stage, second_stage]
+        final_stage = stages[-1]
         if self.basal_ganglia:
-            plan = self.basal_ganglia.modulate(plan)
+            final_stage = self.basal_ganglia.modulate(final_stage)
+            stages.append(final_stage)
+
+        plan = MotorPlan(intention=intention, stages=stages, parameters=parameters)
+        plan.metadata["plan_summary"] = final_stage
+        plan.command = self._map_plan_to_command(plan)
         return plan
 
-    def execute_action(self, motor_command: str):
-        """Execute a motor command, optionally using a spiking backend."""
-        # Perform ethical evaluation before any physical execution.
-        if self.ethics:
-            report = self.ethics.evaluate_action(motor_command)
-            if not report["compliant"]:
-                return report
+    def register_action(self, intention: str, mapping: ActionMapping) -> None:
+        """Register or override an action mapping for a given intention."""
 
-        if self.spiking_backend and isinstance(motor_command, (list, tuple)):
-            spikes = self.spiking_backend.run(motor_command)
+        self.action_map[intention] = mapping
+
+    # ------------------------------------------------------------------
+    # Execution --------------------------------------------------------
+    # ------------------------------------------------------------------
+    def execute_action(self, motor_instruction: Any):
+        """Execute motor instructions via the actuator or primary motor."""
+
+        # Neuromorphic execution path remains untouched for compatibility.
+        if self.spiking_backend and isinstance(motor_instruction, (list, tuple)):
+            outputs = self.spiking_backend.run(motor_instruction)
             self.spiking_backend.synapses.adapt(
                 self.spiking_backend.spike_times, self.spiking_backend.spike_times
             )
-            return spikes
-        command = motor_command
-        if self.cerebellum:
-            command = self.cerebellum.fine_tune(command)
-        return self.primary_motor.execute(command)
+            return outputs
 
-    def train(self, error_signal: str) -> str:
-        """Adjust motor output based on feedback using the cerebellum."""
+        plan, command = self._ensure_command(motor_instruction)
+
+        if self.ethics:
+            report = self.ethics.evaluate_action(command.operation)
+            if not report.get("compliant", True):
+                return report
+
+        tuned_command, textual_hint = self._apply_cerebellum(command, plan)
+
+        if self.actuator:
+            result = self.actuator.execute(tuned_command)
+            self._post_execute_feedback(result)
+            return result
+
+        command_text = textual_hint or tuned_command.metadata.get("plan_summary", tuned_command.operation)
+        return self.primary_motor.execute(str(command_text))
+
+    # ------------------------------------------------------------------
+    # Learning ---------------------------------------------------------
+    # ------------------------------------------------------------------
+    def train(self, feedback: MotorExecutionResult | str | Dict[str, Any]) -> str:
+        """Update cerebellar model with rich feedback information."""
+
+        if not self.cerebellum:
+            return f"no cerebellum to learn from {feedback}"
+        return self.cerebellum.motor_learning(feedback)
+
+    # ------------------------------------------------------------------
+    # Internal helpers -------------------------------------------------
+    # ------------------------------------------------------------------
+    def _map_plan_to_command(self, plan: MotorPlan) -> MotorCommand:
+        mapping = self.action_map.get(plan.intention)
+        if mapping:
+            command = mapping.to_command(plan)
+        else:
+            metadata = {
+                "plan_summary": plan.describe(),
+                "stages": list(plan.stages),
+                "intention": plan.intention,
+            }
+            command = MotorCommand("motor", plan.intention, dict(plan.parameters), metadata)
+        command.metadata.setdefault("plan_summary", plan.describe())
+        return command
+
+    def _ensure_command(self, motor_instruction: Any) -> Tuple[MotorPlan | None, MotorCommand]:
+        if isinstance(motor_instruction, MotorPlan):
+            command = motor_instruction.command or self._map_plan_to_command(motor_instruction)
+            return motor_instruction, command
+        if isinstance(motor_instruction, MotorCommand):
+            return None, motor_instruction
+        if isinstance(motor_instruction, dict) and "operation" in motor_instruction:
+            return None, MotorCommand(
+                tool=motor_instruction.get("tool", "motor"),
+                operation=motor_instruction["operation"],
+                arguments=dict(motor_instruction.get("arguments", {})),
+                metadata=dict(motor_instruction.get("metadata", {})),
+            )
+        if isinstance(motor_instruction, str):
+            plan = self.plan_movement(motor_instruction)
+            return plan, plan.command  # type: ignore[return-value]
+        raise TypeError(f"Unsupported motor instruction type: {type(motor_instruction)!r}")
+
+    def _apply_cerebellum(
+        self, command: MotorCommand, plan: MotorPlan | None
+    ) -> Tuple[MotorCommand, Optional[str]]:
+        if not self.cerebellum:
+            return command, plan.describe() if plan else None
+        tuned_command = self.cerebellum.fine_tune(command)
+        textual_hint = None
+        if plan:
+            textual_hint = self.cerebellum.fine_tune(plan.describe())
+            if isinstance(textual_hint, MotorCommand):
+                textual_hint = textual_hint.metadata.get("plan_summary", plan.describe())
+        if isinstance(tuned_command, MotorCommand):
+            return tuned_command, textual_hint
+        return command, str(tuned_command)
+
+    def _post_execute_feedback(self, result: MotorExecutionResult) -> None:
+        self.feedback_history.append(result)
         if self.cerebellum:
-            return self.cerebellum.motor_learning(error_signal)
-        return f"no cerebellum to learn from {error_signal}"
+            self.cerebellum.motor_learning(result)
+
+
+__all__ = ["MotorCortex", "PrimaryMotor", "PreMotorArea", "SupplementaryMotor"]

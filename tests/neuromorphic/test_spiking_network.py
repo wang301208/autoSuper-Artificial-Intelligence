@@ -3,7 +3,8 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from modules.brain.neuromorphic import SpikingNeuralNetwork
+from modules.brain.neuromorphic import SpikingNeuralNetwork, AdExNeuronModel
+from modules.brain.neuromorphic.spiking_network import SpikingNetworkConfig
 
 
 def test_spike_generation():
@@ -46,3 +47,30 @@ def test_dynamic_threshold_adaptation():
         neurons.step([0.0])
     # Same input can trigger spike again after adaptation decays
     assert neurons.step([1.1]) == [1]
+
+
+def test_adex_neuron_spiking():
+    network = SpikingNeuralNetwork(
+        n_neurons=1,
+        neuron_model_cls=AdExNeuronModel,
+        neuron_model_kwargs={"v_reset": -65.0, "v_threshold": -55.0, "v_peak": 0.0},
+        plasticity_mode=None,
+        weights=[[0.0]],
+    )
+    network.synapses.adapt = lambda *args, **kwargs: None
+    spikes = network.run([[5.0], [5.0], [5.0]])
+    assert any(spike for _, spike in spikes)
+
+
+def test_spiking_network_config_builder():
+    config = SpikingNetworkConfig(
+        n_neurons=2,
+        neuron="lif",
+        neuron_params={"threshold": 0.8},
+        weights=[[0.0, 0.5], [0.0, 0.0]],
+        plasticity="none",
+    )
+    network = config.create()
+    network.synapses.adapt = lambda *args, **kwargs: None
+    outputs = network.run([[1.0, 0.0], [0.0, 0.0]])
+    assert outputs

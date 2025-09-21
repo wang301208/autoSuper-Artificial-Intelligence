@@ -169,6 +169,12 @@ graph TB
     E --> N
 ```
 
+## 神经形态大脑模拟核心
+
+- **WholeBrainSimulation** 作为智能体内部的大脑模拟层，将感知快照、情绪状态、人格参数与执行意图统一在一个循环中，为上层智能体提供一致的内在状态接口。
+- **Neuromorphic Engine** 以脉冲神经网络为基础，对多模态输入进行类脑编码，输出能耗、闲置跳过与新奇度指标，并驱动好奇心、自主学习等调节信号。
+- 该核心栈产生的遥测指标（如 `strategy_bias_*`、`novelty_signal`、`curiosity_drive`）会回流至 CLI 评估与代理决策管线，使大脑模拟成为项目的默认调度基线。
+
 ## 核心组件详解
 
 ### 1. 智能体管理器 (Agent Manager)
@@ -767,4 +773,11 @@ graph TB
 - **故障恢复**: 实现断路器、重试和降级机制
 - **多云部署**: 支持AWS、GCP、Azure等多云环境
 
-这个架构文档提供了AutoGPT系统的完整技术视图，为开发、部署和维护提供了详细的指导。
+这个架构文档提供了AutoGPT系统的完整技术视图，为开发、部署和维护提供了详细的指导。### 内部 Transformer 项目大脑
+
+- 在 `autogpt.core.brain.encoding` 中定义了统一的观测与记忆编码规则，会把代理的循环计数、动作历史、任务目标等信息编码为定长向量。
+- `BaseAgent` 默认在启用 `use_transformer_brain` 且 Big Brain 打开时使用上述编码，并支持通过 `TransformerBrainConfig.dataset_logging_path` 将每个循环的 (observation, memory, logits) 样本写入 JSONL 以便离线训练。
+- 使用 `backend/autogpt/autogpt/core/brain/train_transformer_brain.py` 可以载入这些样本或生成的合成数据进行训练，并支持 CLI 参数覆写维度、层数与学习率等超参数。
+- `TransformerBrainConfig.weights_path` 支持在初始化时加载已有权重，便于部署端直接复用训练结果。
+
+> 注意：`modules/brain` 下的子模块仍保持实验性质，需按需手动集成。

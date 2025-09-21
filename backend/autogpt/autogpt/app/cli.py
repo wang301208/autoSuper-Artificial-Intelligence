@@ -1,4 +1,5 @@
 """Main script for the autogpt package."""
+import logging
 from logging import _nameToLevel as logLevelMap
 from pathlib import Path
 from typing import Optional
@@ -331,6 +332,145 @@ def serve(
         allow_downloads=allow_downloads,
         install_plugin_deps=install_plugin_deps,
     )
+
+
+@cli.command()
+@click.option(
+    "--prompt-settings",
+    "-P",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help=(
+        "Specifies which prompt_settings.yaml file to use, relative to AutoGPT's"
+        " config directory."
+    ),
+)
+@click.option("--gpt3only", is_flag=True, help="Enable GPT3.5 Only Mode")
+@click.option("--gpt4only", is_flag=True, help="Enable GPT4 Only Mode")
+@click.option(
+    "-b",
+    "--browser-name",
+    help="Specifies which web-browser to use when using selenium to scrape the web.",
+)
+@click.option(
+    "--allow-downloads",
+    is_flag=True,
+    help="Dangerous: Allows AutoGPT to download files natively.",
+)
+@click.option(
+    "--install-plugin-deps",
+    is_flag=True,
+    help="Installs external dependencies for 3rd party plugins.",
+)
+@click.option(
+    "--debug", is_flag=True, help="Implies --log-level=DEBUG --log-format=debug"
+)
+@click.option("--log-level", type=click.Choice([*logLevelMap.keys()]))
+@click.option(
+    "--log-format",
+    help=(
+        "Choose a log format; defaults to 'simple'."
+        " Also implies --log-file-format, unless it is specified explicitly."
+        " Using the 'structured_google_cloud' format disables log file output."
+    ),
+    type=click.Choice([i.value for i in LogFormatName]),
+)
+@click.option(
+    "--log-file-format",
+    help=(
+        "Override the format used for the log file output."
+        " Defaults to the application's global --log-format."
+    ),
+    type=click.Choice([i.value for i in LogFormatName]),
+)
+def mcp(
+    prompt_settings: Path | None,
+    gpt3only: bool,
+    gpt4only: bool,
+    browser_name: str | None,
+    allow_downloads: bool,
+    install_plugin_deps: bool,
+    debug: bool,
+    log_level: str | None,
+    log_format: str | None,
+    log_file_format: str | None,
+) -> None:
+    """Starts a Model Context Protocol (MCP) bridge for AutoGPT over stdio."""
+    from autogpt.app.mcp_server import run_auto_gpt_mcp_server
+
+    run_auto_gpt_mcp_server(
+        prompt_settings=prompt_settings,
+        debug=debug,
+        log_level=log_level,
+        log_format=log_format,
+        log_file_format=log_file_format,
+        gpt3only=gpt3only,
+        gpt4only=gpt4only,
+        browser_name=browser_name,
+        allow_downloads=allow_downloads,
+        install_plugin_deps=install_plugin_deps,
+    )
+
+
+@cli.command()
+@click.option(
+    "--scenarios-dir",
+    type=click.Path(path_type=Path),
+    help="Directory containing replay scenario JSON files.",
+)
+@click.option(
+    "--reports-dir",
+    type=click.Path(path_type=Path),
+    help="Directory where replay reports will be written.",
+)
+@click.option("--verbose", is_flag=True, help="Print detailed replay results")
+def replay(
+    scenarios_dir: Path | None,
+    reports_dir: Path | None,
+    verbose: bool,
+) -> None:
+    """Run offline replay scenarios and report pass/fail for each."""
+    from autogpt.config import ConfigBuilder
+    from autogpt.core.self_improvement.replay import ScenarioLoader
+    from autogpt.core.self_improvement.replay_validator import ReplayValidator
+
+    config = ConfigBuilder.build_config_from_env()
+    learning_cfg = config.learning
+
+    scenarios_path = scenarios_dir or Path(learning_cfg.replay_scenarios_dir)
+    reports_path = reports_dir or Path(learning_cfg.replay_reports_dir)
+
+    loader = ScenarioLoader(scenarios_path)
+    scenarios = loader.load()
+    if not scenarios:
+        click.echo(f"No replay scenarios found in {scenarios_path}")
+        raise SystemExit(0)
+
+    validator = ReplayValidator(reports_path, logger=logging.getLogger("ReplayValidator"))
+
+    def _execute(scenario):
+        # Placeholder executor: succeeds when all records in scenario have success status
+        return all(
+            record.result_status and record.result_status.lower() == "success"
+            for record in scenario.records
+        )
+
+    results = validator.evaluate_scenarios(scenarios, _execute)
+    scenario_map = {scenario.name: scenario for scenario in scenarios}
+    overall_pass = True
+    for name, passed in results.items():
+        overall_pass &= passed
+        status = "PASS" if passed else "FAIL"
+        click.echo(f"{name}: {status}")
+        if verbose:
+            scenario = scenario_map.get(name)
+            size = len(scenario.records) if scenario else 0
+            click.echo(f"  Records: {size}")
+    if overall_pass:
+        click.echo("All replay scenarios passed")
+    else:
+        click.echo("Some replay scenarios failed", err=True)
+        raise SystemExit(1)
+
 
 
 if __name__ == "__main__":

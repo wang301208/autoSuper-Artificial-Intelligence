@@ -1,0 +1,15 @@
+﻿{
+  "name": "baseline_success_example",
+  "description": "Example replay scenario requiring all recorded actions to have succeeded.",
+  "records": [
+    {
+      "timestamp": "2025-01-01T00:00:00Z",
+      "task_id": "example-task",
+      "cycle": 1,
+      "command_name": "plan",
+      "command_args": {"goal": "demo"},
+      "result_status": "success",
+      "result_summary": "Generated plan"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+﻿import json
 import sys
 import types
 from pathlib import Path
@@ -22,7 +23,10 @@ except Exception:  # pragma: no cover - environment limitations
     ActionSuccessResult = type("ActionSuccessResult", (), {"__init__": lambda self, outputs: None})
 
 from autogpt.core.brain.config import TransformerBrainConfig
+from autogpt.core.brain.encoding import build_brain_inputs
 from autogpt.core.brain.transformer_brain import TransformerBrain
+from autogpt.core.brain.train_transformer_brain import ObservationActionDataset
+from autogpt.models.action_history import Action, Episode
 
 
 if BaseAgent is not None:
@@ -49,6 +53,47 @@ def test_transformer_brain_outputs_thought_and_action():
     assert thought.shape[-1] == config.dim
     assert isinstance(info["action"], list)
     assert command == "internal_brain_action"
+
+
+def test_build_brain_inputs_produces_dense_features():
+    episodes = [
+        Episode(
+            action=Action(name="do_task", args={"foo": "bar"}, reasoning="evaluate options"),
+            result=ActionSuccessResult(outputs="ok"),
+            summary="Executed do_task successfully.",
+        )
+    ]
+    agent = types.SimpleNamespace(
+        config=types.SimpleNamespace(cycle_count=3, cycle_budget=10),
+        event_history=types.SimpleNamespace(episodes=episodes),
+        state=types.SimpleNamespace(task=types.SimpleNamespace(input="ship feature", additional_input="")),
+        ai_profile=types.SimpleNamespace(ai_goals=["launch product"]),
+        directives=types.SimpleNamespace(general_guidelines=["stay helpful"]),
+    )
+
+    observation, memory_ctx = build_brain_inputs(agent, dim=16)
+
+    assert observation.shape == (16,)
+    assert memory_ctx.shape == (16,)
+    assert torch.count_nonzero(observation) > 0
+    assert torch.count_nonzero(memory_ctx) > 0
+
+
+def test_observation_action_dataset_from_jsonl(tmp_path):
+    sample_path = tmp_path / "brain_samples.jsonl"
+    sample = {
+        "observation": [0.1, 0.2, 0.3],
+        "memory": [0.4, 0.5, 0.6],
+        "action_index": 2,
+    }
+    sample_path.write_text(json.dumps(sample) + "\n", encoding="utf-8")
+
+    dataset = ObservationActionDataset.from_jsonl(sample_path, dim=4)
+    obs, mem, action = dataset[0]
+
+    assert obs.shape == (4,)
+    assert mem.shape == (4,)
+    assert action.item() == 2
 
 
 @pytest.mark.asyncio
