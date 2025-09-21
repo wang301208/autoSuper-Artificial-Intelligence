@@ -118,6 +118,43 @@ class CognitiveIntent:
 
 
 @dataclass
+class ThoughtSnapshot:
+    """Representation of the agent's current thought focus."""
+
+    focus: str
+    summary: str
+    plan: List[str] = field(default_factory=list)
+    confidence: float = 0.5
+    memory_refs: List[Dict[str, Any]] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
+
+    def as_metrics(self) -> Dict[str, float]:
+        return {
+            "thought_confidence": self.confidence,
+            "thought_plan_length": float(len(self.plan)),
+        }
+
+
+@dataclass
+class FeelingSnapshot:
+    """Subjective feeling derived from emotion dynamics."""
+
+    descriptor: str
+    valence: float
+    arousal: float
+    mood: float
+    confidence: float
+    context_tags: List[str] = field(default_factory=list)
+
+    def as_metrics(self) -> Dict[str, float]:
+        return {
+            "feeling_valence": self.valence,
+            "feeling_arousal": self.arousal,
+            "feeling_confidence": self.confidence,
+        }
+
+
+@dataclass
 class BrainCycleResult:
     perception: PerceptionSnapshot
     emotion: EmotionSnapshot
@@ -126,6 +163,8 @@ class BrainCycleResult:
     curiosity: CuriosityState
     energy_used: int
     idle_skipped: int
+    thoughts: Optional[ThoughtSnapshot] = None
+    feeling: Optional[FeelingSnapshot] = None
     metrics: Dict[str, float] = field(default_factory=dict)
     metadata: Dict[str, Optional[str]] = field(default_factory=dict)
 
@@ -137,6 +176,8 @@ __all__ = [
     "PerceptionSnapshot",
     "EmotionSnapshot",
     "CognitiveIntent",
+    "ThoughtSnapshot",
+    "FeelingSnapshot",
     "BrainCycleResult",
 ]
 

@@ -97,6 +97,8 @@ class CognitiveModule:
             return list(self.episodic_memory)
         return list(self.episodic_memory)[-limit:]
 
+
+
     def decide(
         self,
         perception: PerceptionSnapshot,
@@ -108,6 +110,7 @@ class CognitiveModule:
     ) -> Dict[str, Any]:
         context = context or {}
         summary = self._summarise_perception(perception)
+        focus = max(summary, key=summary.get) if summary else None
         options = {
             "observe": 0.2 + (1 - abs(emotion.dimensions.get("valence", 0.0))) * 0.3,
             "approach": 0.2 + emotion.intent_bias.get("approach", 0.0),
@@ -132,20 +135,42 @@ class CognitiveModule:
         weights = {k: v / total for k, v in options.items()}
         intention = max(weights.items(), key=lambda item: item[1])[0]
         confidence = weights[intention]
-        plan = self._build_plan(intention, summary, context)
+        plan = self._build_plan(intention, summary, context, focus)
         tags = [intention]
         if confidence >= 0.65:
             tags.append("high-confidence")
         if curiosity.last_novelty > 0.6:
             tags.append("novelty-driven")
+        if focus:
+            tags.append(f"focus-{focus}")
         self._remember(summary, emotion, intention, confidence)
-        return {
+        thought_trace = [
+            f"focus={focus or 'none'}",
+            f"intention={intention}",
+            f"emotion={emotion.primary.value}:{emotion.intensity:.2f}",
+            f"curiosity={curiosity.drive:.2f}",
+        ]
+        if learning_prediction:
+            thought_trace.append(
+                f"predicted_cpu={float(learning_prediction.get('cpu', 0.0)):.2f}"
+            )
+            thought_trace.append(
+                f"predicted_mem={float(learning_prediction.get('memory', 0.0)):.2f}"
+            )
+        summary_text = ', '.join(f"{k}:{v:.2f}" for k, v in summary.items()) or 'no-salient-modalities'
+        decision = {
             "intention": intention,
             "plan": plan,
             "confidence": confidence,
             "weights": weights,
             "tags": tags,
+            "focus": focus or intention,
+            "summary": summary_text,
+            "thought_trace": thought_trace,
+            "perception_summary": summary,
         }
+        return decision
+
 
 
 @dataclass
@@ -324,6 +349,51 @@ class WholeBrainSimulation:
             return dict(self.last_oscillation_state)
 
 
+
+def _compose_thought_snapshot(
+    self,
+    decision: Dict[str, Any],
+    memory_refs: List[dict[str, Any]],
+) -> ThoughtSnapshot:
+    plan_steps = list(decision.get("plan", []))
+    summary = decision.get("summary") or (
+        ', '.join(plan_steps) if plan_steps else decision.get("intention", "")
+    )
+    return ThoughtSnapshot(
+        focus=str(decision.get("focus", decision.get("intention", "unknown"))),
+        summary=summary,
+        plan=plan_steps,
+        confidence=float(decision.get("confidence", 0.5)),
+        memory_refs=memory_refs[-3:],
+        tags=list(decision.get("tags", [])),
+    )
+
+def _compose_feeling_snapshot(
+    self,
+    emotion: EmotionSnapshot,
+    oscillation_state: Dict[str, float],
+    context_features: Dict[str, Any],
+) -> FeelingSnapshot:
+    descriptor = emotion.primary.value.lower()
+    valence = float(emotion.dimensions.get("valence", emotion.mood))
+    arousal = float(emotion.dimensions.get("arousal", abs(emotion.mood)))
+    confidence = max(0.0, min(1.0, 1.0 - float(emotion.decay)))
+    context_tags = {
+        key
+        for key, value in context_features.items()
+        if isinstance(value, (int, float)) and value != 0
+    }
+    for key in oscillation_state:
+        context_tags.add(f"osc_{key}")
+    return FeelingSnapshot(
+        descriptor=descriptor,
+        valence=valence,
+        arousal=arousal,
+        mood=emotion.mood,
+        confidence=confidence,
+        context_tags=sorted(context_tags),
+    )
+
     def process_cycle(self, input_data: Dict[str, Any]) -> BrainCycleResult:
         """Run a single perception-cognition-action cycle."""
 
