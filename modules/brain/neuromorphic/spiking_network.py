@@ -338,6 +338,15 @@ class SpikingNeuralNetwork:
         self.energy_usage = 0
         self.idle_skipped_cycles = 0
 
+    def reset_state(self) -> None:
+        if hasattr(self.neurons, "reset_state"):
+            self.neurons.reset_state()
+        if hasattr(self.synapses, "reset_state"):
+            self.synapses.reset_state()
+        self.spike_times = [None] * len(self.spike_times)
+        self.energy_usage = 0
+        self.idle_skipped_cycles = 0
+
     def _run_internal(self, input_events, encoder=None, **encoder_kwargs):
         queue = EventQueue()
         self.energy_usage = 0
@@ -368,7 +377,11 @@ class SpikingNeuralNetwork:
 
         outputs: list[tuple[float, list[int]]] = []
 
+        processed = 0
+        max_events = max(32, self.neurons.size * 32)
         while queue:
+            if processed >= max_events:
+                break
             time, inputs = queue.pop()
             self.energy_usage += 1
             spikes = self.neurons.step(inputs)
@@ -384,6 +397,8 @@ class SpikingNeuralNetwork:
             currents = self.synapses.propagate(spikes)
             if any(currents):
                 queue.push(time + 1, currents)
+
+            processed += 1
 
         outputs.sort(key=lambda x: x[0])
         return outputs
