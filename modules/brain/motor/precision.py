@@ -5,6 +5,9 @@ class PrimaryMotorCortex:
         return f"executed {command}"
 
 
+from numbers import Real
+
+
 class DorsalPremotor:
     """Dorsal premotor area planning reaching trajectories."""
 
@@ -49,15 +52,31 @@ class Cerebellum:
 
     def __init__(self):
         self.learned = []
+        self.metric_history: list[dict[str, float]] = []
 
     def fine_tune(self, command: str) -> str:
         if self.learned:
             return f"fine-tuned {command} with {self.learned[-1]}"
         return f"fine-tuned {command}"
 
-    def learn(self, feedback: str) -> str:
+    def learn(self, feedback: str | dict[str, float]) -> str:
+        if isinstance(feedback, dict):
+            summary = self.update_feedback(feedback)
+            return f"adapted metrics {summary}" if summary else "adapted metrics"
         self.learned.append(feedback)
         return f"adapted to {feedback}"
+
+    def update_feedback(self, metrics: dict[str, float]) -> str | None:
+        numeric: dict[str, float] = {}
+        for key, value in metrics.items():
+            if isinstance(value, Real):
+                numeric[key] = float(value)
+        if not numeric:
+            return None
+        summary = ", ".join(f"{key}={value:.3f}" for key, value in sorted(numeric.items()))
+        self.metric_history.append(dict(sorted(numeric.items())))
+        self.learned.append(summary)
+        return summary
 
 
 class MotorPlanningSystem:
@@ -111,3 +130,8 @@ class PrecisionMotorSystem:
     def learn(self, feedback: str) -> str:
         """Update cerebellar learning based on feedback."""
         return self.cerebellum.learn(feedback)
+
+    def update_feedback(self, metrics: dict[str, float]) -> None:
+        """Propagate structured metric feedback to the cerebellum."""
+
+        self.cerebellum.update_feedback(metrics)
