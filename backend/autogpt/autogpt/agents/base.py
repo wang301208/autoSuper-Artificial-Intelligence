@@ -102,7 +102,9 @@ class BaseAgentConfiguration(SystemConfiguration):
     use_transformer_brain: bool = UserConfigurable(default=False)
     """Whether to initialize the ``TransformerBrain`` component."""
 
-    brain_backend: BrainBackend = UserConfigurable(default=BrainBackend.LLM)
+    brain_backend: BrainBackend = UserConfigurable(
+        default=BrainBackend.WHOLE_BRAIN
+    )
     """Selects the cognitive backend used when ``big_brain`` is enabled."""
 
     whole_brain: WholeBrainConfig = Field(default_factory=WholeBrainConfig)
@@ -182,7 +184,7 @@ class BaseAgentConfiguration(SystemConfiguration):
                 raise ValueError(f"Unsupported brain backend '{v}'") from exc
         if values.get("use_transformer_brain"):
             return BrainBackend.TRANSFORMER
-        return BrainBackend.LLM
+        return BrainBackend.WHOLE_BRAIN
 
     @validator("use_transformer_brain", always=True)
     def _sync_transformer_flag(cls, v: bool, values: dict[str, Any]) -> bool:
@@ -384,8 +386,9 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         try:
             # Scratchpad as surrogate PromptGenerator for plugin hooks
             self._prompt_scratchpad = PromptScratchpad()
+            backend = self.config.brain_backend
             use_whole_brain = (
-                self.config.brain_backend == BrainBackend.WHOLE_BRAIN
+                backend == BrainBackend.WHOLE_BRAIN
                 and self.whole_brain is not None
                 and self._whole_brain_adapter is not None
             )
@@ -405,7 +408,11 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
                     },
                 )
                 return result
-            if self.config.big_brain and self.brain is not None:
+            if (
+                backend == BrainBackend.TRANSFORMER
+                and self.config.big_brain
+                and self.brain is not None
+            ):
                 observation, memory_ctx = build_brain_inputs(self, self.config.brain.dim)
                 thought = self.brain.think(observation, memory_ctx)
                 result = self.brain.propose_action(thought)
@@ -420,6 +427,12 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
                     },
                 )
                 return result
+
+            if backend != BrainBackend.LLM:
+                logger.warning(
+                    "Brain backend '%s' unavailable; falling back to LLM provider.",
+                    backend.value if isinstance(backend, BrainBackend) else backend,
+                )
 
             prompt: ChatPrompt = self.build_prompt(scratchpad=self._prompt_scratchpad)
             prompt = self.on_before_think(prompt, scratchpad=self._prompt_scratchpad)

@@ -1,6 +1,5 @@
 import asyncio
 import importlib.util
-import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,7 +33,8 @@ else:
     from autogpt.models.action_history import Action, ActionSuccessResult, Episode
 
 
-def test_agent_with_whole_brain_backend_proposes_internal_action():
+@pytest.mark.parametrize("explicit_backend", [True, False], ids=["explicit", "default"])
+def test_agent_with_whole_brain_backend_proposes_internal_action(explicit_backend):
     if Agent is None:
         pytest.skip("Agent dependencies not available in this test environment")
 
@@ -55,7 +55,11 @@ def test_agent_with_whole_brain_backend_proposes_internal_action():
             event_bus_redis_password="",
         )
 
-        config = AgentConfiguration(brain_backend=BrainBackend.WHOLE_BRAIN, big_brain=True)
+        config_kwargs = {}
+        if explicit_backend:
+            config_kwargs["brain_backend"] = BrainBackend.WHOLE_BRAIN
+        config = AgentConfiguration(**config_kwargs)
+        assert config.brain_backend == BrainBackend.WHOLE_BRAIN
         config.whole_brain.runtime.enable_self_learning = False
         config.whole_brain.runtime.metrics_enabled = True
         settings = AgentSettings(config=config)
@@ -85,6 +89,8 @@ def test_agent_with_whole_brain_backend_proposes_internal_action():
 
         command, args, thoughts = await agent.propose_action()
 
+        assert agent.config.brain_backend == BrainBackend.WHOLE_BRAIN
+        assert agent.whole_brain is not None
         assert command == "internal_brain_action"
         assert args["intention"]
         assert thoughts["backend"] == "whole_brain"
