@@ -9,6 +9,7 @@ import json
 import math
 import random
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from concurrent.futures import Executor
@@ -29,6 +30,10 @@ class SpikingNetworkConfig:
     idle_skip: bool = False
     plasticity: str | None = "stdp"
     learning_rate: float = 0.1
+    max_duration: int | None = None
+    convergence_window: int | None = None
+    convergence_threshold: float | None = None
+    convergence_patience: int = 3
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SpikingNetworkConfig":
@@ -40,6 +45,10 @@ class SpikingNetworkConfig:
             idle_skip=data.get("idle_skip", False),
             plasticity=data.get("plasticity", "stdp"),
             learning_rate=data.get("learning_rate", 0.1),
+            max_duration=data.get("max_duration"),
+            convergence_window=data.get("convergence_window"),
+            convergence_threshold=data.get("convergence_threshold"),
+            convergence_patience=data.get("convergence_patience", 3),
         )
 
     def create(self) -> "SpikingNeuralNetwork":
@@ -59,6 +68,10 @@ class SpikingNetworkConfig:
             neuron_model_kwargs=dict(self.neuron_params),
             plasticity_mode=self.plasticity,
             learning_rate=self.learning_rate,
+            max_duration=self.max_duration,
+            convergence_window=self.convergence_window,
+            convergence_threshold=self.convergence_threshold,
+            convergence_patience=self.convergence_patience,
         )
 
     def create_backend(self, **backend_kwargs) -> "NeuromorphicBackend":
@@ -299,6 +312,10 @@ class SpikingNeuralNetwork:
         synapse_model: SynapseModel | None = None,
         plasticity_mode: str | None = "stdp",
         learning_rate: float = 0.1,
+        max_duration: int | None = None,
+        convergence_window: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_patience: int | None = 3,
     ) -> None:
         if neuron_model is None:
             if neuron_model_cls is None:
@@ -337,6 +354,26 @@ class SpikingNeuralNetwork:
         self.idle_skip = idle_skip
         self.energy_usage = 0
         self.idle_skipped_cycles = 0
+        self.max_duration = (
+            int(max_duration) if max_duration is not None else None
+        )
+        if self.max_duration is not None and self.max_duration <= 0:
+            self.max_duration = 1
+        self.convergence_threshold = (
+            float(convergence_threshold)
+            if convergence_threshold is not None
+            else None
+        )
+        if convergence_window is not None:
+            window_value = int(convergence_window)
+            self.convergence_window = window_value if window_value > 0 else None
+        else:
+            self.convergence_window = None
+        if convergence_patience is None:
+            patience_value = 3
+        else:
+            patience_value = int(convergence_patience)
+        self.convergence_patience = patience_value if patience_value > 0 else 1
 
     def reset_state(self) -> None:
         if hasattr(self.neurons, "reset_state"):
@@ -347,14 +384,27 @@ class SpikingNeuralNetwork:
         self.energy_usage = 0
         self.idle_skipped_cycles = 0
 
-    def _run_internal(self, input_events, encoder=None, **encoder_kwargs):
+    def _run_internal(
+        self,
+        input_events,
+        encoder=None,
+        *,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ):
         queue = EventQueue()
         self.energy_usage = 0
         self.idle_skipped_cycles = 0
+        encoder_kwargs = dict(encoder_kwargs or {})
         if encoder is not None:
             for t, analog in enumerate(input_events):
                 if not self.idle_skip or any(analog):
-                    for time, inputs in encoder(analog, t_start=t, **encoder_kwargs):
+                    for time, inputs in encoder(
+                        analog, t_start=t, **encoder_kwargs
+                    ):
                         queue.push(time, inputs)
                 else:
                     self.idle_skipped_cycles += 1
@@ -378,7 +428,41 @@ class SpikingNeuralNetwork:
         outputs: list[tuple[float, list[int]]] = []
 
         processed = 0
-        max_events = max(32, self.neurons.size * 32)
+        configured_max = max_duration if max_duration is not None else self.max_duration
+        if configured_max is not None:
+            max_events = max(1, int(configured_max))
+        else:
+            max_events = max(32, self.neurons.size * 32)
+
+        threshold = (
+            float(convergence_threshold)
+            if convergence_threshold is not None
+            else (
+                float(self.convergence_threshold)
+                if self.convergence_threshold is not None
+                else None
+            )
+        )
+        window = (
+            int(convergence_window)
+            if convergence_window is not None
+            else self.convergence_window
+        )
+        if window is not None and window <= 0:
+            window = None
+        patience = (
+            int(convergence_patience)
+            if convergence_patience is not None
+            else self.convergence_patience
+        )
+        if patience is None or patience <= 0:
+            patience = 1
+
+        recent_spike_totals = (
+            deque(maxlen=window) if threshold is not None and window else None
+        )
+        low_activity_streak = 0
+
         while queue:
             if processed >= max_events:
                 break
@@ -393,24 +477,78 @@ class SpikingNeuralNetwork:
                 self.synapses.adapt(self.spike_times, self.spike_times)
 
             outputs.append((time, spikes))
+            processed += 1
+
+            should_stop = False
+            if recent_spike_totals is not None:
+                recent_spike_totals.append(sum(spikes))
+                if (
+                    recent_spike_totals.maxlen
+                    and len(recent_spike_totals) == recent_spike_totals.maxlen
+                ):
+                    avg_spikes = sum(recent_spike_totals) / float(
+                        recent_spike_totals.maxlen
+                    )
+                    if avg_spikes <= (threshold or 0.0):
+                        low_activity_streak += 1
+                    else:
+                        low_activity_streak = 0
+                    if low_activity_streak >= patience:
+                        should_stop = True
+
+            if should_stop:
+                break
 
             currents = self.synapses.propagate(spikes)
             if any(currents):
                 queue.push(time + 1, currents)
 
-            processed += 1
-
         outputs.sort(key=lambda x: x[0])
         return outputs
 
-    def run(self, input_events, encoder=None, **encoder_kwargs):
+    def run(
+        self,
+        input_events,
+        encoder=None,
+        *,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ):
         """Run the network using an event-driven simulation."""
-        return self._run_internal(input_events, encoder, **encoder_kwargs)
+        return self._run_internal(
+            input_events,
+            encoder,
+            encoder_kwargs=encoder_kwargs,
+            max_duration=max_duration,
+            convergence_threshold=convergence_threshold,
+            convergence_window=convergence_window,
+            convergence_patience=convergence_patience,
+        )
 
-    async def run_async(self, input_events, encoder=None, **encoder_kwargs):
+    async def run_async(
+        self,
+        input_events,
+        encoder=None,
+        *,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ):
         """Asynchronously run the network using ``asyncio``."""
         return await asyncio.to_thread(
-            self._run_internal, input_events, encoder, **encoder_kwargs
+            self._run_internal,
+            input_events,
+            encoder,
+            encoder_kwargs=encoder_kwargs,
+            max_duration=max_duration,
+            convergence_threshold=convergence_threshold,
+            convergence_window=convergence_window,
+            convergence_patience=convergence_patience,
         )
 
 @dataclass
@@ -491,11 +629,23 @@ class NeuromorphicBackend:
         decoder_kwargs: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         reset: Optional[bool] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
     ) -> NeuromorphicRunResult:
         if reset or (reset is None and self.auto_reset):
             self.reset_state()
-        encoder_kwargs = encoder_kwargs or {}
-        outputs = self.network.run(events, encoder=encoder, **encoder_kwargs)
+        encoder_kwargs = dict(encoder_kwargs or {})
+        outputs = self.network.run(
+            events,
+            encoder=encoder,
+            encoder_kwargs=encoder_kwargs,
+            max_duration=max_duration,
+            convergence_threshold=convergence_threshold,
+            convergence_window=convergence_window,
+            convergence_patience=convergence_patience,
+        )
         counts: List[int] = []
         rates: List[float] = []
         if decoder:
@@ -527,6 +677,10 @@ class NeuromorphicBackend:
         decoder_kwargs: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         reset: Optional[bool] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
     ) -> NeuromorphicRunResult:
         encoder = None
         encoder_kwargs = dict(encoder_kwargs or {})
@@ -544,6 +698,10 @@ class NeuromorphicBackend:
             decoder_kwargs=decoder_kwargs,
             metadata=metadata,
             reset=reset,
+            max_duration=max_duration,
+            convergence_threshold=convergence_threshold,
+            convergence_window=convergence_window,
+            convergence_patience=convergence_patience,
         )
 
     def run_batch(
@@ -555,6 +713,10 @@ class NeuromorphicBackend:
         decoder: str | None = "counts",
         decoder_kwargs: Optional[Dict[str, Any]] = None,
         reset_each: bool | None = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
     ) -> List[NeuromorphicRunResult]:
         results: List[NeuromorphicRunResult] = []
         for sequence in sequences:
@@ -567,6 +729,10 @@ class NeuromorphicBackend:
                     decoder_kwargs=decoder_kwargs,
                     metadata=None,
                     reset=reset_each if reset_each is not None else True,
+                    max_duration=max_duration,
+                    convergence_threshold=convergence_threshold,
+                    convergence_window=convergence_window,
+                    convergence_patience=convergence_patience,
                 )
             )
         return results

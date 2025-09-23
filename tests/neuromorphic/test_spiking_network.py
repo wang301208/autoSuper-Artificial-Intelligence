@@ -20,7 +20,7 @@ def test_spike_generation():
 
 def test_refractory_behavior():
     neurons = SpikingNeuralNetwork.LeakyIntegrateFireNeurons(
-        n_neurons=1, decay=1.0, threshold=1.0, reset=0.0, refractory_period=2
+        size=1, decay=1.0, threshold=1.0, reset=0.0, refractory_period=2
     )
 
     assert neurons.step([1.1]) == [1]
@@ -31,7 +31,7 @@ def test_refractory_behavior():
 
 def test_dynamic_threshold_adaptation():
     neurons = SpikingNeuralNetwork.LeakyIntegrateFireNeurons(
-        n_neurons=1,
+        size=1,
         decay=0.9,
         threshold=1.0,
         reset=0.0,
@@ -74,3 +74,55 @@ def test_spiking_network_config_builder():
     network.synapses.adapt = lambda *args, **kwargs: None
     outputs = network.run([[1.0, 0.0], [0.0, 0.0]])
     assert outputs
+
+
+def test_convergence_threshold_triggers_early_exit():
+    long_sequence = [[1.2]] + [[0.0]] * 199
+    network = SpikingNeuralNetwork(
+        n_neurons=1,
+        decay=0.9,
+        threshold=1.0,
+        reset=0.0,
+        weights=[[0.0]],
+        max_duration=200,
+    )
+    network.synapses.adapt = lambda *args, **kwargs: None
+    baseline = network.run(long_sequence)
+    assert len(baseline) == len(long_sequence)
+    assert network.energy_usage == len(long_sequence)
+
+    network.reset_state()
+    early = network.run(
+        long_sequence,
+        convergence_threshold=0.1,
+        convergence_window=5,
+        convergence_patience=2,
+    )
+    assert len(early) < len(long_sequence)
+    assert network.energy_usage == len(early)
+
+
+def test_backend_accepts_convergence_parameters():
+    long_sequence = [[1.1]] + [[0.0]] * 199
+    config = SpikingNetworkConfig(
+        n_neurons=1,
+        weights=[[0.0]],
+        plasticity="none",
+        max_duration=200,
+    )
+    backend = config.create_backend()
+    backend.network.synapses.adapt = lambda *args, **kwargs: None
+
+    baseline = backend.run_sequence(long_sequence, reset=True)
+    assert baseline.energy_used == len(long_sequence)
+
+    early = backend.run_sequence(
+        long_sequence,
+        convergence_threshold=0.1,
+        convergence_window=5,
+        convergence_patience=2,
+        max_duration=200,
+        reset=True,
+    )
+    assert early.energy_used < len(long_sequence)
+    assert len(early.spike_events) == early.energy_used
