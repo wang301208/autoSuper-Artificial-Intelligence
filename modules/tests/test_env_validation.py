@@ -19,5 +19,12 @@ def test_validate_env_success(monkeypatch):
 
 def test_validate_env_missing(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("BRAIN_BACKEND", raising=False)
     with pytest.raises(ValidationError):
         validate_env()
+
+
+def test_validate_env_allows_whole_brain(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("BRAIN_BACKEND", "whole_brain")
+    validate_env()

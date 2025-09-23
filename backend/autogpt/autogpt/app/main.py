@@ -12,7 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from types import FrameType
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 from uuid import uuid4
 
 from colorama import Fore, Style
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 from autogpt.agent_factory.configurators import configure_agent_with_state, create_agent
 from autogpt.agent_factory.profile_generator import generate_agent_profile_for_task
 from autogpt.agent_manager import AgentManager
-from autogpt.agents import AgentThoughts, CommandArgs, CommandName
+from autogpt.agents.base import AgentThoughts, CommandArgs, CommandName
 from autogpt.agents.utils.exceptions import AgentTerminated, InvalidAgentResponseError
 from autogpt.commands.execute_code import (
     is_docker_available,
@@ -40,6 +40,16 @@ from autogpt.config import (
     assert_config_has_openai_api_key,
 )
 from autogpt.core.logging import setup_exception_hooks
+from autogpt.core.brain.config import BrainBackend
+from autogpt.core.resource.model_providers import (
+    AssistantChatMessage,
+    ChatMessage,
+    ChatModelInfo,
+    ChatModelProvider,
+    ChatModelResponse,
+    CompletionModelFunction,
+    ModelTokenizer,
+)
 from autogpt.core.resource.model_providers.openai import OpenAIModelName, OpenAIProvider
 from autogpt.core.runner.client_lib.utils import coroutine
 from autogpt.file_storage import FileStorageBackendName, get_storage
@@ -48,6 +58,7 @@ from autogpt.logs.helpers import print_attribute, speak
 from autogpt.logs.instrumentation import log_call
 from autogpt.models.action_history import ActionInterruptedByHuman
 from autogpt.plugins import scan_plugins
+from modules.brain.whole_brain import WholeBrainSimulation
 from scripts.install_plugin_deps import install_plugin_dependencies
 
 from .configurator import apply_overrides_to_config
@@ -63,6 +74,115 @@ from .utils import (
 )
 
 setup_exception_hooks()
+
+
+class _NullTokenizer(ModelTokenizer):
+    def encode(self, text: str) -> list[int]:
+        return list(text.encode("utf-8"))
+
+    def decode(self, tokens: list[int]) -> str:
+        return bytes(tokens).decode("utf-8", errors="ignore")
+
+
+class NullChatModelProvider(ChatModelProvider):
+    """Fallback provider used when no external chat model is configured."""
+
+    is_functional: bool = False
+
+    def __init__(self, token_limit: int = 32768):
+        self._token_limit = token_limit
+        self._tokenizer = _NullTokenizer()
+
+    async def get_available_models(self) -> list[ChatModelInfo]:  # type: ignore[override]
+        return []
+
+    def count_tokens(self, text: str, model_name: str) -> int:  # type: ignore[override]
+        return len(text.encode("utf-8"))
+
+    def get_tokenizer(self, model_name: str) -> ModelTokenizer:  # type: ignore[override]
+        return self._tokenizer
+
+    def get_token_limit(self, model_name: str) -> int:  # type: ignore[override]
+        return self._token_limit
+
+    def count_message_tokens(
+        self, messages: ChatMessage | list[ChatMessage], model_name: str
+    ) -> int:
+        if isinstance(messages, ChatMessage):
+            messages = [messages]
+        total = 0
+        for message in messages or []:
+            content: Any
+            if isinstance(message, ChatMessage):
+                content = message.content or ""
+            elif isinstance(message, dict):
+                content = message.get("content", "")
+            else:
+                content = str(message)
+            total += len(str(content).encode("utf-8"))
+        return total
+
+    async def create_chat_completion(
+        self,
+        model_prompt: list[ChatMessage],
+        model_name: str,
+        completion_parser: Callable[[AssistantChatMessage], Any] = lambda _: None,
+        functions: Optional[list[CompletionModelFunction]] = None,
+        max_output_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> ChatModelResponse[Any]:  # type: ignore[override]
+        raise RuntimeError("No chat model provider configured for chat completions.")
+
+
+def _openai_credentials_available(config: Config) -> bool:
+    credentials = getattr(config, "openai_credentials", None)
+    if not credentials or not getattr(credentials, "api_key", None):
+        return False
+    try:
+        value = credentials.api_key.get_secret_value()
+    except AttributeError:
+        return False
+    return bool(value)
+
+
+def _resolve_brain_backend(backend: BrainBackend | str | None) -> BrainBackend:
+    if isinstance(backend, BrainBackend):
+        return backend
+    if backend is None:
+        return BrainBackend.LLM
+    try:
+        return BrainBackend(str(backend).lower())
+    except ValueError:
+        return BrainBackend.LLM
+
+
+def _resolve_llm_provider(config: Config) -> ChatModelProvider:
+    backend = _resolve_brain_backend(getattr(config, "brain_backend", None))
+    if backend == BrainBackend.WHOLE_BRAIN:
+        if _openai_credentials_available(config):
+            return _configure_openai_provider(config)
+        return NullChatModelProvider()
+
+    assert_config_has_openai_api_key(config)
+    return _configure_openai_provider(config)
+
+
+def _create_whole_brain_simulation(
+    config_source: Any,
+) -> WholeBrainSimulation | None:
+    backend = _resolve_brain_backend(getattr(config_source, "brain_backend", None))
+    if backend != BrainBackend.WHOLE_BRAIN:
+        return None
+
+    brain_config = getattr(config_source, "whole_brain", None)
+    if brain_config is None:
+        return WholeBrainSimulation()
+
+    if hasattr(brain_config, "to_simulation_kwargs"):
+        brain_kwargs = brain_config.to_simulation_kwargs()
+    else:
+        brain_kwargs = {}
+    return WholeBrainSimulation(**brain_kwargs)
 
 
 @log_call
@@ -118,7 +238,6 @@ async def run_auto_gpt(
     config.fast_llm = config.fast_llm or OpenAIModelName.GPT3_16k
     config.smart_llm = config.smart_llm or OpenAIModelName.GPT4_TURBO
     config.temperature = config.temperature or 0
-    assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -134,9 +253,16 @@ async def run_auto_gpt(
         skip_news=skip_news,
     )
 
-    llm_provider = _configure_openai_provider(config)
+    llm_provider = _resolve_llm_provider(config)
 
     logger = logging.getLogger(__name__)
+
+    provider_is_stub = isinstance(llm_provider, NullChatModelProvider)
+    if provider_is_stub:
+        logger.info(
+            "OpenAI credentials not detected; continuing with Whole Brain-only mode.",
+            extra={"title": "LLM PROVIDER", "title_color": Fore.YELLOW},
+        )
 
     if config.continuous_mode:
         for line in get_legal_warning().split("\n"):
@@ -233,6 +359,7 @@ async def run_auto_gpt(
             app_config=config,
             file_storage=file_storage,
             llm_provider=llm_provider,
+            whole_brain=_create_whole_brain_simulation(agent_state.config),
         )
         apply_overrides_to_ai_settings(
             ai_profile=agent.state.ai_profile,
@@ -302,11 +429,30 @@ async def run_auto_gpt(
 
         base_ai_directives = AIDirectives.from_file(config.prompt_settings_file)
 
-        ai_profile, task_oriented_ai_directives = await generate_agent_profile_for_task(
-            task,
-            app_config=config,
-            llm_provider=llm_provider,
-        )
+        if not provider_is_stub:
+            ai_profile, task_oriented_ai_directives = (
+                await generate_agent_profile_for_task(
+                    task,
+                    app_config=config,
+                    llm_provider=llm_provider,
+                )
+            )
+        else:
+            ai_profile = AIProfile.load(config.ai_settings_file)
+            if not ai_profile.ai_name:
+                ai_profile.ai_name = "WholeBrain AutoGPT"
+            if not ai_profile.ai_role:
+                ai_profile.ai_role = (
+                    "An autonomous agent operating entirely on the WholeBrain "
+                    "simulation backend."
+                )
+            if task.input and task.input not in ai_profile.ai_goals:
+                ai_profile.ai_goals.append(task.input)
+            task_oriented_ai_directives = AIDirectives()
+            logger.info(
+                "Generated agent profile from local configuration (LLM unavailable).",
+                extra={"title": "PROFILE", "title_color": Fore.YELLOW},
+            )
         ai_directives = base_ai_directives + task_oriented_ai_directives
         apply_overrides_to_ai_settings(
             ai_profile=ai_profile,
@@ -346,6 +492,7 @@ async def run_auto_gpt(
             app_config=config,
             file_storage=file_storage,
             llm_provider=llm_provider,
+            whole_brain=_create_whole_brain_simulation(config),
         )
 
         if not agent.config.allow_fs_access:
@@ -421,7 +568,6 @@ async def run_auto_gpt_server(
     config.fast_llm = config.fast_llm or OpenAIModelName.GPT3_16k
     config.smart_llm = config.smart_llm or OpenAIModelName.GPT4_TURBO
     config.temperature = config.temperature or 0
-    assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -432,7 +578,13 @@ async def run_auto_gpt_server(
         allow_downloads=allow_downloads,
     )
 
-    llm_provider = _configure_openai_provider(config)
+    llm_provider = _resolve_llm_provider(config)
+
+    if isinstance(llm_provider, NullChatModelProvider):
+        logging.getLogger(__name__).info(
+            "OpenAI credentials not detected; continuing with Whole Brain-only mode.",
+            extra={"title": "LLM PROVIDER", "title_color": Fore.YELLOW},
+        )
 
     if install_plugin_deps:
         install_plugin_dependencies()
