@@ -115,9 +115,6 @@ async def read_webpage(
     Returns:
         str: The answer and links to the user and the webdriver
     """
-    if agent.llm_provider is None:
-        raise RuntimeError("Web browsing commands require an LLM provider")
-
     driver = None
     try:
         driver = await open_page_in_browser(url, agent.legacy_config)

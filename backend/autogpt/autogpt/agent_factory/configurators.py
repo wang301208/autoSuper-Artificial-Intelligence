@@ -28,7 +28,7 @@ def create_agent(
     ai_profile: AIProfile,
     app_config: Config,
     file_storage: FileStorage,
-    llm_provider: ChatModelProvider | None,
+    llm_provider: ChatModelProvider,
     directives: Optional[AIDirectives] = None,
     brain: "TransformerBrain" | None = None,
     whole_brain: "WholeBrainSimulation" | None = None,
@@ -61,7 +61,7 @@ def configure_agent_with_state(
     state: AgentSettings,
     app_config: Config,
     file_storage: FileStorage,
-    llm_provider: ChatModelProvider | None,
+    llm_provider: ChatModelProvider,
     brain: "TransformerBrain" | None = None,
     whole_brain: "WholeBrainSimulation" | None = None,
     knowledge_base: "UnifiedKnowledgeBase" | None = None,
@@ -81,7 +81,7 @@ def configure_agent_with_state(
 
 def _configure_agent(
     app_config: Config,
-    llm_provider: ChatModelProvider | None,
+    llm_provider: ChatModelProvider,
     file_storage: FileStorage,
     agent_id: str = "",
     task: Task | None = None,

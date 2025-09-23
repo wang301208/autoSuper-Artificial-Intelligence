@@ -47,7 +47,6 @@ class AgentSystems(SystemConfiguration):
     planning: PluginLocation
     creative_planning: PluginLocation
     workspace: PluginLocation
-    brain_adapter: PluginLocation
 
 
 class AgentConfiguration(SystemConfiguration):
@@ -146,10 +145,6 @@ class SimpleAgent(LayeredAgent, Configurable):
                 workspace=PluginLocation(
                     storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
                     storage_route="autogpt.core.workspace.SimpleWorkspace",
-                ),
-                brain_adapter=PluginLocation(
-                    storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
-                    storage_route="modules.brain.adapter.WholeBrainAgentAdapter",
                 ),
             ),
             self_assess_frequency=5,

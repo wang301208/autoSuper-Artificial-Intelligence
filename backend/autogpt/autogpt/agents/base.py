@@ -102,7 +102,7 @@ class BaseAgentConfiguration(SystemConfiguration):
     use_transformer_brain: bool = UserConfigurable(default=False)
     """Whether to initialize the ``TransformerBrain`` component."""
 
-    brain_backend: BrainBackend = UserConfigurable(default=BrainBackend.WHOLE_BRAIN)
+    brain_backend: BrainBackend = UserConfigurable(default=BrainBackend.LLM)
     """Selects the cognitive backend used when ``big_brain`` is enabled."""
 
     whole_brain: WholeBrainConfig = Field(default_factory=WholeBrainConfig)
@@ -182,7 +182,7 @@ class BaseAgentConfiguration(SystemConfiguration):
                 raise ValueError(f"Unsupported brain backend '{v}'") from exc
         if values.get("use_transformer_brain"):
             return BrainBackend.TRANSFORMER
-        return BrainBackend.WHOLE_BRAIN
+        return BrainBackend.LLM
 
     @validator("use_transformer_brain", always=True)
     def _sync_transformer_flag(cls, v: bool, values: dict[str, Any]) -> bool:
@@ -238,7 +238,7 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
     def __init__(
         self,
         settings: BaseAgentSettings,
-        llm_provider: ChatModelProvider | None,
+        llm_provider: ChatModelProvider,
         prompt_strategy: PromptStrategy,
         command_registry: CommandRegistry,
         file_storage: FileStorage,
@@ -384,9 +384,8 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         try:
             # Scratchpad as surrogate PromptGenerator for plugin hooks
             self._prompt_scratchpad = PromptScratchpad()
-            backend = self.config.brain_backend
             use_whole_brain = (
-                backend == BrainBackend.WHOLE_BRAIN
+                self.config.brain_backend == BrainBackend.WHOLE_BRAIN
                 and self.whole_brain is not None
                 and self._whole_brain_adapter is not None
             )
@@ -406,12 +405,7 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
                     },
                 )
                 return result
-            use_transformer = (
-                self.config.big_brain
-                and backend == BrainBackend.TRANSFORMER
-                and self.brain is not None
-            )
-            if use_transformer:
+            if self.config.big_brain and self.brain is not None:
                 observation, memory_ctx = build_brain_inputs(self, self.config.brain.dim)
                 thought = self.brain.think(observation, memory_ctx)
                 result = self.brain.propose_action(thought)
@@ -426,17 +420,6 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
                     },
                 )
                 return result
-
-            if self.config.big_brain and backend != BrainBackend.LLM:
-                raise RuntimeError(
-                    f"Cognitive backend '{backend.value}' is configured but unavailable. "
-                    "Configure an appropriate backend or enable an LLM provider."
-                )
-
-            if self.llm_provider is None:
-                raise RuntimeError(
-                    "No LLM provider configured for LLM-based thought process"
-                )
 
             prompt: ChatPrompt = self.build_prompt(scratchpad=self._prompt_scratchpad)
             prompt = self.on_before_think(prompt, scratchpad=self._prompt_scratchpad)
@@ -584,9 +567,6 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         ai_directives.best_practices += scratchpad.best_practices
         extra_commands += list(scratchpad.commands.values())
 
-        if self.llm_provider is None:
-            raise RuntimeError("Cannot build prompts without an LLM provider")
-
         prompt = self.prompt_strategy.build_prompt(
             task=self.state.task,
             ai_profile=self.ai_profile,
@@ -625,9 +605,6 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         Returns:
             The prompt to execute
         """
-        if self.llm_provider is None:
-            raise RuntimeError("Cannot apply planning plugins without an LLM provider")
-
         current_tokens_used = self.llm_provider.count_message_tokens(
             prompt.messages, self.llm.name
         )

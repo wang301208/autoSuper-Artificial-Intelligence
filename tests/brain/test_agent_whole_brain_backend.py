@@ -1,9 +1,10 @@
 import asyncio
 import importlib.util
+import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -38,6 +39,10 @@ def test_agent_with_whole_brain_backend_proposes_internal_action():
         pytest.skip("Agent dependencies not available in this test environment")
 
     async def _run_test() -> None:
+        llm_provider = Mock()
+        llm_provider.create_chat_completion = AsyncMock()
+        llm_provider.count_tokens = Mock(return_value=0)
+
         command_registry = Mock()
         command_registry.list_available_commands.return_value = []
         command_registry.get_command.return_value = None
@@ -57,13 +62,11 @@ def test_agent_with_whole_brain_backend_proposes_internal_action():
 
         agent = Agent(
             settings=settings,
-            llm_provider=None,
+            llm_provider=llm_provider,
             command_registry=command_registry,
             file_storage=file_storage,
             legacy_config=legacy_config,
         )
-
-        assert agent.llm_provider is None
 
         agent.event_history.episodes.extend(
             [
@@ -87,5 +90,6 @@ def test_agent_with_whole_brain_backend_proposes_internal_action():
         assert thoughts["backend"] == "whole_brain"
         assert isinstance(thoughts["plan"], list)
         assert thoughts["metrics"]  # telemetry forwarded from WholeBrainSimulation
+        llm_provider.create_chat_completion.assert_not_called()
 
     asyncio.run(_run_test())
