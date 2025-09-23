@@ -14,7 +14,7 @@ from .message_bus import (
     subscribe_to_brain_region,
 )
 from .multimodal import MultimodalFusionEngine
-from .adapter import BrainModule
+from .adapter import BrainModule, WholeBrainAgentAdapter
 from .bci import BrainComputerInterface
 from .ethics import EthicalReasoningEngine, EthicalRule
 
@@ -36,6 +36,7 @@ __all__ = [
     "reset_message_bus",
     "MultimodalFusionEngine",
     "BrainModule",
+    "WholeBrainAgentAdapter",
     "BrainComputerInterface",
     "EthicalReasoningEngine",
     "EthicalRule",

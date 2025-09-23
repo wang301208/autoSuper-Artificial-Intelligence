@@ -5,6 +5,7 @@
 - `modules/brain/motor_cortex.py` accepts raw spike sequences or cached neuromorphic run results, converts them into structured `MotorCommand` objects, and layers both cortical and precision cerebellar fine tuning during execution.
 - `modules/brain/neuromorphic/spiking_network.py` exposes a bounded `reset_state` helper and caps event propagation to avoid runaway excitations while keeping energy and synchrony telemetry intact.
 - `modules/tests/test_whole_brain.py` covers the full closed loop—oscillation metrics, basal ganglia gating history, neuromorphic energy/synchrony output, and direct motor cortex handling of pre-computed spike results.
+- `backend/autogpt/autogpt/agents/base.py` & `modules/brain/adapter.py` now translate AutoGPT agent state into whole-brain sensory inputs, enabling production builds to activate the simulation via `brain_backend=whole_brain` with configuration-only changes.
 
 ## Gaps Against "完整的大脑模拟+神经形态"
 - Neuromorphic runs still rely on capped event queues rather than adaptive convergence criteria; long-running dynamics remain approximated.
