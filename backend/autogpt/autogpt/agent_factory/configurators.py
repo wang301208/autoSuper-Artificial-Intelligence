@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from reasoning import DecisionEngine
 
     from autogpt.core.brain.transformer_brain import TransformerBrain
+    from modules.brain.whole_brain import WholeBrainSimulation
 
 
 def create_agent(
@@ -30,6 +31,7 @@ def create_agent(
     llm_provider: ChatModelProvider,
     directives: Optional[AIDirectives] = None,
     brain: "TransformerBrain" | None = None,
+    whole_brain: "WholeBrainSimulation" | None = None,
     knowledge_base: "UnifiedKnowledgeBase" | None = None,
     decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
@@ -47,6 +49,7 @@ def create_agent(
         file_storage=file_storage,
         llm_provider=llm_provider,
         brain=brain,
+        whole_brain=whole_brain,
         knowledge_base=knowledge_base,
         decision_engine=decision_engine,
     )
@@ -60,6 +63,7 @@ def configure_agent_with_state(
     file_storage: FileStorage,
     llm_provider: ChatModelProvider,
     brain: "TransformerBrain" | None = None,
+    whole_brain: "WholeBrainSimulation" | None = None,
     knowledge_base: "UnifiedKnowledgeBase" | None = None,
     decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
@@ -69,6 +73,7 @@ def configure_agent_with_state(
         file_storage=file_storage,
         llm_provider=llm_provider,
         brain=brain,
+        whole_brain=whole_brain,
         knowledge_base=knowledge_base,
         decision_engine=decision_engine,
     )
@@ -84,6 +89,7 @@ def _configure_agent(
     directives: Optional[AIDirectives] = None,
     state: Optional[AgentSettings] = None,
     brain: "TransformerBrain" | None = None,
+    whole_brain: "WholeBrainSimulation" | None = None,
     knowledge_base: "UnifiedKnowledgeBase" | None = None,
     decision_engine: "DecisionEngine" | None = None,
 ) -> Agent:
@@ -125,6 +131,7 @@ def _configure_agent(
         file_storage=file_storage,
         legacy_config=app_config,
         brain=brain,
+        whole_brain=whole_brain,
         knowledge_base=knowledge_base,
         decision_engine=decision_engine,
     )
@@ -160,6 +167,8 @@ def create_agent_state(
             use_functions_api=app_config.openai_functions,
             plugins=app_config.plugins,
             use_transformer_brain=app_config.use_transformer_brain,
+            brain_backend=app_config.brain_backend,
+            whole_brain=app_config.whole_brain.copy(deep=True),
             use_knowledge_base=app_config.use_knowledge_base,
             use_decision_engine=app_config.use_decision_engine,
         ),

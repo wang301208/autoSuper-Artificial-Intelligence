@@ -30,6 +30,7 @@ from autogpt.agent_factory.configurators import create_agent
 from autogpt.command_decorator import AUTO_GPT_COMMAND_IDENTIFIER
 from autogpt.config import AIProfile, Config
 from autogpt.config.ai_directives import AIDirectives
+from autogpt.core.brain.config import BrainBackend
 from autogpt.core.resource.model_providers import ChatModelProvider
 from autogpt.file_storage.base import FileStorage
 from autogpt.models.command_registry import CommandRegistry
@@ -46,6 +47,7 @@ from backend.monitoring.global_workspace import global_workspace
 from knowledge import UnifiedKnowledgeBase
 from reasoning import DecisionEngine
 from autogpt.core.brain.transformer_brain import TransformerBrain
+from modules.brain.whole_brain import WholeBrainSimulation
 
 if TYPE_CHECKING:  # pragma: no cover - for type checkers only
     from backend.world_model import WorldModel
@@ -185,11 +187,31 @@ def create_agent_from_blueprint(
     )
 
     directives = AIDirectives.from_file(config.prompt_settings_file)
+    backend_value = blueprint.get("brain_backend")
+    selected_backend = config.brain_backend
+    if backend_value is not None:
+        try:
+            selected_backend = BrainBackend(str(backend_value).lower())
+        except ValueError:
+            logger.warning(
+                "Unsupported brain backend '%s' in blueprint; using %s",
+                backend_value,
+                selected_backend.value,
+            )
+
     enable_brain = blueprint.get("use_transformer_brain", config.use_transformer_brain)
     enable_kb = blueprint.get("use_knowledge_base", config.use_knowledge_base)
     enable_de = blueprint.get("use_decision_engine", config.use_decision_engine)
 
-    brain = TransformerBrain() if enable_brain else None
+    brain = (
+        TransformerBrain()
+        if enable_brain and selected_backend == BrainBackend.TRANSFORMER
+        else None
+    )
+    whole_brain = None
+    if selected_backend == BrainBackend.WHOLE_BRAIN:
+        brain_kwargs = config.whole_brain.to_simulation_kwargs()
+        whole_brain = WholeBrainSimulation(**brain_kwargs)
     knowledge_base = UnifiedKnowledgeBase() if enable_kb else None
     decision_engine = DecisionEngine() if enable_de else None
 
@@ -211,6 +233,7 @@ def create_agent_from_blueprint(
         file_storage=file_storage,
         llm_provider=llm_provider,
         brain=brain,
+        whole_brain=whole_brain,
         knowledge_base=knowledge_base,
         decision_engine=decision_engine,
     )

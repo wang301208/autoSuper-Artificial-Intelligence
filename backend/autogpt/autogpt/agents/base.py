@@ -35,7 +35,11 @@ from autogpt.agents.utils.prompt_scratchpad import PromptScratchpad
 from autogpt.config import ConfigBuilder
 from autogpt.config.ai_directives import AIDirectives
 from autogpt.config.ai_profile import AIProfile
-from autogpt.core.brain.config import TransformerBrainConfig
+from autogpt.core.brain.config import (
+    BrainBackend,
+    TransformerBrainConfig,
+    WholeBrainConfig,
+)
 from autogpt.core.brain.transformer_brain import TransformerBrain
 from autogpt.core.brain.encoding import build_brain_inputs
 from autogpt.core.configuration import (
@@ -66,6 +70,9 @@ from autogpt.models.context_item import StaticContextItem
 from .features.context import get_agent_context
 from autogpt.prompts.prompt import DEFAULT_TRIGGERING_PROMPT
 
+from modules.brain.adapter import WholeBrainAgentAdapter
+from modules.brain.whole_brain import WholeBrainSimulation
+
 logger = logging.getLogger(__name__)
 
 CommandName = str
@@ -94,6 +101,12 @@ class BaseAgentConfiguration(SystemConfiguration):
 
     use_transformer_brain: bool = UserConfigurable(default=False)
     """Whether to initialize the ``TransformerBrain`` component."""
+
+    brain_backend: BrainBackend = UserConfigurable(default=BrainBackend.LLM)
+    """Selects the cognitive backend used when ``big_brain`` is enabled."""
+
+    whole_brain: WholeBrainConfig = Field(default_factory=WholeBrainConfig)
+    """Configuration for the biologically inspired whole-brain simulation."""
 
     use_knowledge_base: bool = UserConfigurable(default=False)
     """Whether to attach a ``UnifiedKnowledgeBase`` instance."""
@@ -158,6 +171,26 @@ class BaseAgentConfiguration(SystemConfiguration):
             )
         return v
 
+    @validator("brain_backend", pre=True, always=True)
+    def _ensure_brain_backend(cls, v: Any, values: dict[str, Any]):
+        if isinstance(v, BrainBackend):
+            return v
+        if v:
+            try:
+                return BrainBackend(str(v).lower())
+            except ValueError as exc:  # pragma: no cover - defensive guard
+                raise ValueError(f"Unsupported brain backend '{v}'") from exc
+        if values.get("use_transformer_brain"):
+            return BrainBackend.TRANSFORMER
+        return BrainBackend.LLM
+
+    @validator("use_transformer_brain", always=True)
+    def _sync_transformer_flag(cls, v: bool, values: dict[str, Any]) -> bool:
+        backend = values.get("brain_backend")
+        if isinstance(backend, BrainBackend) and backend != BrainBackend.TRANSFORMER:
+            return False
+        return bool(v)
+
 
 class BaseAgentSettings(SystemSettings):
     agent_id: str = ""
@@ -212,6 +245,7 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         legacy_config: Config,
         event_bus: EventBus | None = None,
         brain: TransformerBrain | None = None,
+        whole_brain: WholeBrainSimulation | None = None,
         knowledge_base: "UnifiedKnowledgeBase" | None = None,
         decision_engine: "DecisionEngine" | None = None,
     ):
@@ -243,15 +277,48 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         self._prompt_scratchpad: PromptScratchpad | None = None
 
         # Optional cognitive modules
+        self.brain_backend = self.config.brain_backend
         self.brain: TransformerBrain | None = brain
-        if self.brain is None and self.config.use_transformer_brain:
-            self.brain = TransformerBrain(self.config.brain)
+        self.whole_brain: WholeBrainSimulation | None = whole_brain
+        self._whole_brain_adapter: WholeBrainAgentAdapter | None = None
+
+        if self.brain_backend == BrainBackend.TRANSFORMER:
+            if self.brain is None and self.config.use_transformer_brain:
+                self.brain = TransformerBrain(self.config.brain)
+        else:
+            self.brain = None
+
+        if self.brain_backend == BrainBackend.WHOLE_BRAIN:
+            brain_kwargs = self.config.whole_brain.to_simulation_kwargs()
+            if self.whole_brain is None:
+                self.whole_brain = WholeBrainSimulation(**brain_kwargs)
+            else:
+                runtime = brain_kwargs.get("config")
+                if runtime is not None:
+                    self.whole_brain.update_config(runtime)
+                self.whole_brain.neuromorphic_encoding = brain_kwargs[
+                    "neuromorphic_encoding"
+                ]
+                self.whole_brain.encoding_steps = brain_kwargs["encoding_steps"]
+                self.whole_brain.encoding_time_scale = brain_kwargs[
+                    "encoding_time_scale"
+                ]
+                self.whole_brain.max_neurons = brain_kwargs["max_neurons"]
+                self.whole_brain.max_cache_size = brain_kwargs["max_cache_size"]
+            self._whole_brain_adapter = WholeBrainAgentAdapter(self)
+            self.config.big_brain = True
+        else:
+            self.whole_brain = None
+            self._whole_brain_adapter = None
 
         self.knowledge_base = knowledge_base
         self.decision_engine = decision_engine
 
         # Reflect presence of optional modules in configuration
-        self.config.use_transformer_brain = self.brain is not None
+        self.config.brain_backend = self.brain_backend
+        self.config.use_transformer_brain = (
+            self.brain is not None and self.brain_backend == BrainBackend.TRANSFORMER
+        )
         self.config.use_knowledge_base = self.knowledge_base is not None
         self.config.use_decision_engine = self.decision_engine is not None
 
@@ -317,6 +384,27 @@ class BaseAgent(Configurable[BaseAgentSettings], ABC):
         try:
             # Scratchpad as surrogate PromptGenerator for plugin hooks
             self._prompt_scratchpad = PromptScratchpad()
+            use_whole_brain = (
+                self.config.brain_backend == BrainBackend.WHOLE_BRAIN
+                and self.whole_brain is not None
+                and self._whole_brain_adapter is not None
+            )
+            if use_whole_brain:
+                brain_inputs = self._whole_brain_adapter.build_cycle_input(
+                    instruction=self.config.default_cycle_instruction,
+                )
+                brain_result = self.whole_brain.process_cycle(brain_inputs)
+                result = self._whole_brain_adapter.translate_cycle_result(brain_result)
+                self.config.cycle_count += 1
+                self.event_client.publish(
+                    "agent.cycle.end",
+                    {
+                        "agent": self.state.agent_id,
+                        "cycle": self.config.cycle_count,
+                        "metrics": {"duration": perf_counter() - start_time},
+                    },
+                )
+                return result
             if self.config.big_brain and self.brain is not None:
                 observation, memory_ctx = build_brain_inputs(self, self.config.brain.dim)
                 thought = self.brain.think(observation, memory_ctx)

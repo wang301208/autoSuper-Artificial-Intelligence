@@ -174,6 +174,7 @@ graph TB
 - **WholeBrainSimulation** 作为智能体内部的大脑模拟层，将感知快照、情绪状态、人格参数与执行意图统一在一个循环中，为上层智能体提供一致的内在状态接口。
 - **Neuromorphic Engine** 以脉冲神经网络为基础，对多模态输入进行类脑编码，输出能耗、闲置跳过与新奇度指标，并驱动好奇心、自主学习等调节信号。
 - 该核心栈产生的遥测指标（如 `strategy_bias_*`、`novelty_signal`、`curiosity_drive`）会回流至 CLI 评估与代理决策管线，使大脑模拟成为项目的默认调度基线。
+- **集成路径**：`BaseAgentConfiguration` 新增 `brain_backend` 选择器，可在 `llm`、`transformer` 与 `whole_brain` 后端之间切换；选择 `whole_brain` 时，`BaseAgent` 会通过 `WholeBrainAgentAdapter` 将任务上下文与行动历史映射为感觉/情绪输入，并把 `WholeBrainSimulation` 的 `BrainCycleResult` 转换回内部指令三元组。
 
 ## 核心组件详解
 

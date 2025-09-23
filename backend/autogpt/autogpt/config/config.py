@@ -13,6 +13,7 @@ from pydantic import Field, SecretStr, validator
 
 import autogpt
 from autogpt.app.utils import clean_input
+from autogpt.core.brain.config import BrainBackend, WholeBrainConfig
 from autogpt.core.configuration.schema import (
     Configurable,
     SystemSettings,
@@ -39,6 +40,21 @@ PROMPT_SETTINGS_FILE = CONFIG_DIR / "prompt_settings.yaml"
 
 GPT_4_MODEL = OpenAIModelName.GPT4
 GPT_3_MODEL = OpenAIModelName.GPT3
+
+
+def _brain_backend_from_env() -> BrainBackend:
+    value = os.getenv("BRAIN_BACKEND")
+    if not value:
+        return BrainBackend.LLM
+    try:
+        return BrainBackend(value.lower())
+    except ValueError:
+        logger.warning(
+            "Invalid BRAIN_BACKEND value '%s'; falling back to '%s'.",
+            value,
+            BrainBackend.LLM.value,
+        )
+        return BrainBackend.LLM
 
 
 def _auto_authorize_from_env() -> float:
@@ -159,6 +175,11 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
         default=False,
         from_env=lambda: os.getenv("USE_TRANSFORMER_BRAIN", "False") == "True",
     )
+    brain_backend: BrainBackend = UserConfigurable(
+        default=BrainBackend.LLM,
+        from_env=_brain_backend_from_env,
+    )
+    whole_brain: WholeBrainConfig = Field(default_factory=WholeBrainConfig)
     use_knowledge_base: bool = UserConfigurable(
         default=False,
         from_env=lambda: os.getenv("USE_KNOWLEDGE_BASE", "False") == "True",

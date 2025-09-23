@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from autogpt.core.brain.transformer_brain import TransformerBrain
     from knowledge import UnifiedKnowledgeBase
     from reasoning import DecisionEngine
+    from modules.brain.whole_brain import WholeBrainSimulation
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ class Agent(
         file_storage: FileStorage,
         legacy_config: Config,
         brain: TransformerBrain | None = None,
+        whole_brain: "WholeBrainSimulation" | None = None,
         knowledge_base: "UnifiedKnowledgeBase" | None = None,
         decision_engine: "DecisionEngine" | None = None,
     ):
@@ -123,6 +125,7 @@ class Agent(
             file_storage=file_storage,
             legacy_config=legacy_config,
             brain=brain,
+            whole_brain=whole_brain,
             knowledge_base=knowledge_base,
             decision_engine=decision_engine,
         )
