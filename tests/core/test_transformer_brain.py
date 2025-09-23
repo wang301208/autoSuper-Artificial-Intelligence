@@ -1,11 +1,25 @@
-﻿import json
+import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
 
-import pytest
-import torch
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+
+try:  # pragma: no cover - optional dependency absent
+    import torch
+except ModuleNotFoundError:  # pragma: no cover - optional dependency absent
+    torch = None
+
+pydantic_available = importlib.util.find_spec("pydantic") is not None
+
+if torch is None or not pydantic_available:  # pragma: no cover - optional dependency absent
+    missing = "PyTorch" if torch is None else "pydantic"
+    pytestmark = pytest.mark.skip(
+        reason=f"{missing} not available for transformer brain tests"
+    )
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "backend/autogpt"))
@@ -15,18 +29,25 @@ sys.path.insert(0, str(ROOT / "modules"))
 auto_plugin = types.SimpleNamespace(AutoGPTPluginTemplate=type("Plugin", (), {}))
 sys.modules.setdefault("auto_gpt_plugin_template", auto_plugin)
 
-try:  # Attempt to import the full agent stack
-    from autogpt.agents.base import BaseAgent, BaseAgentSettings, BaseAgentConfiguration
-    from autogpt.models.action_history import ActionSuccessResult
-except Exception:  # pragma: no cover - environment limitations
-    BaseAgent = BaseAgentSettings = BaseAgentConfiguration = None
-    ActionSuccessResult = type("ActionSuccessResult", (), {"__init__": lambda self, outputs: None})
+if pydantic_available:
+    try:  # Attempt to import the full agent stack
+        from autogpt.agents.base import BaseAgent, BaseAgentSettings, BaseAgentConfiguration
+        from autogpt.models.action_history import ActionSuccessResult
+    except Exception:  # pragma: no cover - environment limitations
+        BaseAgent = BaseAgentSettings = BaseAgentConfiguration = None
+        ActionSuccessResult = type("ActionSuccessResult", (), {"__init__": lambda self, outputs: None})
 
-from autogpt.core.brain.config import TransformerBrainConfig
-from autogpt.core.brain.encoding import build_brain_inputs
-from autogpt.core.brain.transformer_brain import TransformerBrain
-from autogpt.core.brain.train_transformer_brain import ObservationActionDataset
-from autogpt.models.action_history import Action, Episode
+    from autogpt.core.brain.config import BrainBackend, TransformerBrainConfig
+    from autogpt.core.brain.encoding import build_brain_inputs
+    from autogpt.core.brain.transformer_brain import TransformerBrain
+    from autogpt.core.brain.train_transformer_brain import ObservationActionDataset
+    from autogpt.models.action_history import Action, Episode
+else:  # pragma: no cover - optional dependency absent
+    BaseAgent = BaseAgentSettings = BaseAgentConfiguration = None  # type: ignore
+    ActionSuccessResult = type("ActionSuccessResult", (), {"__init__": lambda self, outputs: None})
+    BrainBackend = TransformerBrainConfig = TransformerBrain = ObservationActionDataset = None  # type: ignore
+    build_brain_inputs = None  # type: ignore
+    Action = Episode = None  # type: ignore
 
 
 if BaseAgent is not None:
@@ -116,7 +137,11 @@ async def test_agent_uses_brain_when_enabled():
         )
 
         settings = BaseAgentSettings(
-            config=BaseAgentConfiguration(big_brain=True),
+            config=BaseAgentConfiguration(
+                big_brain=True,
+                use_transformer_brain=True,
+                brain_backend=BrainBackend.TRANSFORMER,
+            ),
         )
 
         agent = DummyAgent(
