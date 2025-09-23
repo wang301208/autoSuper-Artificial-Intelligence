@@ -195,13 +195,15 @@ class EpisodicActionHistory(BaseModel):
             self.cursor = len(self.episodes)
 
     async def handle_compression(
-        self, llm_provider: ChatModelProvider, app_config: Config
+        self, llm_provider: ChatModelProvider | None, app_config: Config
     ) -> None:
         """Compresses each episode in the action history using an LLM.
 
         This method iterates over all episodes in the action history without a summary,
         and generates a summary for them using an LLM.
         """
+        if llm_provider is None:
+            return
         compress_instruction = (
             "The text represents an action, the reason for its execution, "
             "and its result. "

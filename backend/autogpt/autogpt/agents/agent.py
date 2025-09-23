@@ -104,7 +104,7 @@ class Agent(
     def __init__(
         self,
         settings: AgentSettings,
-        llm_provider: ChatModelProvider,
+        llm_provider: ChatModelProvider | None,
         command_registry: CommandRegistry,
         file_storage: FileStorage,
         legacy_config: Config,
@@ -303,12 +303,17 @@ class Agent(
                 )
                 sentry_sdk.capture_exception(e)
 
-            result_tlength = self.llm_provider.count_tokens(str(result), self.llm.name)
-            if result_tlength > self.send_token_limit // 3:
-                result = ActionErrorResult(
-                    reason=f"Command {command_name} returned too much output. "
-                    "Do not execute this command again with the same arguments."
+            if self.llm_provider is not None:
+                result_tlength = self.llm_provider.count_tokens(
+                    str(result), self.llm.name
                 )
+                if result_tlength > self.send_token_limit // 3:
+                    result = ActionErrorResult(
+                        reason=(
+                            f"Command {command_name} returned too much output. "
+                            "Do not execute this command again with the same arguments."
+                        )
+                    )
 
             for plugin in self.config.plugins:
                 if not plugin.can_handle_post_command():
@@ -320,9 +325,10 @@ class Agent(
 
         # Update action history
         self.event_history.register_result(result)
-        await self.event_history.handle_compression(
-            self.llm_provider, self.legacy_config
-        )
+        if self.llm_provider is not None:
+            await self.event_history.handle_compression(
+                self.llm_provider, self.legacy_config
+            )
 
         self._record_experience(command_name, command_args, result)
 
