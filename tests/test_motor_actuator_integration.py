@@ -32,6 +32,9 @@ def test_motor_cortex_actuator_mapping_and_feedback():
     assert command.operation == "move_arm"
     assert command.arguments["target"] == [0.2, 0.3, 0.4]
     assert command.metadata.get("cerebellum", {}).get("training_samples") >= 1
+    assert cerebellum.metric_history
+    assert any("velocity_error" in entry for entry in cerebellum.metric_history)
+    assert any("stability_error" in entry for entry in cerebellum.metric_history)
 
 
 def test_motor_cortex_train_with_execution_result():
@@ -39,3 +42,6 @@ def test_motor_cortex_train_with_execution_result():
     feedback = MotorExecutionResult(success=False, output=None, telemetry={"latency": 0.2}, error="collision")
     report = cortex.train(feedback)
     assert "learned" in report and "collision" in report
+    assert cortex.cerebellum.metric_history
+    metrics = cortex.cerebellum.metric_history[-1]
+    assert metrics["success_rate"] < 1.0

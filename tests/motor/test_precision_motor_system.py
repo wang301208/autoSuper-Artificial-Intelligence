@@ -30,3 +30,13 @@ def test_basal_ganglia_modulation():
     plan = system.plan_movement("raise hand")
     system.execute_action(plan)
     assert len(system.basal_ganglia.gating_history) == 2
+
+
+def test_precision_system_accepts_metric_feedback():
+    system = PrecisionMotorSystem()
+    metrics = {"velocity_error": 0.2, "stability_error": 0.1, "reward": 0.5}
+    system.update_feedback(metrics)
+    assert system.cerebellum.metric_history
+    stored = system.cerebellum.metric_history[-1]
+    assert stored["velocity_error"] == 0.2
+    assert stored["stability_error"] == 0.1

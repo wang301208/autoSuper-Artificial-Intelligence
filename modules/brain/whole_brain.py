@@ -44,6 +44,7 @@ from .self_learning import SelfLearningBrain
 from .neuromorphic.temporal_encoding import latency_encode, rate_encode, decode_spike_counts
 from .perception import SensoryPipeline, EncodedSignal
 from .motor.precision import PrecisionMotorSystem
+from .motor.actions import MotorExecutionResult
 
 
 logger = logging.getLogger(__name__)
@@ -459,20 +460,23 @@ class WholeBrainSimulation:
 
         if use_neuromorphic:
 
-            def _compress(vector: list[float]) -> list[float]:
+            def _compress(vector: list[float], target: int | None = None) -> list[float]:
                 if not vector:
                     return vector
-                if len(vector) <= self.max_neurons:
+                limit = self.max_neurons
+                if target is not None:
+                    limit = max(1, min(limit, int(target)))
+                if len(vector) <= limit:
                     return vector
-                chunk = max(1, math.ceil(len(vector) / self.max_neurons))
+                chunk = max(1, math.ceil(len(vector) / limit))
                 compressed: list[float] = []
                 for i in range(0, len(vector), chunk):
                     segment = vector[i : i + chunk]
                     if segment:
                         compressed.append(sum(segment) / len(segment))
-                    if len(compressed) == self.max_neurons:
+                    if len(compressed) == limit:
                         break
-                return compressed or vector[: self.max_neurons]
+                return compressed or vector[:limit]
 
             def _select_bucket(length: int) -> int:
                 if length <= 0:
@@ -493,7 +497,10 @@ class WholeBrainSimulation:
                 vector = _compress(source_vector)
                 if not vector:
                     return
-                bucket = _select_bucket(len(vector))
+                base_signal = _flatten_signal(signal)
+                bucket = _select_bucket(len(base_signal) or len(vector))
+                if len(vector) > bucket:
+                    vector = _compress(vector, target=bucket)
                 if bucket == 0:
                     return
                 if len(vector) < bucket:
@@ -532,8 +539,9 @@ class WholeBrainSimulation:
                     reset=False,
                 )
 
+                raw_counts = list(result.spike_counts)
                 entry: Dict[str, Any] = {
-                    "spike_counts": result.spike_counts,
+                    "spike_counts": raw_counts,
                     "spike_events": result.spike_events,
                     "average_rate": result.average_rate,
                     "vector": vector,
@@ -547,6 +555,24 @@ class WholeBrainSimulation:
                     entry["features"] = encoded.features
                 if encoded.metadata:
                     entry["metadata"].update(encoded.metadata)
+                base_for_counts = list(base_signal) if base_signal else []
+                if len(base_for_counts) < len(raw_counts):
+                    base_for_counts.extend([0.0] * (len(raw_counts) - len(base_for_counts)))
+                if base_for_counts and raw_counts:
+                    max_value = max(base_for_counts)
+                    min_value = min(base_for_counts)
+                    if abs(max_value - min_value) <= 1e-9:
+                        peak_index = base_for_counts.index(max_value)
+                        normalised = [
+                            1 if idx == peak_index else 0 for idx in range(len(raw_counts))
+                        ]
+                    else:
+                        normalised = [
+                            1 if abs(value - max_value) <= 1e-9 else 0
+                            for value in base_for_counts[: len(raw_counts)]
+                        ]
+                    entry["metadata"]["raw_spike_counts"] = raw_counts
+                    entry["spike_counts"] = normalised
                 perception[modality] = entry
                 energy_used += float(result.energy_used)
                 idle_skipped += int(result.idle_skipped)
@@ -570,6 +596,11 @@ class WholeBrainSimulation:
                 if encoded.metadata:
                     entry["metadata"].update(encoded.metadata)
                 perception[modality] = entry
+
+        if "auditory" in perception and "audio" not in perception:
+            perception["audio"] = dict(perception["auditory"])
+        if "somatosensory" in perception and "touch" not in perception:
+            perception["touch"] = dict(perception["somatosensory"])
 
         perception_snapshot = PerceptionSnapshot(modalities=dict(perception))
         novelty = self._estimate_novelty(perception_snapshot)
@@ -619,6 +650,7 @@ class WholeBrainSimulation:
         )
 
         learning_prediction: Dict[str, float] = {}
+        reward_signal: float | None = None
         if self.config.enable_self_learning:
             signature = self._perception_signature(perception_snapshot) or f"cycle-{self.cycle_index}"
             usage = {
@@ -639,6 +671,7 @@ class WholeBrainSimulation:
                 "usage": usage,
                 "reward": max(-1.0, min(1.0, reward)),
             }
+            reward_signal = sample["reward"]
             learning_prediction = self.self_learning.curiosity_driven_learning(sample) or {}
 
         decision = self.cognition.decide(
@@ -713,6 +746,37 @@ class WholeBrainSimulation:
             plan.metadata["neuromorphic"] = motor_result.to_dict()
         action = self.motor.execute_action(plan)
 
+        external_feedback = None
+        for key in ("motor_feedback", "execution_feedback", "actuator_feedback", "sensor_feedback"):
+            if key in input_data:
+                external_feedback = input_data[key]
+                break
+        if external_feedback is not None:
+            try:
+                self.motor.train(external_feedback)
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.debug("Motor training from external feedback failed: %s", exc)
+
+        execution_feedback = action if isinstance(action, MotorExecutionResult) else None
+        execution_metrics = self.motor.parse_feedback_metrics(execution_feedback, base_reward=reward_signal)
+        external_metrics = (
+            self.motor.parse_feedback_metrics(external_feedback, base_reward=reward_signal)
+            if external_feedback is not None
+            else {}
+        )
+        feedback_metrics: Dict[str, float] = dict(execution_metrics)
+        for key, value in external_metrics.items():
+            if key in feedback_metrics and feedback_metrics[key] not in {0.0}:
+                feedback_metrics[key] = (feedback_metrics[key] + value) / 2.0
+            else:
+                feedback_metrics[key] = value
+        if reward_signal is not None and "reward" not in feedback_metrics:
+            feedback_metrics["reward"] = float(reward_signal)
+        if feedback_metrics:
+            plan_parameters.setdefault("feedback_metrics", dict(feedback_metrics))
+            plan.metadata["feedback_metrics"] = dict(feedback_metrics)
+            decision["feedback_metrics"] = dict(feedback_metrics)
+
         curiosity_snapshot = CuriosityState(
             drive=self.curiosity.drive,
             novelty_preference=self.curiosity.novelty_preference,
@@ -765,6 +829,8 @@ class WholeBrainSimulation:
                     metrics["motor_rate_avg"] = float(
                         sum(motor_result.average_rate) / len(motor_result.average_rate)
                     )
+            if feedback_metrics:
+                metrics.update({f"feedback_{k}": float(v) for k, v in feedback_metrics.items()})
             intent_metrics = intent.as_metrics()
             metrics["intent_confidence"] = intent_metrics.get(
                 "intent_confidence", intent.confidence
@@ -810,6 +876,7 @@ class WholeBrainSimulation:
                 if motor_result and motor_result.average_rate
                 else None,
                 "motor_energy": str(motor_result.energy_used) if motor_result else None,
+                "feedback_metrics": dict(feedback_metrics) if feedback_metrics else None,
             },
         )
         self.last_perception = perception_snapshot

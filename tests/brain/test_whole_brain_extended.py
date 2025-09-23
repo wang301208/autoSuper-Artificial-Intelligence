@@ -23,6 +23,9 @@ def test_whole_brain_exposes_oscillation_and_motor_metrics():
     assert result.metrics.get("motor_energy", 0.0) >= 0.0
     assert result.metadata.get("oscillation_state")
     assert result.metadata.get("motor_spike_counts")
+    assert "feedback_velocity_error" in result.metrics
+    assert "feedback_success_rate" in result.metrics
+    assert result.metadata.get("feedback_metrics")
     assert brain.motor.cerebellum is brain.cerebellum
     assert brain.last_motor_result is not None
     assert brain.last_decision.get("motor_spike_counts")

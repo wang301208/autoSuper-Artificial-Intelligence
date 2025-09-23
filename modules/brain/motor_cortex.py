@@ -2,7 +2,10 @@ from __future__ import annotations
 
 """Motor cortex integrating cortical planning with actuators."""
 
+import logging
+
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Any, Dict, Optional, Tuple, Sequence
 
 from .motor.precision import PrecisionMotorSystem
@@ -55,6 +58,7 @@ class MotorCortex:
         self.premotor_area = PreMotorArea()
         self.supplementary_motor = SupplementaryMotor()
         self.feedback_history: list[MotorExecutionResult] = []
+        self._logger = logging.getLogger(__name__)
 
     # ------------------------------------------------------------------
     # Planning ---------------------------------------------------------
@@ -120,6 +124,54 @@ class MotorCortex:
                 parameters={"neuromorphic_result": motor_instruction},
             )
         elif self._looks_like_spike_sequence(motor_instruction):
+            if self.spiking_backend is not None:
+                try:
+                    run_result = None
+                    effective_counts: list[float] = []
+                    if hasattr(self.spiking_backend, "run_sequence"):
+                        run_result = self.spiking_backend.run_sequence(
+                            motor_instruction, reset=True
+                        )
+                    elif hasattr(self.spiking_backend, "learn"):
+                        run_result = self.spiking_backend.learn(motor_instruction)
+                    if run_result is not None:
+                        effective_counts = list(
+                            getattr(run_result, "spike_counts", []) or []
+                        )
+                    if not effective_counts and isinstance(motor_instruction, Sequence):
+                        temp_counts: list[float] = []
+                        for frame in motor_instruction:
+                            if isinstance(frame, Sequence) and not isinstance(frame, (str, bytes)):
+                                for idx, value in enumerate(frame):
+                                    while idx >= len(temp_counts):
+                                        temp_counts.append(0.0)
+                                    try:
+                                        temp_counts[idx] += float(value)
+                                    except (TypeError, ValueError):
+                                        continue
+                        effective_counts = temp_counts
+                    synapses = getattr(self.spiking_backend, "synapses", None)
+                    weights = getattr(synapses, "weights", None)
+                    if weights is not None and effective_counts:
+                        try:
+                            max_count = max(abs(float(c)) for c in effective_counts) or 1.0
+                            for idx, count in enumerate(effective_counts):
+                                delta = float(count) / (max_count * 100.0)
+                                if hasattr(weights, "__getitem__") and hasattr(weights, "__setitem__"):
+                                    row = weights[idx]
+                                    try:
+                                        length = len(row)
+                                    except TypeError:
+                                        length = None
+                                    if length is not None:
+                                        for col in range(length):
+                                            row[col] += delta
+                                    else:
+                                        weights[idx] = row + delta
+                        except Exception as adjust_exc:  # pragma: no cover - defensive
+                            self._logger.debug("Spiking weight adaptation failed: %s", adjust_exc)
+                except Exception as exc:  # pragma: no cover - defensive safeguard
+                    self._logger.debug("Spiking backend execution failed: %s", exc)
             motor_instruction = self.plan_movement(
                 "spike_sequence",
                 parameters={"spike_sequence": motor_instruction},
@@ -154,12 +206,21 @@ class MotorCortex:
     def train(self, feedback: MotorExecutionResult | str | Dict[str, Any]) -> str:
         """Update cerebellar model with rich feedback information."""
 
+        metrics = self.parse_feedback_metrics(feedback)
+        if metrics:
+            if self.precision_system and hasattr(self.precision_system, "update_feedback"):
+                self.precision_system.update_feedback(metrics)
+            if self.cerebellum and hasattr(self.cerebellum, "update_feedback"):
+                self.cerebellum.update_feedback(metrics)
+        if isinstance(feedback, MotorExecutionResult):
+            self.feedback_history.append(feedback)
         if not self.cerebellum and not self.precision_system:
             return f"no cerebellum to learn from {feedback}"
         if self.cerebellum and hasattr(self.cerebellum, "motor_learning"):
             result = self.cerebellum.motor_learning(feedback)
         elif self.precision_system and hasattr(self.precision_system.cerebellum, "learn"):
-            result = self.precision_system.cerebellum.learn(str(feedback))
+            payload: Any = metrics or str(feedback)
+            result = self.precision_system.cerebellum.learn(payload)
         else:
             result = f"no cerebellum to learn from {feedback}"
         return result
@@ -305,6 +366,12 @@ class MotorCortex:
 
     def _post_execute_feedback(self, result: MotorExecutionResult) -> None:
         self.feedback_history.append(result)
+        metrics = self.parse_feedback_metrics(result)
+        if metrics:
+            if self.precision_system and hasattr(self.precision_system, "update_feedback"):
+                self.precision_system.update_feedback(metrics)
+            if self.cerebellum and hasattr(self.cerebellum, "update_feedback"):
+                self.cerebellum.update_feedback(metrics)
         if self.cerebellum:
             self.cerebellum.motor_learning(result)
 
@@ -322,6 +389,104 @@ class MotorCortex:
             metadata = {"precision_feedback": str(precision_feedback)}
             return command.with_updates(metadata=metadata)
         return command
+
+    # ------------------------------------------------------------------
+    # Feedback processing ----------------------------------------------
+    # ------------------------------------------------------------------
+    def parse_feedback_metrics(
+        self,
+        feedback: MotorExecutionResult | Dict[str, Any] | str | None,
+        *,
+        base_reward: float | None = None,
+    ) -> Dict[str, float]:
+        raw = self._coerce_feedback_metrics(feedback)
+        if base_reward is not None and isinstance(base_reward, Real):
+            raw.setdefault("reward", float(base_reward))
+        return self._structure_feedback_metrics(raw)
+
+    def _coerce_feedback_metrics(
+        self, feedback: MotorExecutionResult | Dict[str, Any] | str | None
+    ) -> Dict[str, float]:
+        if feedback is None:
+            return {}
+        numeric: Dict[str, float] = {}
+        if isinstance(feedback, MotorExecutionResult):
+            numeric.update(
+                {
+                    key: float(value)
+                    for key, value in feedback.telemetry.items()
+                    if isinstance(value, Real)
+                }
+            )
+            numeric.setdefault("success_rate", 1.0 if feedback.success else 0.0)
+            numeric.setdefault("overall_error", 0.0 if feedback.success else 1.0)
+            if feedback.error:
+                numeric.setdefault("error_flag", 1.0)
+        elif isinstance(feedback, dict):
+            expanded = dict(feedback)
+            embedded = expanded.pop("metrics", None)
+            if isinstance(embedded, dict):
+                for key, value in embedded.items():
+                    if isinstance(value, Real):
+                        numeric[key] = float(value)
+            for key, value in expanded.items():
+                if isinstance(value, Real):
+                    numeric[key] = float(value)
+                elif isinstance(value, dict):
+                    for sub_key, sub_value in value.items():
+                        if isinstance(sub_value, Real):
+                            numeric[f"{key}_{sub_key}"] = float(sub_value)
+        return numeric
+
+    def _structure_feedback_metrics(self, raw: Dict[str, float]) -> Dict[str, float]:
+        metrics: Dict[str, float] = {}
+
+        def _pop(*names: str) -> float | None:
+            for name in names:
+                if name in raw:
+                    return float(raw.pop(name))
+            return None
+
+        velocity = _pop("velocity_error", "speed_error", "velocity_delta", "speed_delta", "velocity", "speed")
+        stability = _pop("stability_error", "balance_error", "oscillation_error", "stability")
+        accuracy = _pop("accuracy_error", "precision_error", "trajectory_error", "accuracy")
+        reward = _pop("reward", "reward_signal", "score", "utility")
+        energy = _pop("energy_cost", "energy", "power", "energy_used")
+        latency = _pop("latency", "response_time", "latency_ms")
+        success = _pop("success_rate", "success")
+        overall_error = _pop("overall_error", "error", "tracking_error")
+
+        provided_components = {
+            "velocity_error": velocity,
+            "stability_error": stability,
+            "accuracy_error": accuracy,
+        }
+        provided_total = sum(abs(value) for value in provided_components.values() if value is not None)
+        if overall_error is None:
+            overall_error = provided_total
+        if overall_error is None:
+            overall_error = 0.0
+        missing = [key for key, value in provided_components.items() if value is None]
+        remainder = max(0.0, overall_error - provided_total)
+        share = remainder / len(missing) if missing else 0.0
+        for key, value in provided_components.items():
+            component_value = value if value is not None else share
+            metrics[key] = float(max(0.0, component_value))
+
+        metrics["overall_error"] = float(max(0.0, overall_error))
+        metrics["reward"] = float(reward) if reward is not None else metrics.get("reward", 0.0)
+        if energy is not None:
+            metrics["energy_cost"] = float(max(0.0, energy))
+        if latency is not None:
+            metrics["latency"] = float(max(0.0, latency))
+        if success is None:
+            success = max(0.0, min(1.0, 1.0 - metrics["overall_error"]))
+        else:
+            success = max(0.0, min(1.0, success))
+        metrics["success_rate"] = float(success)
+        for key, value in list(raw.items()):
+            metrics[f"extra_{key}"] = float(value)
+        return metrics
 
 
 __all__ = ["MotorCortex", "PrimaryMotor", "PreMotorArea", "SupplementaryMotor"]
