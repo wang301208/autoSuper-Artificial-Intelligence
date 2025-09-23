@@ -282,6 +282,7 @@ class WholeBrainSimulation:
         intention: str,
         encoding_mode: str,
         modulators: Optional[Dict[str, float]] = None,
+        oscillation_state: Optional[Dict[str, float]] = None,
     ) -> Optional[NeuromorphicRunResult]:
         if not self.neuromorphic or (not weights and not modulators):
             return None
@@ -311,18 +312,22 @@ class WholeBrainSimulation:
             encoder_kwargs['steps'] = steps
             decoder_kwargs['window'] = float(steps)
             mode = 'rate'
+        metadata = {
+            'intention': intention,
+            'channels': ordering,
+            'weights': dict(weights),
+            'modulators': dict(modulators) if modulators else {},
+        }
+        if oscillation_state:
+            metadata['oscillation'] = dict(oscillation_state)
         result = backend.run_sequence(
             [vector],
             encoding=mode,
             encoder_kwargs=encoder_kwargs,
             decoder='all',
             decoder_kwargs=decoder_kwargs,
-            metadata={
-                'intention': intention,
-                'channels': ordering,
-                'weights': dict(weights),
-                'modulators': dict(modulators) if modulators else {},
-            },
+            metadata=metadata,
+            neuromodulation=oscillation_state,
             reset=True,
         )
         self.last_motor_result = result
@@ -352,16 +357,38 @@ class WholeBrainSimulation:
             if getattr(waves, 'size', 0) == 0:
                 return {}
             amplitude = float(np.mean(np.abs(waves)))
-            synchrony = float(np.std(np.mean(waves, axis=1)))
-            if getattr(waves, 'ndim', 0) >= 2:
+            amplitude_norm = float(np.tanh(amplitude))
+            if getattr(waves, 'ndim', 0) >= 2 and waves.shape[0] > 1:
+                correlation = np.corrcoef(waves)
+                mask = ~np.eye(correlation.shape[0], dtype=bool)
+                synchrony_index = float(np.mean(np.abs(correlation[mask]))) if mask.any() else 0.0
                 modulation = float(np.mean(waves[-1]))
             else:
+                synchrony_index = 0.0
                 modulation = float(np.mean(waves))
+            synchrony_norm = float(np.clip(synchrony_index, 0.0, 1.0))
+            spectral = np.fft.rfft(waves, axis=-1)
+            spectral_power = np.abs(spectral) ** 2
+            mean_power = spectral_power.mean(axis=0)
+            freqs = np.fft.rfftfreq(waves.shape[-1], d=1.0 / 200.0)
+            if mean_power.size > 0:
+                dominant_idx = int(np.argmax(mean_power))
+                dominant_frequency = float(freqs[dominant_idx])
+                rhythmicity = float(np.tanh(mean_power[dominant_idx]))
+            else:
+                dominant_frequency = 0.0
+                rhythmicity = 0.0
+            plasticity_gate = float(np.clip((amplitude_norm + synchrony_norm) * 0.5 + rhythmicity * 0.25, 0.0, 2.0))
             state = {
                 'amplitude': amplitude,
-                'synchrony': synchrony,
+                'amplitude_norm': amplitude_norm,
+                'synchrony_index': synchrony_index,
+                'synchrony_norm': synchrony_norm,
                 'modulation': modulation,
                 'coupling': coupling,
+                'dominant_frequency': dominant_frequency,
+                'rhythmicity': rhythmicity,
+                'plasticity_gate': plasticity_gate,
             }
             self.last_oscillation_state = state
             return state
@@ -708,6 +735,10 @@ class WholeBrainSimulation:
         if self.config.enable_personality_modulation:
             modulators["openness"] = _clamp(self.personality.openness)
             modulators["conscientiousness"] = _clamp(self.personality.conscientiousness)
+        if oscillation_state:
+            for key, value in oscillation_state.items():
+                if isinstance(value, (int, float)):
+                    modulators[f"osc_{key}"] = _clamp(value)
 
         plan_parameters: Dict[str, Any] = {}
         if modulators:
@@ -722,6 +753,7 @@ class WholeBrainSimulation:
                 intention,
                 self.neuromorphic_encoding or "rate",
                 modulators,
+                oscillation_state,
             )
             if motor_result:
                 decision["motor_channels"] = list(motor_result.metadata.get("channels", []))

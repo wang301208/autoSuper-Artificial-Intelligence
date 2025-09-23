@@ -1,3 +1,6 @@
+from typing import Dict, Mapping, Optional
+
+
 class Neuroplasticity:
     """Simplified neuroplasticity model with basic learning rules.
 
@@ -41,7 +44,35 @@ class Neuroplasticity:
         self.hebbian = self.HebbianRule()
         self.spike_timing = self.STDPRule()
         self.homeostatic = self.HomeostaticRule()
+        self.modulation_state: Dict[str, float] = {}
+        self.learning_gain: float = 1.0
 
     def adapt_connections(self, pre_activity, post_activity):
         """Adapt synaptic connections using spike timing dependent plasticity."""
-        return self.spike_timing.update(pre_activity, post_activity)
+        delta = self.spike_timing.update(pre_activity, post_activity)
+        gate = self.modulation_state.get("plasticity_gate", 1.0)
+        gain = max(0.1, self.learning_gain)
+        gated = delta * max(0.0, min(2.0, gate)) * gain
+        return gated
+
+    def update_modulation(self, modulation: Optional[Mapping[str, float]]) -> None:
+        if not modulation:
+            self.modulation_state = {}
+            self.learning_gain = 1.0
+            self.homeostatic.target_activity = 0.0
+            return
+        filtered: Dict[str, float] = {
+            key: float(value)
+            for key, value in modulation.items()
+            if isinstance(value, (int, float))
+        }
+        amplitude = max(0.0, min(1.0, filtered.get("amplitude", filtered.get("amplitude_norm", 0.0))))
+        synchrony = max(0.0, min(1.0, filtered.get("synchrony", filtered.get("synchrony_norm", 0.0))))
+        rhythmicity = max(0.0, min(1.0, filtered.get("rhythmicity", 0.0)))
+        gate = max(0.0, min(2.0, filtered.get("plasticity_gate", (amplitude + synchrony) * 0.5)))
+        self.learning_gain = 0.8 + amplitude * 0.6 + rhythmicity * 0.3
+        self.modulation_state = {
+            **filtered,
+            "plasticity_gate": gate,
+        }
+        self.homeostatic.target_activity = min(0.5, rhythmicity * 0.5 + synchrony * 0.25)
