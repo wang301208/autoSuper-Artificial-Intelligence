@@ -571,14 +571,63 @@ class WholeBrainSimulation:
                     entry["metadata"].update(encoded.metadata)
                 perception[modality] = entry
 
+        perception_snapshot = PerceptionSnapshot(modalities=dict(perception))
+        novelty = self._estimate_novelty(perception_snapshot)
+        if self.config.enable_curiosity_feedback:
+            self.curiosity.update(novelty, self.personality)
+        else:
+            self.curiosity.decay()
+            self.curiosity.last_novelty = novelty
 
-                    context_features[key] = float(value)
+        oscillation_state = self._compute_oscillation_state(perception_snapshot, novelty)
+
+        raw_context = input_data.get("context", {})
+        cognitive_context: Dict[str, Any] = dict(raw_context) if isinstance(raw_context, dict) else {}
+        if "task" in input_data and "task" not in cognitive_context:
+            cognitive_context["task"] = input_data["task"]
+        if "is_salient" in input_data:
+            cognitive_context["salience"] = bool(input_data.get("is_salient"))
+        cognitive_context.setdefault("novelty", novelty)
+        cognitive_context.setdefault("cycle_index", self.cycle_index)
+        cognitive_context.setdefault("energy_used", float(energy_used))
+
+        context_features: Dict[str, float] = {}
+        for key, value in cognitive_context.items():
+            if isinstance(value, Real):
+                context_features[key] = float(value)
+        context_features.setdefault("novelty", novelty)
+
+        text_signal = _resolve_signal("text", "language", "stimulus", "narrative")
+        text_stimulus = str(text_signal) if text_signal is not None else ""
+        emotional_state = self.emotion.react(text_stimulus, context_features, self.config)
+        emotion_snapshot = EmotionSnapshot(
+            primary=emotional_state.emotion,
+            intensity=float(emotional_state.intensity),
+            mood=float(self.emotion.mood),
+            dimensions=dict(emotional_state.dimensions),
+            context=dict(emotional_state.context_weights),
+            decay=float(emotional_state.decay),
+            intent_bias=dict(emotional_state.intent_bias),
+        )
+
+        personality_snapshot = PersonalityProfile(
+            openness=float(self.personality.openness),
+            conscientiousness=float(self.personality.conscientiousness),
+            extraversion=float(self.personality.extraversion),
+            agreeableness=float(self.personality.agreeableness),
+            neuroticism=float(self.personality.neuroticism),
+        )
+
+        learning_prediction: Dict[str, float] = {}
         if self.config.enable_self_learning:
             signature = self._perception_signature(perception_snapshot) or f"cycle-{self.cycle_index}"
             usage = {
                 "cpu": float(energy_used),
                 "memory": float(
-                    sum(len(payload.get("spike_counts") or []) for payload in perception_snapshot.modalities.values())
+                    sum(
+                        len(payload.get("spike_counts") or [])
+                        for payload in perception_snapshot.modalities.values()
+                    )
                 ),
             }
             reward = emotional_state.dimensions.get("valence", 0.0) * emotional_state.intensity
@@ -590,7 +639,7 @@ class WholeBrainSimulation:
                 "usage": usage,
                 "reward": max(-1.0, min(1.0, reward)),
             }
-            learning_prediction = self.self_learning.curiosity_driven_learning(sample)
+            learning_prediction = self.self_learning.curiosity_driven_learning(sample) or {}
 
         decision = self.cognition.decide(
             perception_snapshot,
@@ -610,6 +659,28 @@ class WholeBrainSimulation:
             except (TypeError, ValueError):
                 return 0.0
 
+        modulators: Dict[str, float] = {
+            "novelty": _clamp(novelty),
+            "curiosity": _clamp(self.curiosity.drive),
+            "fatigue": _clamp(self.curiosity.fatigue),
+            "confidence": _clamp(decision.get("confidence")),
+            "valence": _clamp((emotion_snapshot.dimensions.get("valence", 0.0) + 1.0) / 2.0),
+            "arousal": _clamp(emotion_snapshot.dimensions.get("arousal", 0.0)),
+            "mood": _clamp((emotion_snapshot.mood + 1.0) / 2.0),
+        }
+        if "safety" in context_features:
+            modulators["safety"] = _clamp(context_features["safety"])
+        if "threat" in context_features:
+            modulators["threat"] = _clamp(context_features["threat"])
+        if self.config.enable_personality_modulation:
+            modulators["openness"] = _clamp(self.personality.openness)
+            modulators["conscientiousness"] = _clamp(self.personality.conscientiousness)
+
+        plan_parameters: Dict[str, Any] = {}
+        if modulators:
+            plan_parameters["modulators"] = dict(modulators)
+        if oscillation_state:
+            plan_parameters["oscillation"] = dict(oscillation_state)
 
         motor_result: Optional[NeuromorphicRunResult] = None
         if decision.get("weights"):
@@ -622,15 +693,13 @@ class WholeBrainSimulation:
             if motor_result:
                 decision["motor_channels"] = list(motor_result.metadata.get("channels", []))
                 decision["motor_spike_counts"] = list(motor_result.spike_counts)
-        else:
-            if self.last_motor_result is not None:
-                self.last_motor_result = None
+        elif self.last_motor_result is not None:
+            self.last_motor_result = None
+
         if decision.get("weights"):
-            plan_parameters["weights"] = {key: float(value) for key, value in decision["weights"].items()}
-        if modulators:
-            plan_parameters["modulators"] = dict(modulators)
-        if oscillation_state:
-            plan_parameters["oscillation"] = dict(oscillation_state)
+            plan_parameters["weights"] = {
+                key: float(value) for key, value in decision["weights"].items()
+            }
         balance_hint = self.cerebellum.balance_control(f"novelty:{novelty:.3f}")
         plan_parameters["cerebellum_hint"] = balance_hint
         if motor_result:
@@ -638,11 +707,12 @@ class WholeBrainSimulation:
             plan_parameters["motor_channels"] = list(motor_result.metadata.get("channels", []))
             if motor_result.average_rate:
                 plan_parameters["motor_rate"] = list(motor_result.average_rate)
+
         plan = self.motor.plan_movement(intention, parameters=plan_parameters)
         if motor_result:
             plan.metadata["neuromorphic"] = motor_result.to_dict()
         action = self.motor.execute_action(plan)
-        )
+
         curiosity_snapshot = CuriosityState(
             drive=self.curiosity.drive,
             novelty_preference=self.curiosity.novelty_preference,
@@ -652,15 +722,21 @@ class WholeBrainSimulation:
 
         intent = CognitiveIntent(
             intention=intention,
-            salience=input_data.get("is_salient", False),
-            plan=decision["plan"],
-            confidence=decision["confidence"],
-            weights=decision["weights"],
-            tags=decision["tags"],
+            salience=bool(input_data.get("is_salient", False)),
+            plan=list(decision.get("plan", [])),
+            confidence=float(decision.get("confidence", 0.0)),
+            weights=dict(decision.get("weights", {})),
+            tags=list(decision.get("tags", [])),
         )
 
-            agreeableness=self.personality.agreeableness,
-            neuroticism=self.personality.neuroticism,
+        thought_snapshot = self._compose_thought_snapshot(
+            decision,
+            self.cognition.recall(),
+        )
+        feeling_snapshot = self._compose_feeling_snapshot(
+            emotion_snapshot,
+            oscillation_state,
+            context_features,
         )
 
         metrics: Dict[str, float] = {}
@@ -682,109 +758,57 @@ class WholeBrainSimulation:
                 metrics["motor_energy"] = float(motor_result.energy_used)
                 metrics["motor_idle_skipped"] = float(motor_result.idle_skipped)
                 if motor_result.spike_counts:
-                    metrics["motor_spike_avg"] = float(sum(motor_result.spike_counts) / len(motor_result.spike_counts))
+                    metrics["motor_spike_avg"] = float(
+                        sum(motor_result.spike_counts) / len(motor_result.spike_counts)
+                    )
                 if motor_result.average_rate:
                     metrics["motor_rate_avg"] = float(
                         sum(motor_result.average_rate) / len(motor_result.average_rate)
                     )
             intent_metrics = intent.as_metrics()
-            metrics["intent_confidence"] = intent_metrics.get("intent_confidence", intent.confidence)
+            metrics["intent_confidence"] = intent_metrics.get(
+                "intent_confidence", intent.confidence
+            )
             weights = decision.get("weights", {})
             for key in ("approach", "withdraw", "explore", "observe"):
                 metrics[f"strategy_bias_{key}"] = float(weights.get(key, 0.0))
             if self.config.enable_plan_logging:
                 metrics.update({k: v for k, v in intent_metrics.items() if k != "intent_confidence"})
-                metrics["plan_length"] = float(len(decision["plan"]))
+                metrics["plan_length"] = float(len(decision.get("plan", [])))
             if learning_prediction:
-                metrics.update({f"learning_{k}": float(v) for k, v in learning_prediction.items()})
+                metrics.update(
+                    {f"learning_{k}": float(v) for k, v in learning_prediction.items()}
+                )
 
         energy_used_int = int(round(energy_used))
-            energy_used=energy_used_int,
-            idle_skipped=int(idle_skipped),
-                "memory_size": str(len(self.cognition.episodic_memory)),
-                "context_task": str(cognitive_context.get("task")) if cognitive_context.get("task") is not None else None,
-                "oscillation_state": str(oscillation_state) if oscillation_state else None,
-                "motor_spike_counts": str(motor_result.spike_counts) if motor_result else None,
-                "motor_average_rate": str(motor_result.average_rate) if motor_result and motor_result.average_rate else None,
-                "motor_energy": str(motor_result.energy_used) if motor_result else None,
-            },
-        )
-        self.last_perception = perception_snapshot
-        self.last_context = cognitive_context
-        self.last_learning_prediction = learning_prediction
-        self.last_decision = decision
-        return result
-
-    def update_config(self, config: BrainRuntimeConfig) -> None:
-        """Replace runtime configuration and keep derived flags in sync."""
-
-        self.config = config
-        self.neuromorphic = config.use_neuromorphic
-
-    def get_decision_trace(self, limit: int = 5) -> List[dict[str, Any]]:
-        """Return recent cognitive decisions for inspection."""
-
-        return self.cognition.recall(limit)
-
-    def get_strategy_modulation(self) -> Dict[str, float]:
-        """Expose the latest action weights for agent loop adjustments."""
-
-        weights = self.last_decision.get("weights", {}) if isinstance(self.last_decision, dict) else {}
-        return {
-            "approach": float(weights.get("approach", 0.0)),
-            "withdraw": float(weights.get("withdraw", 0.0)),
-            "explore": float(weights.get("explore", 0.0)),
-            "observe": float(weights.get("observe", 0.0)),
-            "curiosity_drive": float(self.curiosity.drive),
-        }
-
-__all__ = ["WholeBrainSimulation"]
-
-
-
-
-
-
-
-            metrics.update(self.curiosity.as_metrics())
-            metrics.update(emotion_snapshot.as_metrics())
-            if oscillation_state:
-                metrics.update({f"osc_{k}": float(v) for k, v in oscillation_state.items()})
-            if motor_result:
-                metrics["motor_energy"] = float(motor_result.energy_used)
-                metrics["motor_idle_skipped"] = float(motor_result.idle_skipped)
-                if motor_result.spike_counts:
-                    metrics["motor_spike_avg"] = float(sum(motor_result.spike_counts) / len(motor_result.spike_counts))
-                if motor_result.average_rate:
-                    metrics["motor_rate_avg"] = float(sum(motor_result.average_rate) / len(motor_result.average_rate))
-            intent_metrics = intent.as_metrics()
-            metrics["intent_confidence"] = intent_metrics.get("intent_confidence", intent.confidence)
-            for key in ("approach", "withdraw", "explore", "observe"):
-                metrics[f"strategy_bias_{key}"] = float(decision["weights"].get(key, 0.0))
-            if self.config.enable_plan_logging:
-                metrics.update({k: v for k, v in intent_metrics.items() if k != "intent_confidence"})
-                metrics["plan_length"] = float(len(decision["plan"]))
-            if learning_prediction:
-                metrics.update({f"learning_{k}": float(v) for k, v in learning_prediction.items()})
-
         result = BrainCycleResult(
             perception=perception_snapshot,
             emotion=emotion_snapshot,
             intent=intent,
             personality=personality_snapshot,
             curiosity=curiosity_snapshot,
-            energy_used=energy_used,
-            idle_skipped=idle_skipped,
+            energy_used=energy_used_int,
+            idle_skipped=int(idle_skipped),
+            thoughts=thought_snapshot,
+            feeling=feeling_snapshot,
             metrics=metrics,
             metadata={
-                "plan": str(plan),
+                "plan": plan.describe(),
                 "executed_action": str(action),
-                "cognitive_plan": ",".join(decision["plan"]) if self.config.enable_plan_logging else None,
+                "cognitive_plan": ",".join(decision.get("plan", []))
+                if self.config.enable_plan_logging
+                else None,
                 "memory_size": str(len(self.cognition.episodic_memory)),
-                "context_task": str(cognitive_context.get("task")) if cognitive_context.get("task") is not None else None,
+                "context_task": str(cognitive_context.get("task"))
+                if cognitive_context.get("task") is not None
+                else None,
                 "oscillation_state": str(oscillation_state) if oscillation_state else None,
-                "motor_spike_counts": str(motor_result.spike_counts) if motor_result else None,
-                "motor_average_rate": str(motor_result.average_rate) if motor_result and motor_result.average_rate else None,
+                "motor_spike_counts": str(motor_result.spike_counts)
+                if motor_result
+                else None,
+                "motor_average_rate": str(motor_result.average_rate)
+                if motor_result and motor_result.average_rate
+                else None,
                 "motor_energy": str(motor_result.energy_used) if motor_result else None,
             },
         )
@@ -818,10 +842,3 @@ __all__ = ["WholeBrainSimulation"]
         }
 
 __all__ = ["WholeBrainSimulation"]
-
-
-
-
-
-
-
