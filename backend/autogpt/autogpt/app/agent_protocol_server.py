@@ -261,7 +261,11 @@ class AgentProtocolServer:
                     )
                 except AgentFinished:
                     additional_output = {}
-                    task_total_cost = agent.llm_provider.get_incurred_cost()
+                    task_total_cost = (
+                        agent.llm_provider.get_incurred_cost()
+                        if agent.llm_provider is not None
+                        else 0
+                    )
                     if task_total_cost > 0:
                         additional_output["task_total_cost"] = task_total_cost
                         logger.info(
@@ -341,7 +345,11 @@ class AgentProtocolServer:
             **raw_output,
         }
 
-        task_cumulative_cost = agent.llm_provider.get_incurred_cost()
+        task_cumulative_cost = (
+            agent.llm_provider.get_incurred_cost()
+            if agent.llm_provider is not None
+            else 0
+        )
         if task_cumulative_cost > 0:
             additional_output["task_cumulative_cost"] = task_cumulative_cost
         logger.debug(
