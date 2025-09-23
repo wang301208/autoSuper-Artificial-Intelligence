@@ -258,14 +258,22 @@ class DenseSynapseModel(SynapseModel):
     ) -> None:
         self._initial_weights = np.asarray(weights, dtype=float)
         self.weights = self._initial_weights.copy()
-        self.learning_rate = learning_rate
+        self.base_learning_rate = float(learning_rate)
+        self.learning_rate = float(learning_rate)
         self._plasticity_cls = plasticity.__class__ if plasticity is not None else None
         self.plasticity = plasticity if plasticity is not None else Neuroplasticity()
+        self.weight_decay = 0.0
+        self._modulation_cache: Dict[str, float] = {}
 
     def reset_state(self) -> None:
         self.weights = self._initial_weights.copy()
         if self._plasticity_cls is not None:
             self.plasticity = self._plasticity_cls()
+        self.learning_rate = self.base_learning_rate
+        self.weight_decay = 0.0
+        self._modulation_cache = {}
+        if hasattr(self.plasticity, "update_modulation"):
+            self.plasticity.update_modulation(None)
 
     def propagate(self, pre_spikes: Sequence[int]) -> list[float]:
         pre = np.asarray(pre_spikes, dtype=float)
@@ -285,6 +293,49 @@ class DenseSynapseModel(SynapseModel):
             for post_idx, post_time in post_times:
                 delta = self.plasticity.adapt_connections(pre_time, post_time)
                 self.weights[pre_idx, post_idx] += self.learning_rate * delta
+        if self.weight_decay:
+            self.weights *= (1.0 - self.weight_decay)
+
+    def update_modulation(self, modulation: Mapping[str, float] | None) -> None:
+        if not modulation:
+            self.learning_rate = self.base_learning_rate
+            self.weight_decay = 0.0
+            self._modulation_cache = {}
+            if hasattr(self.plasticity, "update_modulation"):
+                self.plasticity.update_modulation(None)
+            return
+        filtered: Dict[str, float] = {
+            key: float(value)
+            for key, value in modulation.items()
+            if isinstance(value, (int, float))
+        }
+        amplitude = float(np.clip(filtered.get("amplitude_norm", filtered.get("amplitude", 0.0)), 0.0, 1.0))
+        synchrony = float(np.clip(filtered.get("synchrony_norm", filtered.get("synchrony_index", 0.0)), 0.0, 1.0))
+        rhythmicity = float(np.clip(filtered.get("rhythmicity", 0.0), 0.0, 1.0))
+        gate = float(np.clip(filtered.get("plasticity_gate", (amplitude + synchrony) * 0.5), 0.0, 2.0))
+        learning_gain = 0.5 + amplitude * 0.75 + synchrony * 0.25
+        learning_gain += rhythmicity * 0.25
+        self.learning_rate = self.base_learning_rate * max(0.1, learning_gain)
+        decay_term = (1.0 - synchrony) * 0.05 + max(0.0, 0.5 - amplitude) * 0.02
+        self.weight_decay = float(np.clip(decay_term, 0.0, 0.2))
+        self._modulation_cache = {
+            "amplitude": amplitude,
+            "synchrony": synchrony,
+            "rhythmicity": rhythmicity,
+            "plasticity_gate": gate,
+            "learning_rate": self.learning_rate,
+            "weight_decay": self.weight_decay,
+        }
+        if hasattr(self.plasticity, "update_modulation"):
+            self.plasticity.update_modulation({
+                **filtered,
+                "plasticity_gate": gate,
+                "learning_rate": self.learning_rate,
+            })
+
+    @property
+    def modulation_cache(self) -> Dict[str, float]:
+        return dict(self._modulation_cache)
 
 
 class SpikingNeuralNetwork:
@@ -351,6 +402,9 @@ class SpikingNeuralNetwork:
         self.neurons = neuron_model
         self.synapses = synapse_model
         self.spike_times = [None] * n_neurons
+        self._modulation_state: Dict[str, float] = {}
+        if hasattr(self.synapses, "update_modulation"):
+            self.synapses.update_modulation(None)
         self.idle_skip = idle_skip
         self.energy_usage = 0
         self.idle_skipped_cycles = 0
@@ -380,9 +434,36 @@ class SpikingNeuralNetwork:
             self.neurons.reset_state()
         if hasattr(self.synapses, "reset_state"):
             self.synapses.reset_state()
+            if hasattr(self.synapses, "update_modulation"):
+                if self._modulation_state:
+                    self.synapses.update_modulation(self._modulation_state)
+                else:
+                    self.synapses.update_modulation(None)
         self.spike_times = [None] * len(self.spike_times)
         self.energy_usage = 0
         self.idle_skipped_cycles = 0
+
+    def apply_modulation(self, modulation: Mapping[str, float] | None) -> None:
+        if modulation:
+            state = {
+                key: float(value)
+                for key, value in modulation.items()
+                if isinstance(value, (int, float))
+            }
+        else:
+            state = {}
+        self._modulation_state = state
+        if hasattr(self.synapses, "update_modulation"):
+            self.synapses.update_modulation(state if state else None)
+        if hasattr(self.neurons, "update_modulation") and state:
+            try:  # pragma: no cover - optional integration hook
+                self.neurons.update_modulation(state)
+            except Exception:
+                pass
+
+    @property
+    def modulation_state(self) -> Dict[str, float]:
+        return dict(self._modulation_state)
 
     def _run_internal(
         self,
@@ -516,8 +597,11 @@ class SpikingNeuralNetwork:
         convergence_threshold: float | None = None,
         convergence_window: int | None = None,
         convergence_patience: int | None = None,
+        neuromodulation: Mapping[str, float] | None = None,
     ):
         """Run the network using an event-driven simulation."""
+        if neuromodulation is not None:
+            self.apply_modulation(neuromodulation)
         return self._run_internal(
             input_events,
             encoder,
@@ -596,6 +680,7 @@ class NeuromorphicBackend:
         self.config = config
         self.network = network
         self.auto_reset = auto_reset
+        self._last_modulation: Dict[str, float] = {}
         if not NeuromorphicBackend._ENCODERS:
             NeuromorphicBackend._ENCODERS = {
                 "latency": self._latency_encoder,
@@ -618,6 +703,8 @@ class NeuromorphicBackend:
 
     def reset_state(self) -> None:
         self.network.reset_state()
+        if self._last_modulation:
+            self.network.apply_modulation(self._last_modulation)
 
     def run_events(
         self,
@@ -628,6 +715,7 @@ class NeuromorphicBackend:
         decoder: str | None = "counts",
         decoder_kwargs: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
         reset: Optional[bool] = None,
         max_duration: int | None = None,
         convergence_threshold: float | None = None,
@@ -637,6 +725,16 @@ class NeuromorphicBackend:
         if reset or (reset is None and self.auto_reset):
             self.reset_state()
         encoder_kwargs = dict(encoder_kwargs or {})
+        modulation = None
+        if neuromodulation is not None:
+            modulation = {
+                key: float(value)
+                for key, value in neuromodulation.items()
+                if isinstance(value, (int, float))
+            }
+            self._last_modulation = dict(modulation)
+        elif self._last_modulation:
+            modulation = dict(self._last_modulation)
         outputs = self.network.run(
             events,
             encoder=encoder,
@@ -645,6 +743,7 @@ class NeuromorphicBackend:
             convergence_threshold=convergence_threshold,
             convergence_window=convergence_window,
             convergence_patience=convergence_patience,
+            neuromodulation=modulation,
         )
         counts: List[int] = []
         rates: List[float] = []
@@ -658,13 +757,19 @@ class NeuromorphicBackend:
                 if window is None:
                     window = len(outputs) or 1
                 rates = decode_average_rate(outputs, window=float(window))
+        result_metadata = dict(metadata or {})
+        if modulation:
+            result_metadata.setdefault("neuromodulation", dict(modulation))
+        synapse_state = getattr(self.network.synapses, "modulation_cache", None)
+        if synapse_state:
+            result_metadata.setdefault("synapse_modulation", dict(synapse_state))
         return NeuromorphicRunResult(
             spike_events=outputs,
             energy_used=self.network.energy_usage,
             idle_skipped=self.network.idle_skipped_cycles,
             spike_counts=counts,
             average_rate=rates,
-            metadata=metadata or {},
+            metadata=result_metadata,
         )
 
     def run_sequence(
@@ -676,6 +781,7 @@ class NeuromorphicBackend:
         decoder: str | None = "counts",
         decoder_kwargs: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
         reset: Optional[bool] = None,
         max_duration: int | None = None,
         convergence_threshold: float | None = None,
@@ -697,6 +803,7 @@ class NeuromorphicBackend:
             decoder=decoder,
             decoder_kwargs=decoder_kwargs,
             metadata=metadata,
+            neuromodulation=neuromodulation,
             reset=reset,
             max_duration=max_duration,
             convergence_threshold=convergence_threshold,
@@ -713,6 +820,7 @@ class NeuromorphicBackend:
         decoder: str | None = "counts",
         decoder_kwargs: Optional[Dict[str, Any]] = None,
         reset_each: bool | None = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
         max_duration: int | None = None,
         convergence_threshold: float | None = None,
         convergence_window: int | None = None,
@@ -728,6 +836,7 @@ class NeuromorphicBackend:
                     decoder=decoder,
                     decoder_kwargs=decoder_kwargs,
                     metadata=None,
+                    neuromodulation=neuromodulation,
                     reset=reset_each if reset_each is not None else True,
                     max_duration=max_duration,
                     convergence_threshold=convergence_threshold,
