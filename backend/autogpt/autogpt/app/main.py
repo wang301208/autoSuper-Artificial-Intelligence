@@ -39,7 +39,6 @@ from autogpt.config import (
     ConfigBuilder,
     assert_config_has_openai_api_key,
 )
-from autogpt.core.brain.config import BrainBackend
 from autogpt.core.logging import setup_exception_hooks
 from autogpt.core.resource.model_providers.openai import OpenAIModelName, OpenAIProvider
 from autogpt.core.runner.client_lib.utils import coroutine
@@ -62,8 +61,6 @@ from .utils import (
     print_motd,
     print_python_version_info,
 )
-
-from modules.brain.whole_brain import WholeBrainSimulation
 
 setup_exception_hooks()
 
@@ -117,10 +114,11 @@ async def run_auto_gpt(
         tts_config=config.tts_config,
     )
 
-    # Initialize default model settings
+    # Initialize default LLM settings
     config.fast_llm = config.fast_llm or OpenAIModelName.GPT3_16k
     config.smart_llm = config.smart_llm or OpenAIModelName.GPT4_TURBO
     config.temperature = config.temperature or 0
+    assert_config_has_openai_api_key(config)
 
     await apply_overrides_to_config(
         config=config,
@@ -136,16 +134,7 @@ async def run_auto_gpt(
         skip_news=skip_news,
     )
 
-    use_whole_brain_backend = config.brain_backend == BrainBackend.WHOLE_BRAIN
-    whole_brain: WholeBrainSimulation | None = None
-    if use_whole_brain_backend:
-        whole_brain = WholeBrainSimulation(
-            **config.whole_brain.to_simulation_kwargs()
-        )
-        llm_provider = None
-    else:
-        assert_config_has_openai_api_key(config)
-        llm_provider = _configure_openai_provider(config)
+    llm_provider = _configure_openai_provider(config)
 
     logger = logging.getLogger(__name__)
 
@@ -164,11 +153,8 @@ async def run_auto_gpt(
         print_motd(config, logger)
         print_git_branch_info(logger)
         print_python_version_info(logger)
-        if use_whole_brain_backend:
-            print_attribute("Cognitive Backend", "WholeBrain Simulation")
-        else:
-            print_attribute("Smart LLM", config.smart_llm)
-            print_attribute("Fast LLM", config.fast_llm)
+        print_attribute("Smart LLM", config.smart_llm)
+        print_attribute("Fast LLM", config.fast_llm)
         print_attribute("Browser", config.selenium_web_browser)
         if config.continuous_mode:
             print_attribute("Continuous Mode", "ENABLED", title_color=Fore.YELLOW)
@@ -247,7 +233,6 @@ async def run_auto_gpt(
             app_config=config,
             file_storage=file_storage,
             llm_provider=llm_provider,
-            whole_brain=whole_brain,
         )
         apply_overrides_to_ai_settings(
             ai_profile=agent.state.ai_profile,
@@ -317,24 +302,11 @@ async def run_auto_gpt(
 
         base_ai_directives = AIDirectives.from_file(config.prompt_settings_file)
 
-        if llm_provider is not None:
-            ai_profile, task_oriented_ai_directives = (
-                await generate_agent_profile_for_task(
-                    task,
-                    app_config=config,
-                    llm_provider=llm_provider,
-                )
-            )
-        else:
-            logger.info(
-                "WholeBrain backend selected; using default AI profile without LLM assistance."
-            )
-            ai_profile = AIProfile(
-                ai_name="WholeBrain-GPT",
-                ai_role="An autonomous agent powered by the WholeBrain simulation.",
-                ai_goals=[task.input],
-            )
-            task_oriented_ai_directives = AIDirectives()
+        ai_profile, task_oriented_ai_directives = await generate_agent_profile_for_task(
+            task,
+            app_config=config,
+            llm_provider=llm_provider,
+        )
         ai_directives = base_ai_directives + task_oriented_ai_directives
         apply_overrides_to_ai_settings(
             ai_profile=ai_profile,
@@ -374,7 +346,6 @@ async def run_auto_gpt(
             app_config=config,
             file_storage=file_storage,
             llm_provider=llm_provider,
-            whole_brain=whole_brain,
         )
 
         if not agent.config.allow_fs_access:

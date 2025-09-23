@@ -34,9 +34,6 @@ async def generate_code(prompt: str, agent: Agent) -> str:
     Returns:
         str: The relative path to the file containing the generated code.
     """
-    if agent.llm_provider is None:
-        raise RuntimeError("The code generation command requires an LLM provider")
-
     response = await agent.llm_provider.create_chat_completion(
         model_prompt=[ChatMessage.user(prompt)],
         functions=[],
