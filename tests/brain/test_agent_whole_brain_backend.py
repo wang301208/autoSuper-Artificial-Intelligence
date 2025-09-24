@@ -19,6 +19,31 @@ sys.modules.setdefault("auto_gpt_plugin_template", auto_plugin)
 sentry_stub = types.SimpleNamespace(capture_exception=lambda *args, **kwargs: None)
 sys.modules.setdefault("sentry_sdk", sentry_stub)
 
+forge_module = sys.modules.get("forge")
+if forge_module is None:
+    forge_module = types.ModuleType("forge")
+    sys.modules["forge"] = forge_module
+forge_sdk_module = sys.modules.get("forge.sdk")
+if forge_sdk_module is None:
+    forge_sdk_module = types.ModuleType("forge.sdk")
+    sys.modules["forge.sdk"] = forge_sdk_module
+forge_sdk_model_module = sys.modules.get("forge.sdk.model")
+if forge_sdk_model_module is None:
+    forge_sdk_model_module = types.ModuleType("forge.sdk.model")
+    sys.modules["forge.sdk.model"] = forge_sdk_model_module
+
+if not hasattr(forge_sdk_model_module, "Task"):
+    class Task:  # pragma: no cover - simple test double
+        def __init__(self, input: str = ""):
+            self.input = input
+
+    forge_sdk_model_module.Task = Task
+
+if not hasattr(forge_sdk_module, "model"):
+    forge_sdk_module.model = forge_sdk_model_module
+if not hasattr(forge_module, "sdk"):
+    forge_module.sdk = forge_sdk_module
+
 if importlib.util.find_spec("pydantic") is None:  # pragma: no cover - optional dependency absent
     pytestmark = pytest.mark.skip(reason="pydantic not available for whole-brain integration test")
     Agent = AgentConfiguration = AgentSettings = None  # type: ignore
@@ -29,6 +54,11 @@ else:
         from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
     except ModuleNotFoundError:  # e.g. dependency resolution failed at runtime
         Agent = AgentConfiguration = AgentSettings = None  # type: ignore
+    from autogpt.config import AIDirectives, AIProfile, ConfigBuilder
+    try:  # pragma: no cover - configurator may have optional deps
+        from autogpt.agent_factory.configurators import create_agent_state
+    except ModuleNotFoundError:  # pragma: no cover - optional dependency missing
+        create_agent_state = None  # type: ignore
     from autogpt.core.brain.config import BrainBackend
     from autogpt.models.action_history import Action, ActionSuccessResult, Episode
 
@@ -99,3 +129,40 @@ def test_agent_with_whole_brain_backend_proposes_internal_action(explicit_backen
         llm_provider.create_chat_completion.assert_not_called()
 
     asyncio.run(_run_test())
+
+
+@pytest.mark.skipif(
+    Agent is None or "create_agent_state" not in globals() or create_agent_state is None,
+    reason="Agent dependencies not available in this test environment",
+)
+def test_config_builder_defaults_to_whole_brain(monkeypatch, tmp_path):
+    monkeypatch.delenv("BRAIN_BACKEND", raising=False)
+    monkeypatch.setenv("PLUGINS_CONFIG_FILE", str(tmp_path / "plugins_config.yaml"))
+    monkeypatch.setenv("AI_SETTINGS_FILE", str(tmp_path / "ai_settings.yaml"))
+    monkeypatch.setenv("PROMPT_SETTINGS_FILE", str(tmp_path / "prompt_settings.yaml"))
+    monkeypatch.setenv("AZURE_CONFIG_FILE", str(tmp_path / "azure.yaml"))
+
+    config = ConfigBuilder.build_config_from_env(project_root=tmp_path)
+
+    assert config.brain_backend == BrainBackend.WHOLE_BRAIN
+
+    from forge.sdk.model import Task
+
+    ai_profile = AIProfile(
+        ai_name="Test Agent",
+        ai_role="Tester",
+        ai_goals=["ensure defaults"],
+        api_budget=0.0,
+    )
+    directives = AIDirectives()
+    task = Task(input="validate default brain backend")
+
+    agent_state = create_agent_state(
+        agent_id="agent-default-brain",
+        task=task,
+        ai_profile=ai_profile,
+        directives=directives,
+        app_config=config,
+    )
+
+    assert agent_state.config.brain_backend == BrainBackend.WHOLE_BRAIN
