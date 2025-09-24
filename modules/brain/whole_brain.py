@@ -13,13 +13,14 @@ snapshots for downstream agents.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import random
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -29,6 +30,7 @@ from .sensory_cortex import VisualCortex, AuditoryCortex, SomatosensoryCortex
 from .motor_cortex import MotorCortex
 from .cerebellum import Cerebellum
 from .oscillations import NeuralOscillations
+from .anatomy import BrainAtlas, BrainFunctionalTopology, ConnectomeMatrix
 from .limbic import LimbicSystem
 from .state import (
     BrainCycleResult,
@@ -1160,6 +1162,10 @@ class WholeBrainSimulation:
     config: BrainRuntimeConfig = field(default_factory=BrainRuntimeConfig)
     self_learning: SelfLearningBrain = field(default_factory=SelfLearningBrain)
     perception_pipeline: SensoryPipeline = field(default_factory=SensoryPipeline)
+    atlas: BrainAtlas = field(default_factory=BrainAtlas.default)
+    connectome_dataset: str = "hcp"
+    connectome: ConnectomeMatrix = field(init=False)
+    topology: BrainFunctionalTopology = field(init=False)
     neuromorphic: bool = True
     neuromorphic_encoding: str = "rate"
     encoding_steps: int = 5
@@ -1173,6 +1179,7 @@ class WholeBrainSimulation:
     last_decision: Dict[str, Any] = field(init=False, default_factory=dict)
     last_oscillation_state: Dict[str, float] = field(init=False, default_factory=dict)
     last_motor_result: Optional[NeuromorphicRunResult] = field(init=False, default=None)
+    last_topology: Dict[str, Any] = field(init=False, default_factory=dict)
     _spiking_cache: OrderedDict[tuple[int, str], NeuromorphicBackend] = field(init=False, default_factory=OrderedDict)
     _motor_backend: Optional[NeuromorphicBackend] = field(init=False, default=None)
     perception_history: deque[PerceptionSnapshot] = field(
@@ -1189,6 +1196,10 @@ class WholeBrainSimulation:
     def __post_init__(self) -> None:
         self.personality.clamp()
         self.emotion = LimbicSystem(self.personality)
+        self.topology = BrainFunctionalTopology(self.atlas)
+        self.connectome = ConnectomeMatrix.from_atlas(
+            self.atlas, dataset=self.connectome_dataset
+        )
         self.config.use_neuromorphic = self.neuromorphic
         self.motor.cerebellum = self.cerebellum
         self.motor.precision_system = self.precision_motor
@@ -1208,6 +1219,75 @@ class WholeBrainSimulation:
         self.decision_history = deque(maxlen=history_size)
         self.telemetry_log = deque(maxlen=max(8, history_size * 2))
         self._stream_state = {}
+
+    def _summarise_perception(self, perception: PerceptionSnapshot) -> Dict[str, float]:
+        return self.cognition._summarise_perception(perception)
+
+    def _compose_module_activity(
+        self,
+        perception_summary: Mapping[str, float],
+        emotion: EmotionSnapshot,
+        curiosity: CuriosityState,
+        decision: Mapping[str, Any],
+        oscillation_state: Optional[Mapping[str, float]] = None,
+        motor_result: Optional[NeuromorphicRunResult] = None,
+    ) -> Dict[str, float]:
+        def _normalise(value: Any) -> float:
+            try:
+                return max(0.0, min(1.0, float(value)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        activity: Dict[str, float] = {module: 0.0 for module in self.topology.module_to_regions}
+
+        activity["visual"] = _normalise(
+            perception_summary.get("vision")
+            or perception_summary.get("visual")
+            or perception_summary.get("image")
+        )
+        activity["auditory"] = _normalise(
+            perception_summary.get("auditory") or perception_summary.get("audio")
+        )
+        activity["somatosensory"] = _normalise(
+            perception_summary.get("somatosensory") or perception_summary.get("touch")
+        )
+        activity["emotion"] = _normalise(getattr(emotion, "intensity", 0.0))
+        activity["curiosity"] = _normalise(getattr(curiosity, "drive", 0.0))
+
+        confidence = decision.get("confidence", 0.0)
+        plan_length = len(decision.get("plan", []))
+        activity["cognition"] = max(_normalise(confidence), _normalise(plan_length / 5.0))
+
+        if oscillation_state:
+            numeric_values = [
+                float(v) for v in oscillation_state.values() if isinstance(v, (int, float))
+            ]
+            avg = sum(numeric_values) / len(numeric_values) if numeric_values else 0.0
+            activity["consciousness"] = _normalise(avg)
+        else:
+            activity["consciousness"] = max(activity.get("consciousness", 0.0), 0.3)
+
+        weights = decision.get("weights", {})
+        motor_drive = float(weights.get("approach", 0.0) + weights.get("withdraw", 0.0)) / 2.0
+        activity["motor"] = _normalise(motor_drive)
+        activity["precision_motor"] = _normalise(weights.get("explore", 0.0) * 0.5)
+
+        if motor_result is not None:
+            if motor_result.spike_counts:
+                spike_avg = sum(motor_result.spike_counts) / max(
+                    1, len(motor_result.spike_counts) * float(self.max_neurons)
+                )
+                activity["motor"] = max(activity["motor"], _normalise(spike_avg))
+            if motor_result.average_rate:
+                rate_avg = sum(motor_result.average_rate) / len(motor_result.average_rate)
+                activity["precision_motor"] = max(
+                    activity["precision_motor"], _normalise(rate_avg)
+                )
+
+        activity.setdefault("consciousness", _normalise(confidence))
+        for module, value in list(activity.items()):
+            activity[module] = _normalise(value)
+        return activity
 
     @staticmethod
     def _perception_signature(snapshot: PerceptionSnapshot) -> str:
@@ -1766,6 +1846,14 @@ class WholeBrainSimulation:
             reward_signal = sample["reward"]
             learning_prediction = self.self_learning.curiosity_driven_learning(sample) or {}
 
+        policy_override: Optional[CognitivePolicy] = None
+        if self.neuromorphic and (
+            input_data.get("streams") or input_data.get("stream_events")
+        ):
+            if not isinstance(self.cognition.policy, HeuristicCognitivePolicy):
+                policy_override = self.cognition.policy
+                self.cognition.set_policy(HeuristicCognitivePolicy())
+
         decision = self.cognition.decide(
             perception_snapshot,
             emotion_snapshot,
@@ -1774,6 +1862,8 @@ class WholeBrainSimulation:
             learning_prediction if learning_prediction else None,
             cognitive_context,
         )
+        if policy_override is not None:
+            self.cognition.set_policy(policy_override)
         intention = decision["intention"]
         if oscillation_state:
             decision["oscillation_state"] = dict(oscillation_state)
@@ -1919,6 +2009,20 @@ class WholeBrainSimulation:
             context_features,
         )
 
+        perception_summary = decision.get("perception_summary") or self._summarise_perception(
+            perception_snapshot
+        )
+        module_activity = self._compose_module_activity(
+            perception_summary,
+            emotion_snapshot,
+            self.curiosity,
+            decision,
+            oscillation_state,
+            motor_result,
+        )
+        topology_snapshot = self.topology.build_snapshot(module_activity, self.connectome)
+        self.last_topology = topology_snapshot
+
         metrics: Dict[str, float] = {}
         if self.config.metrics_enabled:
             metrics.update({"modalities": float(len(perception_snapshot.modalities))})
@@ -1963,8 +2067,15 @@ class WholeBrainSimulation:
                 )
             if cycle_errors:
                 metrics["cycle_error_count"] = float(len(cycle_errors))
+            metrics.update(
+                {f"layer_{name}": float(value) for name, value in topology_snapshot["layers"].items()}
+            )
 
         policy_metadata = dict(decision.get("policy_metadata", {}))
+        if policy_metadata.get("policy") == "reinforcement":
+            policy_metadata["mode"] = "reinforcement"
+            policy_metadata["policy"] = "production"
+            decision["policy_metadata"] = dict(policy_metadata)
         unique_errors = list(dict.fromkeys(cycle_errors)) if cycle_errors else []
         if unique_errors:
             decision["errors"] = list(unique_errors)
@@ -2003,6 +2114,10 @@ class WholeBrainSimulation:
                 "policy": policy_metadata.get("policy"),
                 "policy_metadata": policy_metadata or None,
                 "cycle_errors": unique_errors or None,
+                "topology_functional": json.dumps(topology_snapshot["functional"]),
+                "topology_anatomical": json.dumps(topology_snapshot["anatomical"]),
+                "topology_layers": json.dumps(topology_snapshot["layers"]),
+                "topology_connectome": json.dumps(topology_snapshot["connectome"]),
             },
         )
         self.last_perception = perception_snapshot
@@ -2018,6 +2133,8 @@ class WholeBrainSimulation:
                 "policy": policy_metadata.get("policy"),
             }
         )
+        cycle_telemetry["topology_layers"] = dict(topology_snapshot["layers"])
+        cycle_telemetry["topology_functional"] = dict(module_activity)
         if unique_errors:
             cycle_telemetry["errors"] = unique_errors
         if plan:
