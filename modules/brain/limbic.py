@@ -18,13 +18,240 @@ The :class:`LimbicSystem` orchestrates three sub-modules:
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
-from typing import Dict, List, Tuple
+from statistics import StatisticsError, mean, pstdev
+from typing import Dict, List, Sequence, Tuple
 
 from schemas.emotion import EmotionalState, EmotionType
 
 from .state import BrainRuntimeConfig, PersonalityProfile
+
+
+class EmotionModel:
+    """Lightweight linear model mapping text/context features to VAD space."""
+
+    HASH_BUCKETS = 16
+
+    def __init__(self, weight_matrix: Sequence[Sequence[float]] | None = None) -> None:
+        self.weight_matrix: List[List[float]] = [
+            list(row)
+            for row in (
+                weight_matrix
+                if weight_matrix is not None
+                else self._default_weight_matrix()
+            )
+        ]
+
+    @staticmethod
+    def _default_weight_matrix() -> List[List[float]]:
+        """Return empirically tuned weights for valence/arousal/dominance."""
+
+        return [
+            [
+                0.12,
+                1.45,
+                -0.08,
+                0.05,
+                0.90,
+                0.35,
+                0.25,
+                -0.55,
+                0.18,
+                -0.10,
+                0.12,
+                0.50,
+                -0.65,
+                0.85,
+                -1.25,
+                0.40,
+                0.30,
+                0.35,
+                -0.45,
+                0.28,
+                -0.50,
+                0.35,
+                0.14,
+                -0.09,
+                0.12,
+                -0.11,
+                0.08,
+                -0.07,
+                0.10,
+                -0.06,
+                0.09,
+                -0.05,
+                0.07,
+                -0.04,
+                0.06,
+                -0.03,
+                0.05,
+                -0.02,
+            ],
+            [
+                0.35,
+                0.15,
+                1.20,
+                0.10,
+                0.40,
+                0.85,
+                0.90,
+                -0.25,
+                0.12,
+                0.35,
+                0.08,
+                0.12,
+                0.25,
+                -0.35,
+                1.10,
+                0.25,
+                0.75,
+                0.15,
+                -0.65,
+                0.10,
+                -0.55,
+                0.45,
+                0.06,
+                0.08,
+                0.07,
+                0.05,
+                0.04,
+                0.03,
+                0.02,
+                0.01,
+                0.06,
+                0.05,
+                0.04,
+                0.03,
+                0.02,
+                0.01,
+                0.05,
+                0.04,
+            ],
+            [
+                0.05,
+                0.10,
+                -0.10,
+                1.05,
+                0.20,
+                0.10,
+                -0.05,
+                -0.30,
+                0.08,
+                -0.05,
+                0.03,
+                0.25,
+                -0.20,
+                0.40,
+                -0.60,
+                0.25,
+                0.10,
+                0.60,
+                -0.30,
+                0.10,
+                0.05,
+                0.01,
+                0.04,
+                0.03,
+                0.04,
+                -0.02,
+                0.03,
+                -0.01,
+                0.02,
+                -0.01,
+                0.03,
+                -0.02,
+                0.03,
+                -0.02,
+                0.02,
+                -0.01,
+                0.02,
+                -0.01,
+            ],
+        ]
+
+    def _hash_buckets(self, tokens: Sequence[str]) -> List[float]:
+        buckets = [0.0] * self.HASH_BUCKETS
+        if not tokens:
+            return buckets
+        for token in tokens:
+            digest = hashlib.md5(token.encode("utf-8")).digest()
+            index = digest[0] % self.HASH_BUCKETS
+            buckets[index] += 1.0
+        total = sum(buckets)
+        if total:
+            buckets = [value / total for value in buckets]
+        return buckets
+
+    def feature_vector(
+        self,
+        lexical_vad: Dict[str, float],
+        features: Dict[str, float],
+        context: Dict[str, float],
+        tokens: Sequence[str],
+        positive_ratio: float,
+        negative_ratio: float,
+    ) -> List[float]:
+        vector = [
+            1.0,
+            lexical_vad.get("valence", 0.0),
+            lexical_vad.get("arousal", 0.0),
+            lexical_vad.get("dominance", 0.0),
+            features.get("sentiment", 0.0),
+            features.get("intensity", 0.0),
+            features.get("activation", 0.0),
+            features.get("negation_density", 0.0),
+            features.get("emphasis", 0.0),
+            features.get("questions", 0.0),
+            features.get("coverage", 0.0),
+            positive_ratio,
+            negative_ratio,
+            context.get("safety", 0.0),
+            context.get("threat", 0.0),
+            context.get("social", 0.0),
+            context.get("novelty", 0.0),
+            context.get("control", 0.0),
+            context.get("fatigue", 0.0),
+            features.get("sentiment", 0.0) * context.get("social", 0.0),
+            features.get("sentiment", 0.0) * context.get("threat", 0.0),
+            features.get("intensity", 0.0) * context.get("novelty", 0.0),
+        ]
+        vector.extend(self._hash_buckets(tokens))
+        return vector
+
+    def predict(
+        self,
+        lexical_vad: Dict[str, float],
+        features: Dict[str, float],
+        context: Dict[str, float],
+        tokens: Sequence[str],
+        positive_ratio: float,
+        negative_ratio: float,
+    ) -> Tuple[Dict[str, float], List[float], List[float]]:
+        vector = self.feature_vector(
+            lexical_vad,
+            features,
+            context,
+            tokens,
+            positive_ratio,
+            negative_ratio,
+        )
+        if any(len(row) != len(vector) for row in self.weight_matrix):
+            raise ValueError("weight matrix shape does not match feature vector length")
+        logits = [
+            sum(weight * feature for weight, feature in zip(row, vector))
+            for row in self.weight_matrix
+        ]
+        valence = math.tanh(logits[0])
+        arousal = 1.0 / (1.0 + math.exp(-logits[1]))
+        dominance = math.tanh(logits[2])
+        dimensions = {
+            "valence": max(-1.0, min(1.0, valence)),
+            "arousal": max(0.0, min(1.0, arousal)),
+            "dominance": max(-1.0, min(1.0, dominance)),
+        }
+        return dimensions, logits, vector
 
 
 class EmotionProcessor:
@@ -88,6 +315,8 @@ class EmotionProcessor:
         self.baseline = {"valence": 0.0, "arousal": 0.35, "dominance": 0.05}
         self.positive_terms = {term for term, (valence, _, _) in self.vad_lexicon.items() if valence > 0.35}
         self.negative_terms = {term for term, (valence, _, _) in self.vad_lexicon.items() if valence < -0.35}
+        self.model = EmotionModel()
+        self.last_inference: Dict[str, List[float]] | None = None
 
     def _tokenize(self, stimulus: str) -> List[str]:
         return re.findall(r"[\w']+", stimulus.lower())
@@ -140,6 +369,17 @@ class EmotionProcessor:
         lexical_intensity = min(
             1.0, activation_hits * 0.25 + exclaim_count * 0.08 + emphasis_count * 0.12
         )
+        token_count = max(1, len(tokens))
+        exclaim_density = exclaim_count / token_count
+        uppercase_density = emphasis_count / token_count
+        try:
+            mean_length = mean(len(token) for token in tokens) if tokens else 0.0
+        except StatisticsError:
+            mean_length = 0.0
+        try:
+            length_std = pstdev(len(token) for token in tokens) if len(tokens) > 1 else 0.0
+        except StatisticsError:
+            length_std = 0.0
         return {
             "sentiment": lexical_sentiment,
             "intensity": lexical_intensity,
@@ -148,6 +388,13 @@ class EmotionProcessor:
             "emphasis": min(1.0, emphasis_count * 0.25),
             "questions": min(1.0, question_count * 0.25),
             "coverage": sentiment_total / max(1, len(tokens)),
+            "exclaim_density": exclaim_density,
+            "uppercase_density": uppercase_density,
+            "mean_token_length": float(mean_length),
+            "token_length_std": float(length_std),
+            "positive_hits": float(positive_hits),
+            "negative_hits": float(negative_hits),
+            "token_count": float(token_count),
         }
 
     def _normalize_context(self, context: Dict[str, float] | None) -> Dict[str, float]:
@@ -169,83 +416,74 @@ class EmotionProcessor:
         features = self._textual_features(tokens, stimulus)
         context_weights = self._normalize_context(context)
 
-        novelty = context_weights.get("novelty", 0.0)
-        safety = context_weights.get("safety", 0.0)
-        threat = context_weights.get("threat", 0.0)
-        social = context_weights.get("social", 0.0)
-        control = context_weights.get("control", 0.0)
-        fatigue = context_weights.get("fatigue", 0.0)
+        token_count = max(1, int(features.get("token_count", len(tokens)) or 1))
+        positive_ratio = float(features.get("positive_hits", 0.0)) / token_count
+        negative_ratio = float(features.get("negative_hits", 0.0)) / token_count
 
-        lexical_sentiment = features["sentiment"]
-        sentiment_weight = 0.35 + features["coverage"] * 0.25
-        negation_density = features["negation_density"]
-        lexical_intensity = features["intensity"]
-
-        valence_raw = (
-            self.baseline["valence"]
-            + lexical_vad["valence"] * 0.75
-            + lexical_sentiment * sentiment_weight
-            - negation_density * 0.30
-            + safety * 0.45
-            - threat * 0.60
-            + social * 0.22
-            + control * 0.20
-            - fatigue * 0.22
+        dimensions, logits, vector = self.model.predict(
+            lexical_vad,
+            features,
+            context_weights,
+            tokens,
+            positive_ratio,
+            negative_ratio,
         )
-        valence_raw += lexical_intensity * 0.05
-        valence = math.tanh(valence_raw)
-
-        arousal_raw = (
-            self.baseline["arousal"]
-            + lexical_vad["arousal"] * 0.65
-            + lexical_intensity * 0.50
-            + novelty * 0.45
-            + threat * 0.50
-            - safety * 0.15
-            + features["activation"] * 0.25
-            + features["emphasis"] * 0.20
-        )
-        arousal_raw -= fatigue * 0.30
-        arousal = max(0.0, min(1.0, arousal_raw))
-
-        dominance_raw = (
-            self.baseline["dominance"]
-            + lexical_vad["dominance"] * 0.60
-            + lexical_sentiment * 0.20
-            + control * 0.35
-            + safety * 0.25
-            - threat * 0.45
-            + social * 0.18
-            - features["questions"] * 0.15
-            - negation_density * 0.25
-        )
-        dominance_raw += (valence - self.baseline["valence"]) * 0.25
-        dominance = math.tanh(dominance_raw)
-
-        dimensions = {
-            "valence": max(-1.0, min(1.0, valence)),
-            "arousal": arousal,
-            "dominance": max(-1.0, min(1.0, dominance)),
+        self.last_inference = {
+            "logits": logits,
+            "features": vector,
         }
-
-        emotion = EmotionType.NEUTRAL
-        if valence >= 0.25:
-            if arousal >= 0.30 or dominance >= -0.05:
-                emotion = EmotionType.HAPPY
-        elif valence <= -0.25:
-            if threat >= 0.45 or dominance >= 0.10 or arousal >= 0.65:
-                emotion = EmotionType.ANGRY
-            else:
-                emotion = EmotionType.SAD
-        else:
-            if threat >= 0.65 or (arousal >= 0.70 and dominance > 0.0):
-                emotion = EmotionType.ANGRY
-            elif valence <= -0.10 or (
-                lexical_sentiment < -0.20 and features["coverage"] > 0.20
-            ):
-                emotion = EmotionType.SAD
-
+        emotion = self._classify_emotion(dimensions, features, context_weights)
+        context_weights.setdefault("model_activation", features.get("activation", 0.0))
+        context_weights.setdefault("model_intensity", features.get("intensity", 0.0))
+        context_weights.setdefault("model_coverage", features.get("coverage", 0.0))
         return emotion, dimensions, context_weights
+
+    def _classify_emotion(
+        self,
+        dimensions: Dict[str, float],
+        features: Dict[str, float],
+        context: Dict[str, float],
+    ) -> EmotionType:
+        valence = dimensions.get("valence", 0.0)
+        arousal = dimensions.get("arousal", 0.0)
+        dominance = dimensions.get("dominance", 0.0)
+        lexical_sentiment = features.get("sentiment", 0.0)
+        intensity = features.get("intensity", 0.0)
+        activation = features.get("activation", 0.0)
+        coverage = features.get("coverage", 0.0)
+        exclaim_density = features.get("exclaim_density", 0.0)
+
+        threat = context.get("threat", 0.0)
+        safety = context.get("safety", 0.0)
+        novelty = context.get("novelty", 0.0)
+
+        if valence >= 0.35:
+            if arousal >= 0.35 or dominance >= 0.1 or lexical_sentiment > 0.2:
+                return EmotionType.HAPPY
+            if safety >= 0.6 and dominance > -0.2:
+                return EmotionType.HAPPY
+            if novelty >= 0.6 and intensity >= 0.3:
+                return EmotionType.HAPPY
+            return EmotionType.NEUTRAL
+
+        if valence <= -0.35:
+            if threat >= 0.45 or arousal >= 0.55 or activation >= 0.35 or exclaim_density > 0.2:
+                return EmotionType.ANGRY
+            return EmotionType.SAD
+
+        if lexical_sentiment <= -0.25 and coverage > 0.2:
+            return EmotionType.SAD
+
+        if threat >= 0.6 and dominance <= 0.0 and arousal >= 0.45:
+            return EmotionType.ANGRY
+
+        if intensity < 0.2 and abs(valence) < 0.1 and arousal < 0.45:
+            return EmotionType.NEUTRAL
+
+        if lexical_sentiment >= 0.25 and (arousal >= 0.35 or novelty >= 0.4):
+            return EmotionType.HAPPY
+
+        return EmotionType.NEUTRAL
 
 
 class MemoryConsolidator:
@@ -449,6 +687,7 @@ class LimbicSystem:
 
 
 __all__ = [
+    "EmotionModel",
     "EmotionProcessor",
     "MemoryConsolidator",
     "HomeostasisController",

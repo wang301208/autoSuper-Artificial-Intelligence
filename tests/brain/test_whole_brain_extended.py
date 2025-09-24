@@ -26,7 +26,7 @@ def test_whole_brain_exposes_oscillation_and_motor_metrics():
     assert "feedback_velocity_error" in result.metrics
     assert "feedback_success_rate" in result.metrics
     assert result.metadata.get("feedback_metrics")
-    assert result.metadata.get("policy") == "heuristic"
+    assert result.metadata.get("policy") == "production"
     assert result.metadata.get("policy_metadata")["confidence_calibrated"] is True
     assert result.metadata.get("cycle_errors") is None
     assert brain.motor.cerebellum is brain.cerebellum
