@@ -1,17 +1,22 @@
+import os
+import sys
+
 import pytest
 
-from modules.brain.limbic import EmotionProcessor, HomeostasisController, LimbicSystem
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from modules.brain.limbic import EmotionModel, EmotionProcessor, HomeostasisController, LimbicSystem
 from modules.brain.state import BrainRuntimeConfig, PersonalityProfile
 from schemas.emotion import EmotionalState, EmotionType
 
 
 def test_emotion_processor_vad_regression_polarity():
     processor = EmotionProcessor()
-    happy_emotion, happy_dims, _ = processor.evaluate(
+    happy_emotion, happy_dims, happy_context = processor.evaluate(
         "We achieved a wonderful success and feel proud and joyful!",
         {"safety": 0.7, "social": 0.6},
     )
-    angry_emotion, angry_dims, _ = processor.evaluate(
+    angry_emotion, angry_dims, angry_context = processor.evaluate(
         "This disaster makes me furious and afraid of the looming danger!",
         {"threat": 0.95, "novelty": 0.2},
     )
@@ -23,6 +28,11 @@ def test_emotion_processor_vad_regression_polarity():
     assert angry_dims["valence"] < -0.3
     assert angry_dims["arousal"] > happy_dims["arousal"]
     assert -1.0 <= angry_dims["dominance"] <= 1.0
+    assert "model_activation" in happy_context
+    assert "model_activation" in angry_context
+    assert processor.last_inference is not None
+    assert len(processor.last_inference["features"]) == EmotionModel.HASH_BUCKETS + 22
+    assert len(processor.last_inference["logits"]) == 3
 
 
 def test_emotion_processor_context_modulation():
