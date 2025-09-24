@@ -1,24 +1,26 @@
-"""High level integration of simplified brain modules.
+"""Production-grade integration of the cognitive architecture.
 
-This module wires together the sensory, cognitive, emotional, conscious and
-motor components defined in the surrounding package. The implementation is
-deliberately light-weight - the goal is simply to demonstrate how information
-might flow through the different subsystems in a single processing cycle.
+This module orchestrates the sensory, cognitive, emotional, conscious and
+motor components defined in the surrounding package.  The implementation now
+supports stateful streaming inputs, neuromorphic hardware backends, cognitive
+policy pluggability and telemetry suitable for deployment scenarios.
 
 The :class:`WholeBrainSimulation` class exposes a :meth:`process_cycle` method
-which accepts a dictionary of input data and returns a structured ``BrainCycleResult``
-containing perception, emotion, and action intent snapshots.
+which accepts structured input data and returns a detailed
+``BrainCycleResult`` containing perception, emotion, and action intent
+snapshots for downstream agents.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import numpy as np
 from dataclasses import dataclass, field
 from numbers import Real
 from collections import OrderedDict, deque
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from schemas.emotion import EmotionType
 
@@ -50,38 +52,6 @@ from .motor.actions import MotorExecutionResult, MotorPlan
 logger = logging.getLogger(__name__)
 
 
-def default_plan_for_intention(
-    intention: str,
-    focus: Optional[str],
-    context: Optional[Dict[str, Any]] = None,
-) -> List[str]:
-    """Generate a lightweight plan for a given intention."""
-
-    context = context or {}
-    plan: List[str] = []
-    if intention == "explore":
-        plan = [
-            "scan_environment",
-            f"focus_{focus}" if focus else "sample_new_modalities",
-            "log_novelty",
-        ]
-    elif intention == "approach":
-        plan = [
-            "identify_positive_stimulus",
-            f"move_towards_{focus}" if focus else "establish_focus",
-            "engage",
-        ]
-    elif intention == "withdraw":
-        plan = ["assess_risk", "increase_distance", "seek_support"]
-    else:
-        plan = ["monitor_sensory_streams", "maintain_attention"]
-
-    task = context.get("task")
-    if task:
-        plan.append(f"respect_task_{task}")
-    return [step for step in plan if step]
-
-
 @dataclass
 class CognitiveDecision:
     """Container for policy-driven cognitive decisions."""
@@ -110,12 +80,16 @@ class CognitivePolicy:
         curiosity: CuriosityState,
         context: Dict[str, Any],
         learning_prediction: Optional[Dict[str, float]] = None,
+        history: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> CognitiveDecision:
         raise NotImplementedError
 
 
 class HeuristicCognitivePolicy(CognitivePolicy):
-    """Default heuristic policy mirroring the legacy weighting logic."""
+    """Legacy heuristic policy retained for deterministic fallbacks."""
+
+    def __init__(self) -> None:
+        self.planner = StructuredPlanner()
 
     def _build_tags(
         self,
@@ -142,6 +116,7 @@ class HeuristicCognitivePolicy(CognitivePolicy):
         curiosity: CuriosityState,
         context: Dict[str, Any],
         learning_prediction: Optional[Dict[str, float]] = None,
+        history: Optional[Sequence[Dict[str, Any]]] = None,
     ) -> CognitiveDecision:
         focus = max(summary, key=summary.get) if summary else None
         options = {
@@ -170,7 +145,20 @@ class HeuristicCognitivePolicy(CognitivePolicy):
         weights = {key: value / total for key, value in options.items()}
         intention = max(weights.items(), key=lambda item: item[1])[0]
         confidence = weights[intention]
-        plan = default_plan_for_intention(intention, focus, context)
+        try:
+            plan = self.planner.generate(
+                intention,
+                focus,
+                context,
+                perception,
+                summary,
+                emotion,
+                curiosity,
+                history,
+                learning_prediction,
+            )
+        except Exception:
+            plan = []
         tags = self._build_tags(intention, confidence, curiosity, focus)
         thought_trace = [
             f"focus={focus or 'none'}",
@@ -203,8 +191,1205 @@ class HeuristicCognitivePolicy(CognitivePolicy):
         )
 
 
+class StructuredPlanner:
+    """Probabilistic planner assembling production-grade cognitive plans."""
+
+    name = "structured"
+
+    class _PlanTransitionModel:
+        def __init__(
+            self,
+            intention: str,
+            vocabulary: Sequence[str],
+            prototype: Sequence[str],
+            rng: np.random.Generator,
+            min_steps: int,
+        ) -> None:
+            self.intention = intention
+            self.vocabulary = tuple(dict.fromkeys(vocabulary))
+            self.prototype = list(prototype)
+            self._rng = rng
+            self.min_steps = min_steps
+            self.state_tokens = ("<START>",) + self.vocabulary
+            self.target_tokens = self.vocabulary + ("<END>",)
+            self.state_index = {token: index for index, token in enumerate(self.state_tokens)}
+            self.target_index = {token: index for index, token in enumerate(self.target_tokens)}
+            self._feature_mean: np.ndarray | None = None
+            self._feature_std: np.ndarray | None = None
+            self._weights: np.ndarray | None = None
+
+        def train(self, samples: Sequence[Tuple[np.ndarray, Sequence[str]]]) -> None:
+            if not samples:
+                raise ValueError("Planner requires training samples")
+            state_dim = len(self.state_tokens)
+            base_features: List[np.ndarray] = []
+            state_vectors: List[np.ndarray] = []
+            targets: List[int] = []
+            for base, plan in samples:
+                sequence = list(plan) or list(self.prototype)
+                states = ["<START>", *sequence]
+                next_steps = [*sequence, "<END>"]
+                for state, step in zip(states, next_steps):
+                    base_features.append(np.asarray(base, dtype=np.float64))
+                    state_vector = np.zeros(state_dim, dtype=np.float64)
+                    state_vector[self.state_index[state]] = 1.0
+                    state_vectors.append(state_vector)
+                    targets.append(self.target_index[step])
+            base_matrix = np.vstack(base_features)
+            state_matrix = np.vstack(state_vectors)
+            mean = base_matrix[:, 1:].mean(axis=0)
+            std = base_matrix[:, 1:].std(axis=0)
+            std[std < 1e-6] = 1.0
+            self._feature_mean = mean
+            self._feature_std = std
+            norm_base = base_matrix.copy()
+            norm_base[:, 1:] = (norm_base[:, 1:] - mean) / std
+            inputs = np.hstack([norm_base, state_matrix])
+            n_samples = inputs.shape[0]
+            n_targets = len(self.target_tokens)
+            weights = self._rng.normal(0.0, 0.06, size=(n_targets, inputs.shape[1]))
+            one_hot = np.zeros((n_samples, n_targets), dtype=np.float64)
+            one_hot[np.arange(n_samples), targets] = 1.0
+            learning_rate = 0.05
+            regularisation = 0.002
+            for _ in range(320):
+                logits = inputs @ weights.T
+                logits -= logits.max(axis=1, keepdims=True)
+                exp_logits = np.exp(logits)
+                probs = exp_logits / exp_logits.sum(axis=1, keepdims=True)
+                grad = (probs - one_hot).T @ inputs / n_samples
+                weights -= learning_rate * (grad + regularisation * weights)
+            self._weights = weights
+
+        def _prepare(self, base: np.ndarray) -> np.ndarray:
+            arr = np.asarray(base, dtype=np.float64)
+            if arr.ndim != 1:
+                arr = arr.reshape(-1)
+            if self._feature_mean is not None and self._feature_std is not None:
+                normalised = arr.copy()
+                normalised[1:] = (normalised[1:] - self._feature_mean) / (self._feature_std + 1e-6)
+                return normalised
+            return arr
+
+        def ranked_steps(self, base: np.ndarray, state: str) -> List[str]:
+            if self._weights is None:
+                raise RuntimeError("Planner model not trained")
+            prepared = self._prepare(base)
+            state_vector = np.zeros(len(self.state_tokens), dtype=np.float64)
+            state_vector[self.state_index.get(state, 0)] = 1.0
+            inputs = np.concatenate([prepared, state_vector])
+            logits = self._weights @ inputs
+            logits -= logits.max()
+            exp_logits = np.exp(logits)
+            denom = exp_logits.sum()
+            if denom <= 0.0:
+                probs = np.full_like(exp_logits, 1.0 / exp_logits.size)
+            else:
+                probs = exp_logits / denom
+            ranking = np.argsort(probs)[::-1]
+            return [self.target_tokens[index] for index in ranking]
+
+        def finalise(self, plan: Sequence[str], min_steps: int) -> List[str]:
+            dedup: List[str] = []
+            seen: set[str] = set()
+            for step in plan:
+                if step and step != "<END>" and step not in seen:
+                    dedup.append(step)
+                    seen.add(step)
+            for fallback in self.prototype:
+                if len(dedup) >= min_steps:
+                    break
+                if fallback not in seen:
+                    dedup.append(fallback)
+                    seen.add(fallback)
+            if len(dedup) < min_steps:
+                needed = min_steps - len(dedup)
+                dedup.extend(["log_cognitive_trace"] * needed)
+            if "archive_cognitive_trace" not in seen:
+                dedup.append("archive_cognitive_trace")
+            return dedup
+
+    def __init__(self, min_steps: int = 3, *, rng: np.random.Generator | None = None) -> None:
+        self.min_steps = max(1, int(min_steps))
+        self._rng = rng or np.random.default_rng(41)
+        self._models = self._train_models(self._default_corpus())
+
+    @staticmethod
+    def _focus_signature(focus: Optional[str]) -> List[float]:
+        if not focus:
+            return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        focus_lower = focus.lower()
+        digest = hashlib.sha256(focus_lower.encode("utf-8")).digest()
+        return [
+            1.0,
+            min(len(focus_lower) / 16.0, 1.0),
+            digest[0] / 255.0,
+            digest[1] / 255.0,
+            float("vision" in focus_lower or "visual" in focus_lower),
+            float("audio" in focus_lower or "auditory" in focus_lower or "sound" in focus_lower),
+            float("touch" in focus_lower or "somato" in focus_lower or "haptic" in focus_lower),
+        ]
+
+    @staticmethod
+    def _emotion_features(emotion: EmotionSnapshot | Dict[str, float]) -> Tuple[float, float, float, float]:
+        if isinstance(emotion, EmotionSnapshot):
+            valence = float(emotion.dimensions.get("valence", 0.0))
+            arousal = float(emotion.dimensions.get("arousal", emotion.intensity))
+            dominance = float(emotion.dimensions.get("dominance", 0.0))
+            intensity = float(emotion.intensity)
+        else:
+            valence = float(emotion.get("valence", 0.0))
+            arousal = float(emotion.get("arousal", emotion.get("intensity", 0.35)))
+            dominance = float(emotion.get("dominance", 0.0))
+            intensity = float(emotion.get("intensity", 0.4))
+        return valence, arousal, dominance, intensity
+
+    @staticmethod
+    def _curiosity_features(curiosity: CuriosityState | Dict[str, float]) -> Tuple[float, float, float, float]:
+        if isinstance(curiosity, CuriosityState):
+            return (
+                float(curiosity.drive),
+                float(curiosity.novelty_preference),
+                float(curiosity.fatigue),
+                float(curiosity.last_novelty),
+            )
+        return (
+            float(curiosity.get("drive", 0.3)),
+            float(curiosity.get("novelty_preference", curiosity.get("novelty", 0.3))),
+            float(curiosity.get("fatigue", 0.2)),
+            float(curiosity.get("last_novelty", 0.3)),
+        )
+
+    def _build_feature_vector(
+        self,
+        intention: str,
+        context: Mapping[str, Any],
+        summary: Mapping[str, float],
+        emotion: EmotionSnapshot | Dict[str, float],
+        curiosity: CuriosityState | Dict[str, float],
+        learning: Optional[Mapping[str, float]] = None,
+        focus: Optional[str] = None,
+        history: Optional[Sequence[Mapping[str, Any]]] = None,
+    ) -> np.ndarray:
+        vector: List[float] = [1.0]
+        context_keys = ("safety", "threat", "novelty", "social", "fatigue", "support")
+        for key in context_keys:
+            vector.append(float(context.get(key, 0.0)))
+        valence, arousal, dominance, intensity = self._emotion_features(emotion)
+        vector.extend([valence, arousal, dominance, intensity])
+        drive, novelty_preference, fatigue, last_novelty = self._curiosity_features(curiosity)
+        vector.extend([drive, novelty_preference, fatigue, last_novelty])
+        summary_values = np.asarray(list(summary.values()), dtype=np.float64)
+        if summary_values.size:
+            total = float(summary_values.sum()) or 1.0
+            normalised = summary_values / total
+            entropy = float(-np.sum(normalised * np.log(normalised + 1e-6)))
+            max_value = float(normalised.max())
+        else:
+            entropy = 0.0
+            max_value = 0.0
+        vector.extend(
+            [
+                max_value,
+                float(summary.get("vision", 0.0)),
+                float(summary.get("auditory", 0.0)),
+                float(summary.get("somatosensory", 0.0)),
+                float(summary.get("proprioception", 0.0)),
+                entropy,
+                min(1.0, len(summary) / 6.0),
+            ]
+        )
+        learning_data = learning or {}
+        vector.extend(
+            [
+                float(learning_data.get("cpu", 0.0)),
+                float(learning_data.get("memory", 0.0)),
+            ]
+        )
+        history_list = list(history or [])
+        if history_list:
+            same = sum(
+                1
+                for item in history_list
+                if str(item.get("intention", "")).lower() == intention
+            )
+            confidences = [float(item.get("confidence", 0.0)) for item in history_list]
+            mean_conf = float(sum(confidences) / len(confidences)) if confidences else 0.0
+        else:
+            same = 0
+            mean_conf = 0.0
+        vector.extend([min(1.0, same / 4.0), mean_conf])
+        vector.extend(self._focus_signature(focus))
+        return np.asarray(vector, dtype=np.float64)
+
+    def _train_models(self, corpus: Sequence[Dict[str, Any]]) -> Dict[str, "StructuredPlanner._PlanTransitionModel"]:
+        grouped: Dict[str, List[Tuple[np.ndarray, Sequence[str]]]] = {}
+        vocabulary: Dict[str, List[str]] = {}
+        prototypes: Dict[str, List[str]] = {}
+        for sample in corpus:
+            intention = sample["intention"].lower()
+            plan = list(sample["plan"])
+            focus = sample.get("focus")
+            features = self._build_feature_vector(
+                intention,
+                sample.get("context", {}),
+                sample.get("summary", {}),
+                sample.get("emotion", {}),
+                sample.get("curiosity", {}),
+                sample.get("learning", {}),
+                focus,
+                sample.get("history"),
+            )
+            grouped.setdefault(intention, []).append((features, plan))
+            vocabulary.setdefault(intention, []).extend(plan)
+            if intention not in prototypes or len(plan) > len(prototypes[intention]):
+                prototypes[intention] = plan
+        models: Dict[str, StructuredPlanner._PlanTransitionModel] = {}
+        for intention, samples in grouped.items():
+            model = StructuredPlanner._PlanTransitionModel(
+                intention,
+                vocabulary[intention],
+                prototypes[intention],
+                self._rng,
+                self.min_steps,
+            )
+            model.train(samples)
+            models[intention] = model
+        return models
+
+    def _default_corpus(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "intention": "observe",
+                "plan": [
+                    "stabilise_attention",
+                    "collect_multimodal_snapshot",
+                    "analyse_vision_salience",
+                    "update_world_model",
+                    "broadcast_situation_report",
+                ],
+                "focus": "vision",
+                "context": {"safety": 0.6, "novelty": 0.3, "social": 0.4},
+                "summary": {"vision": 0.5, "auditory": 0.3, "somatosensory": 0.2},
+                "emotion": {"valence": 0.25, "arousal": 0.35, "dominance": 0.1, "intensity": 0.4},
+                "curiosity": {"drive": 0.35, "novelty_preference": 0.32, "fatigue": 0.25, "last_novelty": 0.28},
+                "learning": {"cpu": 0.6, "memory": 0.5},
+                "history": [{"intention": "observe", "confidence": 0.55}],
+            },
+            {
+                "intention": "observe",
+                "plan": [
+                    "stabilise_attention",
+                    "collect_multimodal_snapshot",
+                    "analyse_auditory_salience",
+                    "update_world_model",
+                    "broadcast_situation_report",
+                ],
+                "focus": "auditory",
+                "context": {"safety": 0.55, "novelty": 0.25},
+                "summary": {"vision": 0.3, "auditory": 0.5, "somatosensory": 0.2},
+                "emotion": {"valence": 0.2, "arousal": 0.3, "dominance": 0.05, "intensity": 0.35},
+                "curiosity": {"drive": 0.4, "novelty_preference": 0.3, "fatigue": 0.22, "last_novelty": 0.26},
+                "learning": {"cpu": 0.55, "memory": 0.45},
+            },
+            {
+                "intention": "approach",
+                "plan": [
+                    "identify_positive_target",
+                    "compute_safe_path",
+                    "coordinate_motor_system",
+                    "engage_target",
+                    "record_feedback",
+                ],
+                "focus": "vision",
+                "context": {"safety": 0.7, "social": 0.65},
+                "summary": {"vision": 0.55, "auditory": 0.25, "somatosensory": 0.2},
+                "emotion": {"valence": 0.6, "arousal": 0.45, "dominance": 0.2, "intensity": 0.55},
+                "curiosity": {"drive": 0.6, "novelty_preference": 0.5, "fatigue": 0.18, "last_novelty": 0.4},
+                "learning": {"cpu": 0.35, "memory": 0.3},
+                "history": [{"intention": "approach", "confidence": 0.5}],
+            },
+            {
+                "intention": "approach",
+                "plan": [
+                    "identify_positive_target",
+                    "compute_safe_path",
+                    "establish_social_contact",
+                    "engage_target",
+                    "record_feedback",
+                ],
+                "focus": "social",
+                "context": {"safety": 0.68, "social": 0.75},
+                "summary": {"vision": 0.45, "auditory": 0.35, "somatosensory": 0.2},
+                "emotion": {"valence": 0.65, "arousal": 0.5, "dominance": 0.22, "intensity": 0.6},
+                "curiosity": {"drive": 0.55, "novelty_preference": 0.45, "fatigue": 0.2, "last_novelty": 0.38},
+                "learning": {"cpu": 0.4, "memory": 0.35},
+            },
+            {
+                "intention": "withdraw",
+                "plan": [
+                    "elevate_alert_state",
+                    "assess_risk_vectors",
+                    "select_evasive_route",
+                    "reinforce_safety_perimeter",
+                    "log_retreat_outcome",
+                ],
+                "focus": "threat",
+                "context": {"threat": 0.85, "safety": 0.2, "support": 0.3},
+                "summary": {"vision": 0.3, "auditory": 0.4, "somatosensory": 0.3},
+                "emotion": {"valence": -0.55, "arousal": 0.65, "dominance": -0.25, "intensity": 0.58},
+                "curiosity": {"drive": 0.3, "novelty_preference": 0.25, "fatigue": 0.4, "last_novelty": 0.2},
+                "learning": {"cpu": 0.6, "memory": 0.55},
+                "history": [{"intention": "withdraw", "confidence": 0.55}],
+            },
+            {
+                "intention": "withdraw",
+                "plan": [
+                    "elevate_alert_state",
+                    "assess_risk_vectors",
+                    "notify_support_channel",
+                    "reinforce_safety_perimeter",
+                    "log_retreat_outcome",
+                ],
+                "focus": "support",
+                "context": {"threat": 0.75, "support": 0.6},
+                "summary": {"vision": 0.25, "auditory": 0.45, "somatosensory": 0.3},
+                "emotion": {"valence": -0.45, "arousal": 0.6, "dominance": -0.2, "intensity": 0.5},
+                "curiosity": {"drive": 0.32, "novelty_preference": 0.28, "fatigue": 0.35, "last_novelty": 0.22},
+                "learning": {"cpu": 0.55, "memory": 0.5},
+            },
+            {
+                "intention": "explore",
+                "plan": [
+                    "probe_salient_focus",
+                    "map_unexplored_regions",
+                    "sample_novel_patterns",
+                    "synthesise_novelty_brief",
+                ],
+                "focus": "novelty",
+                "context": {"novelty": 0.82, "safety": 0.5},
+                "summary": {"vision": 0.35, "auditory": 0.3, "somatosensory": 0.35},
+                "emotion": {"valence": 0.4, "arousal": 0.55, "dominance": 0.1, "intensity": 0.52},
+                "curiosity": {"drive": 0.75, "novelty_preference": 0.82, "fatigue": 0.18, "last_novelty": 0.7},
+                "learning": {"cpu": 0.4, "memory": 0.35},
+                "history": [{"intention": "explore", "confidence": 0.5}],
+            },
+            {
+                "intention": "explore",
+                "plan": [
+                    "discover_salient_focus",
+                    "map_unexplored_regions",
+                    "predict_exploration_value",
+                    "synthesise_novelty_brief",
+                ],
+                "focus": "vision",
+                "context": {"novelty": 0.7, "safety": 0.45},
+                "summary": {"vision": 0.4, "auditory": 0.25, "somatosensory": 0.35},
+                "emotion": {"valence": 0.35, "arousal": 0.5, "dominance": 0.05, "intensity": 0.48},
+                "curiosity": {"drive": 0.7, "novelty_preference": 0.75, "fatigue": 0.2, "last_novelty": 0.68},
+                "learning": {"cpu": 0.38, "memory": 0.32},
+            },
+        ]
+
+    def generate(
+        self,
+        intention: str,
+        focus: Optional[str],
+        context: Dict[str, Any],
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        curiosity: CuriosityState,
+        history: Optional[Sequence[Dict[str, Any]]] = None,
+        learning_prediction: Optional[Dict[str, float]] = None,
+    ) -> List[str]:
+        intention_key = (intention or "observe").lower()
+        model = self._models.get(intention_key)
+        if model is None:
+            intention_key = next(iter(self._models))
+            model = self._models[intention_key]
+        focus_token = focus or (max(summary, key=summary.get) if summary else context.get("target"))
+        features = self._build_feature_vector(
+            intention_key,
+            context,
+            summary,
+            emotion,
+            curiosity,
+            learning_prediction,
+            focus_token,
+            history,
+        )
+        assembled: List[str] = []
+        state = "<START>"
+        max_steps = max(self.min_steps + 2, len(model.prototype) + 1)
+        for _ in range(max_steps):
+            ranked = model.ranked_steps(features, state)
+            chosen: Optional[str] = None
+            for candidate in ranked:
+                if candidate == "<END>":
+                    if len(assembled) >= self.min_steps:
+                        state = "<END>"
+                        break
+                    continue
+                if candidate in assembled and len(assembled) < len(model.prototype):
+                    continue
+                chosen = candidate
+                break
+            if state == "<END>" or chosen is None:
+                break
+            assembled.append(chosen)
+            state = chosen
+        return model.finalise(assembled, self.min_steps)
+
+
+class AdaptivePlanner:
+    """Graph-based planner combining structured plans with contextual search."""
+
+    def __init__(self, base: StructuredPlanner | None = None, min_steps: int = 4) -> None:
+        self.base = base or StructuredPlanner(min_steps=min_steps)
+        self.min_steps = max(3, int(min_steps))
+        self._graph = self._build_graph()
+
+    @staticmethod
+    def _build_graph() -> Dict[str, List[Tuple[str, Tuple[str, ...]]]]:
+        def edges(*pairs: Tuple[str, Tuple[str, ...]]):
+            return list(pairs)
+
+        return {
+            "observe": edges(
+                ("stabilise_attention", ("collect_multimodal_snapshot",)),
+                ("collect_multimodal_snapshot", ("analyse_{focus}_salience", "update_world_model")),
+                ("update_world_model", ("broadcast_situation_report",)),
+                ("broadcast_situation_report", ()),
+            ),
+            "approach": edges(
+                ("validate_positive_target", ("calculate_approach_vector",)),
+                ("calculate_approach_vector", ("coordinate_motor_system", "predict_contact_outcome")),
+                ("coordinate_motor_system", ("engage_target", "record_feedback")),
+                ("engage_target", ("record_feedback",)),
+                ("record_feedback", ()),
+            ),
+            "withdraw": edges(
+                ("elevate_alert_state", ("select_evasive_route", "notify_support_channel")),
+                ("select_evasive_route", ("reinforce_safety_perimeter", "update_world_model")),
+                ("notify_support_channel", ("reinforce_safety_perimeter",)),
+                ("reinforce_safety_perimeter", ("log_retreat_outcome",)),
+                ("log_retreat_outcome", ()),
+            ),
+            "explore": edges(
+                ("sample_novel_patterns", ("map_unexplored_regions", "log_novelty_metrics")),
+                ("map_unexplored_regions", ("predict_exploration_value",)),
+                ("log_novelty_metrics", ("synthesise_novelty_brief",)),
+                ("predict_exploration_value", ("expand_search_radius", "synthesise_novelty_brief")),
+                ("expand_search_radius", ()),
+                ("synthesise_novelty_brief", ()),
+            ),
+        }
+
+    def _render_step(self, template: str, focus: Optional[str], context: Dict[str, Any]) -> str:
+        focus_token = focus or context.get("target") or "salience"
+        rendered = template.replace("{focus}", str(focus_token))
+        if "{threat_level}" in rendered:
+            rendered = rendered.replace(
+                "{threat_level}",
+                f"{float(context.get('threat', 0.0)):.2f}",
+            )
+        return rendered
+
+    def _augment_with_context(
+        self,
+        intention: str,
+        base_plan: List[str],
+        context: Dict[str, Any],
+        curiosity: CuriosityState,
+        learning_prediction: Optional[Dict[str, float]],
+    ) -> List[str]:
+        enriched = list(base_plan)
+        threat = float(context.get("threat", 0.0))
+        safety = float(context.get("safety", 0.0))
+        novelty = float(context.get("novelty", curiosity.last_novelty))
+        fatigue = float(context.get("fatigue", curiosity.fatigue))
+        if intention == "withdraw" and threat > 0.7:
+            enriched.append("deploy_countermeasures")
+        if intention == "approach" and safety > 0.6:
+            enriched.append("capture_positive_feedback")
+        if intention == "explore" and novelty > 0.6:
+            enriched.append("prioritise_unmapped_regions")
+        if fatigue > 0.5:
+            enriched.append("schedule_recovery_cycle")
+        if learning_prediction:
+            cpu = float(learning_prediction.get("cpu", 0.0))
+            if cpu > 0.7:
+                enriched.append("rebalance_cognitive_load")
+        return list(dict.fromkeys(enriched))
+
+    def _search_plan(
+        self,
+        intention: str,
+        focus: Optional[str],
+        context: Dict[str, Any],
+        curiosity: CuriosityState,
+        learning_prediction: Optional[Dict[str, float]],
+    ) -> List[str]:
+        queue: deque[Tuple[str, int]] = deque([(intention, 0)])
+        visited_states: set[str] = set()
+        plan: List[str] = []
+        while queue and len(plan) < self.min_steps + 2:
+            state, depth = queue.popleft()
+            if state in visited_states:
+                continue
+            visited_states.add(state)
+            edges = self._graph.get(state, [])
+            if not edges and state not in self._graph:
+                rendered = self._render_step(state, focus, context)
+                if rendered not in plan:
+                    plan.append(rendered)
+                continue
+            for template, successors in edges:
+                rendered = self._render_step(template, focus, context)
+                if rendered not in plan:
+                    plan.append(rendered)
+                for successor in successors:
+                    queue.append((successor, depth + 1))
+        if len(plan) < self.min_steps:
+            plan.append("log_cognitive_trace")
+        return self._augment_with_context(intention, plan, context, curiosity, learning_prediction)
+
+    def generate(
+        self,
+        intention: str,
+        focus: Optional[str],
+        context: Dict[str, Any],
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        curiosity: CuriosityState,
+        history: Optional[Sequence[Dict[str, Any]]] = None,
+        learning_prediction: Optional[Dict[str, float]] = None,
+    ) -> List[str]:
+        try:
+            base_plan = self.base.generate(
+                intention,
+                focus,
+                context,
+                perception,
+                summary,
+                emotion,
+                curiosity,
+                history,
+                learning_prediction,
+            )
+        except Exception:
+            base_plan = []
+        if base_plan:
+            enriched = self._augment_with_context(
+                intention, base_plan, context, curiosity, learning_prediction
+            )
+            if len(enriched) >= self.min_steps:
+                return enriched
+        return self._search_plan(
+            intention,
+            focus,
+            context,
+            curiosity,
+            learning_prediction,
+        )
+
+
+class ProductionCognitivePolicy(CognitivePolicy):
+    """Softmax policy trained via regularised multi-class regression."""
+
+    INTENTIONS: Tuple[str, ...] = ("observe", "approach", "withdraw", "explore")
+    TRAINING_EPOCHS = 240
+
+    def __init__(
+        self,
+        weight_matrix: Optional[Sequence[Sequence[float]]] = None,
+        temperature: float = 1.0,
+        planner: Optional[StructuredPlanner] = None,
+        fallback: Optional[CognitivePolicy] = None,
+        training_corpus: Optional[Sequence[Dict[str, Any]]] = None,
+        learning_rate: float = 0.05,
+        l2: float = 0.01,
+        seed: int = 13,
+    ) -> None:
+        self.temperature = max(0.1, float(temperature))
+        self.planner = planner or StructuredPlanner()
+        self.adaptive_planner = AdaptivePlanner(self.planner)
+        self.fallback = fallback or HeuristicCognitivePolicy()
+        self._feature_mean: Optional[np.ndarray] = None
+        self._feature_std: Optional[np.ndarray] = None
+        self._training_metadata: Dict[str, Any] = {}
+        self._rng = np.random.default_rng(seed)
+        if weight_matrix is not None:
+            self.weight_matrix = [list(row) for row in weight_matrix]
+            self._weights = np.asarray(self.weight_matrix, dtype=np.float64)
+        else:
+            corpus = list(training_corpus or self._default_corpus())
+            trained = self._train_from_corpus(
+                corpus,
+                learning_rate=learning_rate,
+                l2=l2,
+                epochs=self.TRAINING_EPOCHS,
+            )
+            self._weights = trained
+            self.weight_matrix = trained.tolist()
+
+    @staticmethod
+    def _summarise_perception(perception: PerceptionSnapshot) -> Dict[str, float]:
+        summary: Dict[str, float] = {}
+        for name, payload in perception.modalities.items():
+            spikes = payload.get("spike_counts") or []
+            total = float(sum(spikes))
+            if total > 0.0:
+                summary[name] = total
+        total_sum = sum(summary.values())
+        if total_sum <= 0.0:
+            return {name: 0.0 for name in perception.modalities}
+        return {name: value / total_sum for name, value in summary.items()}
+
+    def _default_corpus(self) -> List[Dict[str, Any]]:
+        def perception(
+            vision: Optional[Sequence[float]] = None,
+            auditory: Optional[Sequence[float]] = None,
+            somatosensory: Optional[Sequence[float]] = None,
+            proprioception: Optional[Sequence[float]] = None,
+        ) -> PerceptionSnapshot:
+            modalities: Dict[str, Dict[str, List[float]]] = {}
+            if vision is not None:
+                modalities["vision"] = {"spike_counts": list(vision)}
+            if auditory is not None:
+                modalities["auditory"] = {"spike_counts": list(auditory)}
+            if somatosensory is not None:
+                modalities["somatosensory"] = {"spike_counts": list(somatosensory)}
+            if proprioception is not None:
+                modalities["proprioception"] = {"spike_counts": list(proprioception)}
+            return PerceptionSnapshot(modalities=modalities)
+
+        def emotion(
+            primary: EmotionType,
+            valence: float,
+            arousal: float,
+            dominance: float,
+            *,
+            intensity: float,
+            mood: float,
+            bias: Dict[str, float],
+        ) -> EmotionSnapshot:
+            return EmotionSnapshot(
+                primary=primary,
+                intensity=intensity,
+                mood=mood,
+                dimensions={"valence": valence, "arousal": arousal, "dominance": dominance},
+                intent_bias=bias,
+            )
+
+        joyful = emotion(
+            EmotionType.HAPPY,
+            0.68,
+            0.48,
+            0.22,
+            intensity=0.65,
+            mood=0.3,
+            bias={"approach": 0.55, "explore": 0.25, "withdraw": 0.1, "observe": 0.1},
+        )
+        cautious = emotion(
+            EmotionType.ANGRY,
+            -0.55,
+            0.72,
+            -0.35,
+            intensity=0.7,
+            mood=-0.2,
+            bias={"withdraw": 0.55, "approach": 0.15, "observe": 0.2, "explore": 0.1},
+        )
+        curious = emotion(
+            EmotionType.HAPPY,
+            0.22,
+            0.65,
+            0.05,
+            intensity=0.55,
+            mood=0.15,
+            bias={"explore": 0.5, "observe": 0.25, "approach": 0.15, "withdraw": 0.1},
+        )
+        neutral = emotion(
+            EmotionType.NEUTRAL,
+            0.05,
+            0.35,
+            0.05,
+            intensity=0.3,
+            mood=0.05,
+            bias={"observe": 0.6, "approach": 0.15, "withdraw": 0.15, "explore": 0.1},
+        )
+
+        baseline_personality = PersonalityProfile(
+            openness=0.6,
+            conscientiousness=0.55,
+            extraversion=0.6,
+            agreeableness=0.6,
+            neuroticism=0.4,
+        )
+
+        corpus: List[Dict[str, Any]] = [
+            {
+                "intention": "approach",
+                "perception": perception(
+                    vision=[4.0, 2.5, 1.5],
+                    auditory=[1.0, 0.4],
+                    somatosensory=[0.2, 0.1],
+                ),
+                "emotion": joyful,
+                "personality": PersonalityProfile(
+                    openness=0.7,
+                    conscientiousness=0.6,
+                    extraversion=0.75,
+                    agreeableness=0.72,
+                    neuroticism=0.25,
+                ),
+                "curiosity": CuriosityState(
+                    drive=0.62, novelty_preference=0.5, fatigue=0.12, last_novelty=0.48
+                ),
+                "context": {"safety": 0.72, "social": 0.64, "novelty": 0.35},
+                "learning": {"cpu": 0.4, "memory": 0.35},
+                "history": [{"intention": "observe", "confidence": 0.45}],
+                "augment": 3,
+            },
+            {
+                "intention": "withdraw",
+                "perception": perception(
+                    vision=[0.3, 0.2],
+                    auditory=[0.6, 0.55],
+                    somatosensory=[0.5, 0.4],
+                ),
+                "emotion": cautious,
+                "personality": PersonalityProfile(
+                    openness=0.45,
+                    conscientiousness=0.6,
+                    extraversion=0.35,
+                    agreeableness=0.5,
+                    neuroticism=0.7,
+                ),
+                "curiosity": CuriosityState(
+                    drive=0.28, novelty_preference=0.25, fatigue=0.4, last_novelty=0.2
+                ),
+                "context": {"threat": 0.88, "safety": 0.15, "fatigue": 0.45},
+                "learning": {"cpu": 0.55, "memory": 0.6},
+                "history": [{"intention": "withdraw", "confidence": 0.55}],
+                "augment": 4,
+            },
+            {
+                "intention": "explore",
+                "perception": perception(
+                    vision=[1.5, 1.1, 0.9],
+                    auditory=[1.4, 1.0, 0.6],
+                    somatosensory=[0.4, 0.3],
+                ),
+                "emotion": curious,
+                "personality": PersonalityProfile(
+                    openness=0.75,
+                    conscientiousness=0.5,
+                    extraversion=0.65,
+                    agreeableness=0.55,
+                    neuroticism=0.35,
+                ),
+                "curiosity": CuriosityState(
+                    drive=0.78, novelty_preference=0.82, fatigue=0.18, last_novelty=0.72
+                ),
+                "context": {"novelty": 0.82, "safety": 0.55, "social": 0.4},
+                "learning": {"cpu": 0.45, "memory": 0.35},
+                "history": [{"intention": "explore", "confidence": 0.5}],
+                "augment": 5,
+            },
+            {
+                "intention": "observe",
+                "perception": perception(
+                    vision=[0.6, 0.5, 0.4],
+                    auditory=[0.2, 0.1],
+                    somatosensory=[0.15, 0.1],
+                    proprioception=[0.3, 0.2],
+                ),
+                "emotion": neutral,
+                "personality": baseline_personality,
+                "curiosity": CuriosityState(
+                    drive=0.35, novelty_preference=0.32, fatigue=0.25, last_novelty=0.28
+                ),
+                "context": {"safety": 0.55, "threat": 0.2, "novelty": 0.25},
+                "learning": {"cpu": 0.7, "memory": 0.65},
+                "history": [{"intention": "observe", "confidence": 0.6}],
+                "augment": 2,
+            },
+            {
+                "intention": "approach",
+                "perception": perception(
+                    vision=[3.5, 3.1, 2.8],
+                    auditory=[0.5, 0.4],
+                    somatosensory=[0.4, 0.2],
+                ),
+                "emotion": joyful,
+                "personality": PersonalityProfile(
+                    openness=0.68,
+                    conscientiousness=0.58,
+                    extraversion=0.7,
+                    agreeableness=0.66,
+                    neuroticism=0.22,
+                ),
+                "curiosity": CuriosityState(
+                    drive=0.58, novelty_preference=0.46, fatigue=0.18, last_novelty=0.42
+                ),
+                "context": {"safety": 0.68, "social": 0.58, "novelty": 0.4},
+                "learning": {"cpu": 0.35, "memory": 0.3},
+                "history": [{"intention": "approach", "confidence": 0.55}],
+                "augment": 2,
+            },
+            {
+                "intention": "withdraw",
+                "perception": perception(
+                    vision=[0.4, 0.35],
+                    auditory=[0.9, 0.85, 0.8],
+                    somatosensory=[0.6, 0.55],
+                ),
+                "emotion": cautious,
+                "personality": PersonalityProfile(
+                    openness=0.4,
+                    conscientiousness=0.65,
+                    extraversion=0.3,
+                    agreeableness=0.5,
+                    neuroticism=0.75,
+                ),
+                "curiosity": CuriosityState(
+                    drive=0.25, novelty_preference=0.2, fatigue=0.5, last_novelty=0.18
+                ),
+                "context": {"threat": 0.92, "safety": 0.12, "novelty": 0.15},
+                "learning": {"cpu": 0.6, "memory": 0.55},
+                "history": [{"intention": "withdraw", "confidence": 0.58}],
+                "augment": 3,
+            },
+            {
+                "intention": "explore",
+                "perception": perception(
+                    vision=[1.2, 1.0, 0.8],
+                    auditory=[1.3, 1.1, 0.8],
+                    somatosensory=[0.5, 0.4],
+                ),
+                "emotion": curious,
+                "personality": PersonalityProfile(
+                    openness=0.78,
+                    conscientiousness=0.52,
+                    extraversion=0.68,
+                    agreeableness=0.6,
+                    neuroticism=0.3,
+                ),
+                "curiosity": CuriosityState(
+                    drive=0.82, novelty_preference=0.88, fatigue=0.22, last_novelty=0.75
+                ),
+                "context": {"novelty": 0.86, "safety": 0.52, "social": 0.35},
+                "learning": {"cpu": 0.42, "memory": 0.34},
+                "history": [{"intention": "explore", "confidence": 0.52}],
+                "augment": 4,
+            },
+            {
+                "intention": "observe",
+                "perception": perception(
+                    vision=[0.5, 0.45],
+                    auditory=[0.3, 0.25],
+                    somatosensory=[0.25, 0.2],
+                    proprioception=[0.35, 0.28],
+                ),
+                "emotion": neutral,
+                "personality": baseline_personality,
+                "curiosity": CuriosityState(
+                    drive=0.32, novelty_preference=0.3, fatigue=0.3, last_novelty=0.22
+                ),
+                "context": {"safety": 0.6, "threat": 0.18, "novelty": 0.2},
+                "learning": {"cpu": 0.75, "memory": 0.68},
+                "history": [{"intention": "observe", "confidence": 0.58}],
+                "augment": 1,
+            },
+        ]
+        return corpus
+
+    def _build_feature_vector(
+        self,
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        personality: PersonalityProfile,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+        learning_prediction: Optional[Dict[str, float]],
+        history: Optional[Sequence[Dict[str, Any]]],
+    ) -> List[float]:
+        valence = emotion.dimensions.get("valence", 0.0)
+        arousal = emotion.dimensions.get("arousal", 0.0)
+        dominance = emotion.dimensions.get("dominance", 0.0)
+        intent_bias = emotion.intent_bias or {}
+        context_threat = float(context.get("threat", 0.0))
+        context_safety = float(context.get("safety", 0.0))
+        context_novelty = float(context.get("novelty", 0.0))
+        context_social = float(context.get("social", 0.0))
+        context_control = float(context.get("control", 0.0))
+        context_fatigue = float(context.get("fatigue", 0.0))
+        modalities_count = len(perception.modalities)
+        standard_keys = {"vision", "auditory", "somatosensory", "proprioception"}
+        other_values = [value for key, value in summary.items() if key not in standard_keys]
+        summary_other = sum(other_values) / len(other_values) if other_values else 0.0
+        history = history or []
+        history_counts = {intent: 0.0 for intent in self.INTENTIONS}
+        confidences: List[float] = []
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            intention = str(item.get("intention", "")).lower()
+            if intention in history_counts:
+                history_counts[intention] += 1.0
+            value = item.get("confidence")
+            if value is not None:
+                try:
+                    confidences.append(float(value))
+                except (TypeError, ValueError):
+                    continue
+        total_history = sum(history_counts.values()) or 1.0
+        for key in history_counts:
+            history_counts[key] /= total_history
+        history_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        novelty_delta = curiosity.last_novelty - 0.5
+        safety_margin = context_safety - context_threat
+        valence_arousal = valence * arousal
+        threat_dominance = context_threat * (1.0 - max(0.0, dominance))
+        mood_valence = emotion.mood * valence
+
+        return [
+            1.0,
+            valence,
+            arousal,
+            dominance,
+            emotion.intensity,
+            emotion.mood,
+            float(intent_bias.get("approach", 0.0)),
+            float(intent_bias.get("withdraw", 0.0)),
+            float(intent_bias.get("explore", 0.0)),
+            float(intent_bias.get("soothe", 0.0)),
+            context_threat,
+            context_safety,
+            context_novelty,
+            context_social,
+            context_control,
+            context_fatigue,
+            curiosity.drive,
+            curiosity.fatigue,
+            curiosity.novelty_preference,
+            summary.get("vision", 0.0),
+            summary.get("auditory", 0.0),
+            summary.get("somatosensory", 0.0),
+            summary.get("proprioception", 0.0),
+            summary_other,
+            min(1.0, modalities_count / 5.0),
+            personality.openness,
+            personality.conscientiousness,
+            personality.extraversion,
+            personality.agreeableness,
+            personality.neuroticism,
+            float(learning_prediction.get("cpu", 0.0)) if learning_prediction else 0.0,
+            float(learning_prediction.get("memory", 0.0)) if learning_prediction else 0.0,
+            history_counts["approach"],
+            history_counts["withdraw"],
+            history_counts["explore"],
+            history_counts["observe"],
+            history_confidence,
+            novelty_delta,
+            safety_margin,
+            valence_arousal,
+            threat_dominance,
+            mood_valence,
+        ]
+
+    def _train_from_corpus(
+        self,
+        corpus: Sequence[Dict[str, Any]],
+        *,
+        learning_rate: float,
+        l2: float,
+        epochs: int,
+    ) -> np.ndarray:
+        feature_vectors: List[np.ndarray] = []
+        labels: List[int] = []
+        for sample in corpus:
+            perception = sample["perception"]
+            summary = self._summarise_perception(perception)
+            vector = np.asarray(
+                self._build_feature_vector(
+                    perception,
+                    summary,
+                    sample["emotion"],
+                    sample["personality"],
+                    sample["curiosity"],
+                    sample.get("context", {}),
+                    sample.get("learning"),
+                    sample.get("history"),
+                ),
+                dtype=np.float64,
+            )
+            label_index = self.INTENTIONS.index(sample["intention"])
+            feature_vectors.append(vector)
+            labels.append(label_index)
+            augment = int(sample.get("augment", 0))
+            for _ in range(max(0, augment)):
+                noise = self._rng.normal(0.0, 0.015, size=vector.size)
+                noise[0] = 0.0
+                feature_vectors.append(vector + noise)
+                labels.append(label_index)
+        matrix = np.vstack(feature_vectors)
+        label_array = np.asarray(labels, dtype=int)
+        if matrix.shape[0] < len(self.INTENTIONS):
+            raise ValueError("Insufficient training samples for production policy")
+        mean = matrix[:, 1:].mean(axis=0)
+        std = matrix[:, 1:].std(axis=0)
+        std[std < 1e-6] = 1.0
+        self._feature_mean = mean
+        self._feature_std = std
+        norm_matrix = matrix.copy()
+        norm_matrix[:, 1:] = (norm_matrix[:, 1:] - mean) / std
+        n_samples, n_features = norm_matrix.shape
+        n_classes = len(self.INTENTIONS)
+        weights = self._rng.normal(0.0, 0.05, size=(n_classes, n_features))
+        one_hot = np.zeros((n_samples, n_classes), dtype=np.float64)
+        one_hot[np.arange(n_samples), label_array] = 1.0
+        for _ in range(max(1, epochs)):
+            logits = norm_matrix @ weights.T
+            logits -= logits.max(axis=1, keepdims=True)
+            exp_logits = np.exp(logits)
+            probs = exp_logits / exp_logits.sum(axis=1, keepdims=True)
+            grad = (probs - one_hot).T @ norm_matrix / n_samples
+            weights -= learning_rate * (grad + l2 * weights)
+        self._training_metadata = {
+            "epochs": int(epochs),
+            "learning_rate": float(learning_rate),
+            "l2": float(l2),
+            "samples": int(n_samples),
+        }
+        return weights
+
+    def _prepare_features(self, feature_vector: Sequence[float]) -> np.ndarray:
+        arr = np.asarray(feature_vector, dtype=np.float64)
+        if self._feature_mean is not None and self._feature_std is not None:
+            if arr.size - 1 != self._feature_mean.size:
+                raise ValueError("feature normalisation mismatch")
+            arr[1:] = (arr[1:] - self._feature_mean) / (self._feature_std + 1e-6)
+        return arr
+
+    def _softmax(self, logits: np.ndarray) -> np.ndarray:
+        logits = logits.astype(np.float64)
+        logits -= logits.max()
+        exp = np.exp(logits / self.temperature)
+        denom = exp.sum()
+        if denom <= 0.0:
+            return np.full(logits.shape, 1.0 / logits.size)
+        return exp / denom
+
+    def select_intention(
+        self,
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        personality: PersonalityProfile,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+        learning_prediction: Optional[Dict[str, float]] = None,
+        history: Optional[Sequence[Dict[str, Any]]] = None,
+    ) -> CognitiveDecision:
+        try:
+            feature_vector = self._prepare_features(
+                self._build_feature_vector(
+                    perception,
+                    summary,
+                    emotion,
+                    personality,
+                    curiosity,
+                    context,
+                    learning_prediction,
+                    history,
+                )
+            )
+            if feature_vector.size != self._weights.shape[1]:
+                raise ValueError("feature dimension mismatch")
+            logits = self._weights @ feature_vector
+            probabilities = self._softmax(logits)
+            index = int(np.argmax(probabilities))
+            intention = self.INTENTIONS[index]
+            confidence = float(probabilities[index])
+            focus = max(summary, key=summary.get) if summary else None
+            plan_steps = self.adaptive_planner.generate(
+                intention,
+                focus,
+                context,
+                perception,
+                summary,
+                emotion,
+                curiosity,
+                history,
+                learning_prediction,
+            )
+            weights = {
+                intent: float(probabilities[i]) for i, intent in enumerate(self.INTENTIONS)
+            }
+            tags = ["policy-production", intention]
+            if confidence >= 0.65:
+                tags.append("high-confidence")
+            if curiosity.drive > 0.6 or context.get("novelty", 0.0) > 0.6:
+                tags.append("novelty-driven")
+            if focus:
+                tags.append(f"focus-{focus}")
+            thought_trace = [
+                f"features={feature_vector.size}",
+                f"intention={intention}",
+                f"confidence={confidence:.2f}",
+                f"valence={emotion.dimensions.get('valence', 0.0):.2f}",
+                f"novelty={context.get('novelty', curiosity.last_novelty):.2f}",
+            ]
+            metadata = {
+                "policy": "production",
+                "policy_version": "2.0",
+                "planner": getattr(
+                    self.adaptive_planner.base,
+                    "name",
+                    self.adaptive_planner.base.__class__.__name__.lower(),
+                ),
+                "temperature": self.temperature,
+                "logits": [float(value) for value in logits],
+                "probabilities": weights,
+                "training": dict(self._training_metadata),
+            }
+            summary_text = ", ".join(f"{k}:{v:.2f}" for k, v in summary.items()) or "no-salient-modalities"
+            return CognitiveDecision(
+                intention=intention,
+                confidence=confidence,
+                plan=list(plan_steps),
+                weights=weights,
+                tags=tags,
+                focus=focus,
+                summary=summary_text,
+                thought_trace=thought_trace,
+                perception_summary=dict(summary),
+                metadata=metadata,
+            )
+        except Exception as exc:  # pragma: no cover - defensive safeguard
+            logger.debug("Production policy failed: %s", exc)
+            decision = self.fallback.select_intention(
+                perception,
+                summary,
+                emotion,
+                personality,
+                curiosity,
+                context,
+                learning_prediction,
+                history=history,
+            )
+            decision.metadata.setdefault("policy", "production-fallback")
+            decision.metadata["policy_error"] = str(exc)
+            return decision
+
+
 class CognitiveModule:
-    """Lightweight cognitive reasoning delegating intention selection to policies."""
+    """Stateful cognitive reasoning module with adaptive planning fallbacks."""
 
     def __init__(
         self,
@@ -213,8 +1398,12 @@ class CognitiveModule:
     ) -> None:
         self.memory_window = memory_window
         self.episodic_memory: deque[dict[str, Any]] = deque(maxlen=memory_window)
-        self.policy: CognitivePolicy = policy or HeuristicCognitivePolicy()
+        self.policy: CognitivePolicy = policy or ProductionCognitivePolicy()
         self._confidence_history: deque[float] = deque(maxlen=max(4, memory_window))
+        if isinstance(getattr(self.policy, "adaptive_planner", None), AdaptivePlanner):
+            self._fallback_planner = self.policy.adaptive_planner
+        else:
+            self._fallback_planner = AdaptivePlanner()
 
     def set_policy(self, policy: CognitivePolicy) -> None:
         """Replace the active policy at runtime."""
@@ -245,15 +1434,6 @@ class CognitiveModule:
         else:
             calibrated = 0.5 * raw / (mean + 1e-6)
         return max(0.0, min(1.0, calibrated))
-
-    def _build_plan(
-        self,
-        intention: str,
-        summary: Dict[str, float],
-        context: Optional[Dict[str, Any]] = None,
-    ) -> List[str]:
-        focus = max(summary, key=summary.get) if summary else None
-        return default_plan_for_intention(intention, focus, context)
 
     def _remember(self, summary: Dict[str, float], emotion: EmotionSnapshot, intention: str, confidence: float) -> None:
         self.episodic_memory.append(
@@ -293,27 +1473,48 @@ class CognitiveModule:
                 curiosity,
                 context,
                 learning_prediction,
+                history=list(self.episodic_memory),
             )
         except Exception as exc:  # pragma: no cover - defensive policy fallback
             logger.warning("Cognitive policy failed; using fallback plan. Error: %s", exc)
             intention = context.get("fallback_intention", "observe")
+            focus = max(summary, key=summary.get) if summary else None
+            fallback_plan = self._fallback_planner.generate(
+                intention,
+                focus,
+                context,
+                perception,
+                summary,
+                emotion,
+                curiosity,
+                history=list(self.episodic_memory),
+                learning_prediction=learning_prediction,
+            )
             policy_decision = CognitiveDecision(
                 intention=intention,
                 confidence=0.25,
-                plan=self._build_plan(intention, summary, context),
+                plan=fallback_plan,
                 weights={intention: 1.0},
                 tags=[intention, "policy-fallback"],
-                focus=max(summary, key=summary.get) if summary else None,
+                focus=focus,
                 summary=", ".join(f"{k}:{v:.2f}" for k, v in summary.items())
                 or "no-salient-modalities",
-                thought_trace=["policy=fallback"],
+                thought_trace=["policy=fallback", f"error={exc}"],
                 perception_summary=dict(summary),
                 metadata={"policy": "fallback", "error": str(exc)},
             )
 
         if not policy_decision.plan:
-            policy_decision.plan = self._build_plan(
-                policy_decision.intention, summary, context
+            policy_decision.plan = self._fallback_planner.generate(
+                policy_decision.intention,
+                policy_decision.focus,
+                context,
+                perception,
+                summary,
+                emotion,
+                curiosity,
+                history=list(self.episodic_memory),
+                learning_prediction=learning_prediction,
             )
         if not policy_decision.perception_summary:
             policy_decision.perception_summary = dict(summary)

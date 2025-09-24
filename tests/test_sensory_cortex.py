@@ -41,10 +41,13 @@ def test_visual_cortex_features(checkerboard_image: np.ndarray) -> None:
     v1_features = result["v1"]["features"]
     assert v1_features["edge_density"] == pytest.approx(0.546875, rel=1e-6)
     assert v1_features["edge_energy"] == pytest.approx(0.19950187, rel=1e-6)
+    assert v1_features["orientation_energy"] == pytest.approx(0.02018068, rel=1e-6)
+    assert v1_features["texture_entropy"] == pytest.approx(-20.2265516, rel=1e-6)
 
     mt_features = result["mt"]["features"]
-    assert mt_features["motion_energy"] == pytest.approx(0.02034884, rel=1e-6)
-    assert mt_features["motion_bias"] == pytest.approx(0.0, abs=1e-6)
+    assert mt_features["motion_energy"] == pytest.approx(0.01932193, rel=1e-6)
+    assert mt_features["radial_energy"] == pytest.approx(0.03681728, rel=1e-6)
+    assert mt_features["stability"] == pytest.approx(0.98067807, rel=1e-6)
 
 
 def test_auditory_cortex_features(tone_signal: np.ndarray) -> None:
@@ -55,10 +58,12 @@ def test_auditory_cortex_features(tone_signal: np.ndarray) -> None:
     a1_features = result["a1"]["features"]
     assert a1_features["dominant_band"] == pytest.approx(1.0, abs=1e-6)
     assert a1_features["band_energy"] == pytest.approx(5.507319, rel=1e-6)
+    assert a1_features["spectral_flatness"] == pytest.approx(0.6548069, rel=1e-6)
 
     a2_features = result["a2"]["features"]
     assert a2_features["temporal_variance"] == pytest.approx(2.1737657, rel=1e-6)
     assert a2_features["spectral_spread"] == pytest.approx(4.3831153, rel=1e-6)
+    assert a2_features["modulation_index"] == pytest.approx(585.8214, rel=1e-6)
 
 
 def test_somatosensory_cortex_features(tactile_grid: np.ndarray) -> None:
@@ -70,6 +75,8 @@ def test_somatosensory_cortex_features(tactile_grid: np.ndarray) -> None:
     assert s1_features["central_pressure"] == pytest.approx(0.5714286, rel=1e-6)
     assert s1_features["edge_pressure"] == pytest.approx(0.5, rel=1e-6)
     assert s1_features["mean_pressure"] == pytest.approx(0.5, rel=1e-6)
+    assert s1_features["gradient_energy"] == pytest.approx(0.10581793, rel=1e-6)
+    assert s1_features["pressure_variability"] == pytest.approx(0.26992062, rel=1e-6)
 
 
 def test_visual_cortex_neuromorphic_bridge(checkerboard_image: np.ndarray) -> None:

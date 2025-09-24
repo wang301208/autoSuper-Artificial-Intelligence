@@ -5,18 +5,26 @@ import argparse
 import asyncio
 import concurrent.futures
 import heapq
+import importlib
+import inspect
 import json
+import logging
 import math
 import random
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from concurrent.futures import Executor
-from typing import Any, Callable, Dict, Mapping, Sequence, List, Optional
+from typing import Any, Callable, Dict, Mapping, Sequence, List, Optional, Type
 
 from modules.brain.neuroplasticity import Neuroplasticity
 from .temporal_encoding import decode_average_rate, decode_spike_counts, latency_encode, rate_encode
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +42,9 @@ class SpikingNetworkConfig:
     convergence_window: int | None = None
     convergence_threshold: float | None = None
     convergence_patience: int = 3
+    backend: str | None = None
+    hardware_options: Mapping[str, Any] = field(default_factory=dict)
+    fallback_to_simulation: bool = True
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SpikingNetworkConfig":
@@ -49,6 +60,9 @@ class SpikingNetworkConfig:
             convergence_window=data.get("convergence_window"),
             convergence_threshold=data.get("convergence_threshold"),
             convergence_patience=data.get("convergence_patience", 3),
+            backend=data.get("backend"),
+            hardware_options=data.get("hardware_options", {}),
+            fallback_to_simulation=data.get("fallback_to_simulation", True),
         )
 
     def create(self) -> "SpikingNeuralNetwork":
@@ -74,10 +88,36 @@ class SpikingNetworkConfig:
             convergence_patience=self.convergence_patience,
         )
 
-    def create_backend(self, **backend_kwargs) -> "NeuromorphicBackend":
-        """Build a reusable backend wrapping the configured spiking network."""
+    def create_backend(
+        self,
+        *,
+        backend: str | None = None,
+        fallback_to_simulation: bool | None = None,
+        **backend_kwargs,
+    ) -> "NeuromorphicBackend":
+        """Build a reusable backend, optionally targeting hardware adapters."""
 
-        return NeuromorphicBackend(config=self, **backend_kwargs)
+        selected = backend or self.backend
+        if not selected:
+            return NeuromorphicBackend(config=self, **backend_kwargs)
+
+        backend_key = selected.lower()
+        if backend_key in {"sim", "software", "simulation", "numpy"}:
+            return NeuromorphicBackend(config=self, **backend_kwargs)
+
+        options: Dict[str, Any] = {}
+        if isinstance(self.hardware_options, Mapping):
+            options.update(dict(self.hardware_options))
+        options.update(backend_kwargs)
+        factory = HardwareBackendRegistry.get(backend_key)
+        if factory is None:
+            raise ValueError(f"Unknown neuromorphic backend '{selected}'")
+        fallback = (
+            self.fallback_to_simulation
+            if fallback_to_simulation is None
+            else bool(fallback_to_simulation)
+        )
+        return factory(self, fallback_to_simulation=fallback, **options)
 
 
 
@@ -846,4 +886,608 @@ class NeuromorphicBackend:
             )
         return results
 
+
+class HardwareIntegrationError(RuntimeError):
+    """Raised when a hardware backend cannot be initialised or executed."""
+
+
+class BaseHardwareBackend(NeuromorphicBackend):
+    """Common scaffolding for hardware-oriented backends."""
+
+    hardware_name: str = "hardware"
+
+    def __init__(
+        self,
+        config: SpikingNetworkConfig,
+        *,
+        auto_reset: bool = True,
+        fallback_to_simulation: bool = True,
+        **kwargs,
+    ) -> None:
+        self.fallback_to_simulation = bool(fallback_to_simulation)
+        self.hardware_available = False
+        self.hardware_error: Exception | None = None
+        self.hardware_context: Dict[str, Any] = {}
+        super().__init__(config=config, auto_reset=auto_reset)
+        try:
+            context = self._initialise_hardware(config, **kwargs)
+        except Exception as exc:  # pragma: no cover - defensive logging path
+            self.hardware_error = exc
+            if not self.fallback_to_simulation:
+                raise HardwareIntegrationError(
+                    f"Failed to initialise {self.hardware_name} backend"
+                ) from exc
+            logger.warning(
+                "Falling back to software neuromorphic backend for %s: %s",
+                self.hardware_name,
+                exc,
+            )
+            self.hardware_available = False
+        else:
+            self.hardware_available = True
+            if isinstance(context, Mapping):
+                self.hardware_context = dict(context)
+
+    def _initialise_hardware(
+        self, config: SpikingNetworkConfig, **kwargs
+    ) -> Mapping[str, Any] | None:
+        raise NotImplementedError
+
+    def _hardware_reset(self) -> None:
+        """Hook executed when :meth:`reset_state` is called."""
+
+    def _run_on_hardware(
+        self,
+        events,
+        *,
+        encoder: Callable[..., List[tuple[float, List[int]]]] | None = None,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        decoder: str | None = None,
+        decoder_kwargs: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
+        reset: Optional[bool] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ) -> NeuromorphicRunResult:
+        raise NotImplementedError
+
+    def reset_state(self) -> None:
+        super().reset_state()
+        if self.hardware_available:
+            try:
+                self._hardware_reset()
+            except Exception as exc:  # pragma: no cover - defensive logging path
+                self.hardware_error = exc
+                if not self.fallback_to_simulation:
+                    raise HardwareIntegrationError(
+                        f"Failed to reset {self.hardware_name} backend"
+                    ) from exc
+                logger.warning(
+                    "Hardware reset failed for %s; disabling hardware backend: %s",
+                    self.hardware_name,
+                    exc,
+                )
+                self.hardware_available = False
+
+    def run_events(
+        self,
+        events,
+        *,
+        encoder: Callable[..., List[tuple[float, List[int]]]] | None = None,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        decoder: str | None = "counts",
+        decoder_kwargs: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
+        reset: Optional[bool] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ) -> NeuromorphicRunResult:
+        if not self.hardware_available:
+            return super().run_events(
+                events,
+                encoder=encoder,
+                encoder_kwargs=encoder_kwargs,
+                decoder=decoder,
+                decoder_kwargs=decoder_kwargs,
+                metadata=metadata,
+                neuromodulation=neuromodulation,
+                reset=reset,
+                max_duration=max_duration,
+                convergence_threshold=convergence_threshold,
+                convergence_window=convergence_window,
+                convergence_patience=convergence_patience,
+            )
+        try:
+            result = self._run_on_hardware(
+                events,
+                encoder=encoder,
+                encoder_kwargs=encoder_kwargs,
+                decoder=decoder,
+                decoder_kwargs=decoder_kwargs,
+                metadata=metadata,
+                neuromodulation=neuromodulation,
+                reset=reset,
+                max_duration=max_duration,
+                convergence_threshold=convergence_threshold,
+                convergence_window=convergence_window,
+                convergence_patience=convergence_patience,
+            )
+        except Exception as exc:
+            self.hardware_error = exc
+            if not self.fallback_to_simulation:
+                raise HardwareIntegrationError(
+                    f"{self.hardware_name} execution failed"
+                ) from exc
+            logger.warning(
+                "Hardware backend %s failed; falling back to simulation: %s",
+                self.hardware_name,
+                exc,
+            )
+            self.hardware_available = False
+            return super().run_events(
+                events,
+                encoder=encoder,
+                encoder_kwargs=encoder_kwargs,
+                decoder=decoder,
+                decoder_kwargs=decoder_kwargs,
+                metadata=metadata,
+                neuromodulation=neuromodulation,
+                reset=reset,
+                max_duration=max_duration,
+                convergence_threshold=convergence_threshold,
+                convergence_window=convergence_window,
+                convergence_patience=convergence_patience,
+            )
+        return self._normalise_result(
+            result,
+            decoder=decoder,
+            decoder_kwargs=decoder_kwargs,
+            metadata=metadata,
+        )
+
+    def _normalise_events(self, outputs: Any) -> List[tuple[float, List[int]]]:
+        if isinstance(outputs, Mapping):
+            if "spike_events" in outputs:
+                return self._normalise_events(outputs["spike_events"])
+            if "events" in outputs:
+                return self._normalise_events(outputs["events"])
+        events: List[tuple[float, List[int]]] = []
+        if outputs is None:
+            return events
+        if isinstance(outputs, np.ndarray):
+            outputs = outputs.tolist()
+        if isinstance(outputs, Sequence):
+            for idx, item in enumerate(outputs):
+                if (
+                    isinstance(item, tuple)
+                    and len(item) == 2
+                    and isinstance(item[0], (int, float))
+                ):
+                    time, spikes = item
+                else:
+                    time = idx
+                    spikes = item
+                if isinstance(spikes, np.ndarray):
+                    spikes = spikes.tolist()
+                elif isinstance(spikes, Mapping):
+                    spikes = list(spikes.values())
+                elif not isinstance(spikes, Sequence):
+                    spikes = [spikes]
+                numeric = []
+                for value in spikes:
+                    if isinstance(value, (int, float)):
+                        numeric.append(int(round(float(value))))
+                    else:
+                        numeric.append(int(bool(value)))
+                events.append((float(time), numeric))
+        return events
+
+    def _augment_metadata(
+        self,
+        metadata: Optional[Dict[str, Any]],
+        *,
+        base: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        combined: Dict[str, Any] = dict(base or {})
+        if metadata:
+            combined.update(metadata)
+        combined.setdefault("backend", self.hardware_name)
+        if self.hardware_context:
+            combined.setdefault("hardware_context", dict(self.hardware_context))
+        if self.hardware_error and not self.hardware_available:
+            combined.setdefault("hardware_warning", str(self.hardware_error))
+        return combined
+
+    def _normalise_result(
+        self,
+        result: Any,
+        *,
+        decoder: str | None,
+        decoder_kwargs: Optional[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]],
+    ) -> NeuromorphicRunResult:
+        if isinstance(result, NeuromorphicRunResult):
+            result.metadata = self._augment_metadata(result.metadata, base=metadata)
+            return result
+
+        if isinstance(result, tuple) and len(result) == 2:
+            events_part, meta_part = result
+            base: Dict[str, Any] = {}
+            if isinstance(meta_part, Mapping):
+                base = dict(meta_part)
+            else:
+                base = {"telemetry": meta_part}
+            result = {"spike_events": events_part, "metadata": base}
+
+        events = self._normalise_events(result)
+        base_metadata: Dict[str, Any] = {}
+        counts: Optional[List[int]] = None
+        rates: Optional[List[float]] = None
+        energy = len(events)
+        idle = 0
+        if isinstance(result, Mapping):
+            base_metadata = dict(result.get("metadata", {}))
+            counts_data = result.get("spike_counts")
+            if counts_data is not None:
+                counts = [int(c) for c in counts_data]
+            rates_data = result.get("average_rate")
+            if rates_data is not None:
+                rates = [float(r) for r in rates_data]
+            energy = int(result.get("energy_used", energy))
+            idle = int(result.get("idle_skipped", 0))
+
+        key = decoder.lower() if decoder else None
+        decoder_kwargs = dict(decoder_kwargs or {})
+        if counts is None:
+            if key in {"counts", "all"}:
+                counts = decode_spike_counts(events)
+            else:
+                counts = []
+        if rates is None:
+            if key in {"rate", "all"}:
+                window = decoder_kwargs.get("window")
+                if window is None:
+                    window = len(events) or 1
+                rates = decode_average_rate(events, window=float(window))
+            else:
+                rates = []
+
+        metadata_combined = self._augment_metadata(metadata, base=base_metadata)
+        return NeuromorphicRunResult(
+            spike_events=events,
+            energy_used=float(energy),
+            idle_skipped=int(idle),
+            spike_counts=list(counts),
+            average_rate=list(rates),
+            metadata=metadata_combined,
+        )
+
+
+
+class ProcessHardwareBackend(BaseHardwareBackend):
+    """Backend that delegates execution to an external command-line runner."""
+
+    hardware_name = "process-runner"
+
+    def _initialise_hardware(
+        self, config: SpikingNetworkConfig, **kwargs
+    ) -> Mapping[str, Any] | None:
+        command = kwargs.pop("command", None)
+        timeout = float(kwargs.pop("timeout", 15.0))
+        if not command:
+            raise HardwareIntegrationError(
+                "Process hardware backend requires a 'command' argument"
+            )
+        if isinstance(command, str):
+            command = [command]
+        if not isinstance(command, Sequence) or not command:
+            raise HardwareIntegrationError("'command' must be a sequence or string")
+        executable = str(command[0])
+        if shutil.which(executable) is None:
+            raise HardwareIntegrationError(f"Executable '{executable}' not found on PATH")
+        self._command: List[str] = [str(part) for part in command]
+        self._timeout = max(1.0, timeout)
+        self._env = kwargs.pop("env", None)
+        context = {"command": list(self._command), "timeout": self._timeout}
+        if kwargs:
+            context["options"] = dict(kwargs)
+        return context
+
+    def _hardware_reset(self) -> None:
+        # stateless external runner; nothing to reset
+        return None
+
+    def _run_on_hardware(
+        self,
+        events,
+        *,
+        encoder: Callable[..., List[tuple[float, List[int]]]] | None = None,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        decoder: str | None = None,
+        decoder_kwargs: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
+        reset: Optional[bool] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ) -> NeuromorphicRunResult:
+        payload = {
+            "events": events,
+            "encoder_kwargs": dict(encoder_kwargs or {}),
+            "decoder": decoder,
+            "decoder_kwargs": dict(decoder_kwargs or {}),
+            "metadata": metadata or {},
+            "neuromodulation": dict(neuromodulation or {}),
+            "reset": reset,
+            "max_duration": max_duration,
+            "convergence_threshold": convergence_threshold,
+            "convergence_window": convergence_window,
+            "convergence_patience": convergence_patience,
+        }
+        try:
+            completed = subprocess.run(
+                self._command,
+                input=json.dumps(payload).encode("utf-8"),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=self._env,
+                timeout=self._timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:  # pragma: no cover - OS path
+            raise HardwareIntegrationError(f"Process backend execution failed: {exc}") from exc
+        if completed.returncode != 0:
+            stderr = completed.stderr.decode("utf-8", errors="ignore")
+            raise HardwareIntegrationError(
+                f"Process backend exited with code {completed.returncode}: {stderr}"
+            )
+        try:
+            outputs = json.loads(completed.stdout.decode("utf-8") or "{}")
+        except json.JSONDecodeError as exc:
+            raise HardwareIntegrationError("Process backend returned invalid JSON") from exc
+        return self._normalise_result(
+            outputs,
+            decoder=decoder,
+            decoder_kwargs=decoder_kwargs,
+            metadata=metadata,
+        )
+
+
+class CallableHardwareBackend(BaseHardwareBackend):
+    """Generic backend delegating execution to user-provided callables."""
+
+    hardware_name = "external-callable"
+
+    def __init__(
+        self,
+        config: SpikingNetworkConfig,
+        *,
+        auto_reset: bool = True,
+        fallback_to_simulation: bool = True,
+        **kwargs,
+    ) -> None:
+        self._run_callable: Callable[..., Any] | None = None
+        self._compile_callable: Callable[..., Any] | None = None
+        self._reset_callable: Callable[[], Any] | None = None
+        self._decode_callable: Callable[..., Any] | None = None
+        self._describe_callable: Callable[[], Any] | None = None
+        super().__init__(
+            config,
+            auto_reset=auto_reset,
+            fallback_to_simulation=fallback_to_simulation,
+            **kwargs,
+        )
+
+    def _initialise_hardware(
+        self, config: SpikingNetworkConfig, **kwargs
+    ) -> Mapping[str, Any] | None:
+        run_fn = kwargs.pop("run_fn", None)
+        compile_fn = kwargs.pop("compile_fn", None)
+        reset_fn = kwargs.pop("reset_fn", None)
+        describe_fn = kwargs.pop("describe_fn", None)
+        decode_fn = kwargs.pop("decode_fn", None)
+        if not callable(run_fn):
+            raise HardwareIntegrationError(
+                "Callable hardware backend requires a callable 'run_fn'."
+            )
+        if compile_fn is not None and not callable(compile_fn):
+            raise HardwareIntegrationError("'compile_fn' must be callable if provided")
+        if reset_fn is not None and not callable(reset_fn):
+            raise HardwareIntegrationError("'reset_fn' must be callable if provided")
+        if describe_fn is not None and not callable(describe_fn):
+            raise HardwareIntegrationError("'describe_fn' must be callable if provided")
+        if decode_fn is not None and not callable(decode_fn):
+            raise HardwareIntegrationError("'decode_fn' must be callable if provided")
+        self._run_callable = run_fn
+        self._compile_callable = compile_fn
+        self._reset_callable = reset_fn
+        self._describe_callable = describe_fn
+        self._decode_callable = decode_fn
+        context: Dict[str, Any] = {}
+        if self._compile_callable is not None:
+            self._compile_callable(config, **kwargs)
+        if self._describe_callable is not None:
+            try:
+                description = self._describe_callable()
+                if description:
+                    context["description"] = description
+            except Exception:
+                pass
+        if kwargs:
+            context.setdefault("options", dict(kwargs))
+        return context
+
+    def _hardware_reset(self) -> None:
+        if self._reset_callable is not None:
+            self._reset_callable()
+
+    def _run_on_hardware(
+        self,
+        events,
+        *,
+        encoder: Callable[..., List[tuple[float, List[int]]]] | None = None,
+        encoder_kwargs: Optional[Dict[str, Any]] = None,
+        decoder: str | None = None,
+        decoder_kwargs: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        neuromodulation: Optional[Mapping[str, float]] = None,
+        reset: Optional[bool] = None,
+        max_duration: int | None = None,
+        convergence_threshold: float | None = None,
+        convergence_window: int | None = None,
+        convergence_patience: int | None = None,
+    ) -> NeuromorphicRunResult:
+        if self._run_callable is None:
+            raise HardwareIntegrationError("Hardware run function is not initialised")
+        potential_kwargs = {
+            "encoder": encoder,
+            "encoder_kwargs": dict(encoder_kwargs or {}),
+            "decoder": decoder,
+            "decoder_kwargs": dict(decoder_kwargs or {}),
+            "metadata": metadata,
+            "neuromodulation": neuromodulation,
+            "reset": reset,
+            "max_duration": max_duration,
+            "convergence_threshold": convergence_threshold,
+            "convergence_window": convergence_window,
+            "convergence_patience": convergence_patience,
+        }
+        signature = inspect.signature(self._run_callable)
+        accepts_kwargs = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in signature.parameters.values()
+        )
+        call_kwargs: Dict[str, Any] = {}
+        if accepts_kwargs:
+            call_kwargs = potential_kwargs
+        else:
+            for name, value in potential_kwargs.items():
+                if name in signature.parameters:
+                    call_kwargs[name] = value
+        outputs = self._run_callable(events, **call_kwargs)
+        if self._decode_callable is not None:
+            decode_signature = inspect.signature(self._decode_callable)
+            decode_kwargs = {}
+            potential_decode_kwargs = {
+                "decoder": decoder,
+                "decoder_kwargs": dict(decoder_kwargs or {}),
+            }
+            if any(
+                param.kind == inspect.Parameter.VAR_KEYWORD
+                for param in decode_signature.parameters.values()
+            ):
+                decode_kwargs = potential_decode_kwargs
+            else:
+                for name, value in potential_decode_kwargs.items():
+                    if name in decode_signature.parameters:
+                        decode_kwargs[name] = value
+            outputs = self._decode_callable(outputs, **decode_kwargs)
+        return self._normalise_result(
+            outputs,
+            decoder=decoder,
+            decoder_kwargs=decoder_kwargs,
+            metadata=metadata,
+        )
+
+
+class LoihiHardwareBackend(CallableHardwareBackend):
+    """Adapter for Intel Loihi hardware via user-provided runners."""
+
+    hardware_name = "intel-loihi"
+
+    def _initialise_hardware(
+        self, config: SpikingNetworkConfig, **kwargs
+    ) -> Mapping[str, Any] | None:
+        runner = kwargs.pop("runner", None)
+        if runner is not None and "run_fn" not in kwargs:
+            run_candidate = getattr(runner, "run", None) or getattr(runner, "execute", None)
+            if callable(run_candidate):
+                kwargs["run_fn"] = run_candidate
+            compile_candidate = getattr(runner, "compile", None)
+            if callable(compile_candidate):
+                kwargs.setdefault("compile_fn", compile_candidate)
+            reset_candidate = getattr(runner, "reset", None)
+            if callable(reset_candidate):
+                kwargs.setdefault("reset_fn", reset_candidate)
+            describe_candidate = getattr(runner, "describe", None)
+            if callable(describe_candidate):
+                kwargs.setdefault("describe_fn", describe_candidate)
+        if "run_fn" not in kwargs or not callable(kwargs["run_fn"]):
+            try:  # pragma: no cover - depends on optional SDK
+                importlib.import_module("lava")
+            except ImportError as exc:
+                raise HardwareIntegrationError(
+                    "Intel Lava SDK not available; provide a 'runner' or explicit 'run_fn'."
+                ) from exc
+            raise HardwareIntegrationError(
+                "Loihi backend requires a runner exposing a 'run' method or a 'run_fn' argument."
+            )
+        return super()._initialise_hardware(config, **kwargs)
+
+
+class BrainScaleSHardwareBackend(CallableHardwareBackend):
+    """Adapter for BrainScaleS hardware runners."""
+
+    hardware_name = "brainscales"
+
+    def _initialise_hardware(
+        self, config: SpikingNetworkConfig, **kwargs
+    ) -> Mapping[str, Any] | None:
+        runner = kwargs.pop("runner", None)
+        if runner is not None and "run_fn" not in kwargs:
+            run_candidate = getattr(runner, "run", None) or getattr(runner, "execute", None)
+            if callable(run_candidate):
+                kwargs["run_fn"] = run_candidate
+            compile_candidate = getattr(runner, "compile", None)
+            if callable(compile_candidate):
+                kwargs.setdefault("compile_fn", compile_candidate)
+            reset_candidate = getattr(runner, "reset", None)
+            if callable(reset_candidate):
+                kwargs.setdefault("reset_fn", reset_candidate)
+            describe_candidate = getattr(runner, "describe", None)
+            if callable(describe_candidate):
+                kwargs.setdefault("describe_fn", describe_candidate)
+        if "run_fn" not in kwargs or not callable(kwargs["run_fn"]):
+            raise HardwareIntegrationError(
+                "BrainScaleS backend requires a runner exposing a 'run' method or a 'run_fn'."
+            )
+        return super()._initialise_hardware(config, **kwargs)
+
+
+class HardwareBackendRegistry:
+    """Registry of available hardware backends."""
+
+    _registry: Dict[str, Type[BaseHardwareBackend]] = {}
+
+    @classmethod
+    def register(cls, name: str, backend_cls: Type[BaseHardwareBackend]) -> None:
+        cls._registry[name.lower()] = backend_cls
+
+    @classmethod
+    def get(cls, name: str) -> Type[BaseHardwareBackend] | None:
+        if not name:
+            return None
+        return cls._registry.get(name.lower())
+
+    @classmethod
+    def names(cls) -> List[str]:
+        return sorted(cls._registry)
+
+
+HardwareBackendRegistry.register("callable", CallableHardwareBackend)
+HardwareBackendRegistry.register("external", CallableHardwareBackend)
+HardwareBackendRegistry.register("hardware", CallableHardwareBackend)
+HardwareBackendRegistry.register("process", ProcessHardwareBackend)
+HardwareBackendRegistry.register("loihi", LoihiHardwareBackend)
+HardwareBackendRegistry.register("intel-loihi", LoihiHardwareBackend)
+HardwareBackendRegistry.register("brainscales", BrainScaleSHardwareBackend)
+HardwareBackendRegistry.register("brainscales2", BrainScaleSHardwareBackend)
 

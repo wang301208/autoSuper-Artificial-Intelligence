@@ -115,16 +115,33 @@ class EdgeDetector:
 
     def __init__(self, encoder: VisualEncoder | None = None) -> None:
         self.encoder = encoder or VisualEncoder()
+        self.pool_shape = tuple(self.encoder.pool_size)
 
     def detect(self, image: Any, signal: EncodedSignal | None = None) -> Dict[str, Any]:
         encoded = signal or self.encoder.encode(image)
         arr = _as_array(encoded.vector)
         density = float(np.mean(arr > 0.2)) if arr.size else 0.0
+        if arr.size and self.pool_shape[0] * self.pool_shape[1] == arr.size:
+            grid = arr.reshape(self.pool_shape)
+        else:
+            side = int(np.sqrt(arr.size))
+            grid = arr.reshape(side, side) if side > 0 else arr.reshape(1, -1)
+        vertical_energy = float(np.mean(np.abs(np.diff(grid, axis=0)))) if grid.size > grid.shape[1] else 0.0
+        horizontal_energy = float(np.mean(np.abs(np.diff(grid, axis=1)))) if grid.size > grid.shape[0] else 0.0
+        diagonal_energy = float(np.mean(np.abs(grid - np.roll(grid, 1, axis=0))))
+        orientation_balance = float(np.tanh(vertical_energy - horizontal_energy))
+        energy_matrix = np.clip(grid, 0.0, 1.0)
+        hist, _ = np.histogram(energy_matrix, bins=16, range=(0.0, 1.0), density=True)
+        hist = hist + 1e-6
+        texture_entropy = float(-np.sum(hist * np.log(hist)))
         return _stage_payload(
             "V1",
             encoded,
             {
                 "edge_density": density,
+                "orientation_balance": orientation_balance,
+                "orientation_energy": float(vertical_energy + horizontal_energy + diagonal_energy) / 3.0,
+                "texture_entropy": texture_entropy,
             },
         )
 
@@ -150,15 +167,40 @@ class V2:
             right = float(arr[midpoint:].mean()) if midpoint else left
             complexity = float(arr.std())
             symmetry = float(abs(left - right))
+            side = int(np.sqrt(arr.size))
+            grid = arr.reshape(side, side) if side > 0 else arr.reshape(1, -1)
+            quadrant_means = [
+                float(grid[: side // 2, : side // 2].mean()) if side >= 2 else float(grid.mean()),
+                float(grid[: side // 2, side // 2 :].mean()) if side >= 2 else float(grid.mean()),
+                float(grid[side // 2 :, : side // 2].mean()) if side >= 2 else float(grid.mean()),
+                float(grid[side // 2 :, side // 2 :].mean()) if side >= 2 else float(grid.mean()),
+            ]
+            quadrant_variance = float(np.var(quadrant_means))
+            padded = np.pad(grid, 1, mode="edge")
+            laplace = np.zeros_like(grid)
+            for i in range(grid.shape[0]):
+                for j in range(grid.shape[1]):
+                    center = padded[i + 1, j + 1]
+                    laplace[i, j] = 4 * center - (
+                        padded[i, j + 1]
+                        + padded[i + 2, j + 1]
+                        + padded[i + 1, j]
+                        + padded[i + 1, j + 2]
+                    )
+            curvature_index = float(np.mean(np.abs(laplace)))
         else:
             complexity = 0.0
             symmetry = 0.0
+            quadrant_variance = 0.0
+            curvature_index = 0.0
         return _stage_payload(
             "V2",
             encoded,
             {
                 "form_complexity": complexity,
                 "form_symmetry": symmetry,
+                "pattern_variance": quadrant_variance,
+                "curvature_index": curvature_index,
             },
         )
 
@@ -170,12 +212,33 @@ class V4:
     def process(self, image: Any, signal: EncodedSignal | None = None) -> Dict[str, Any]:
         encoded = signal or self.encoder.encode(image)
         arr = _as_array(encoded.vector)
-        color_salience = float(arr.max() - arr.min()) if arr.size else 0.0
+        if arr.size:
+            color_salience = float(arr.max() - arr.min())
+            high = float(np.percentile(arr, 90))
+            low = float(np.percentile(arr, 10))
+            saturation_proxy = float(np.clip(high - low, 0.0, 1.0))
+            spectrum_energy = float(np.mean(np.abs(np.fft.rfft(arr))))
+            coherence = 0.0
+            if arr.size > 4:
+                half = arr.size // 2
+                left = arr[:half]
+                right = arr[half:]
+                if left.size and right.size:
+                    denom = float(np.std(left) * np.std(right)) or 1e-6
+                    coherence = float(np.mean((left - left.mean()) * (right - right.mean()))) / denom
+        else:
+            color_salience = 0.0
+            saturation_proxy = 0.0
+            spectrum_energy = 0.0
+            coherence = 0.0
         return _stage_payload(
             "V4",
             encoded,
             {
                 "color_salience": color_salience,
+                "saturation_proxy": saturation_proxy,
+                "spectral_energy": spectrum_energy,
+                "feature_coherence": coherence,
             },
         )
 
@@ -187,14 +250,28 @@ class MT:
     def process(self, image: Any, signal: EncodedSignal | None = None) -> Dict[str, Any]:
         encoded = signal or self.encoder.encode(image)
         arr = _as_array(encoded.vector)
-        motion_energy = float(np.mean(np.abs(np.diff(arr)))) if arr.size > 1 else 0.0
-        motion_bias = float(arr[-1] - arr[0]) if arr.size > 1 else 0.0
+        if arr.size:
+            side = int(np.sqrt(arr.size))
+            grid = arr.reshape(side, side) if side > 0 else arr.reshape(1, -1)
+            horizontal_shift = np.roll(grid, -1, axis=1)
+            vertical_shift = np.roll(grid, -1, axis=0)
+            motion_energy = float(np.mean(np.abs(horizontal_shift - grid)))
+            radial_energy = float(np.mean(np.abs(vertical_shift - np.roll(grid, 1, axis=0))))
+            motion_bias = float(np.mean(horizontal_shift - grid))
+            stability = float(max(0.0, 1.0 - motion_energy))
+        else:
+            motion_energy = 0.0
+            radial_energy = 0.0
+            motion_bias = 0.0
+            stability = 0.0
         return _stage_payload(
             "MT",
             encoded,
             {
                 "motion_energy": motion_energy,
+                "radial_energy": radial_energy,
                 "motion_bias": motion_bias,
+                "stability": stability,
             },
         )
 
@@ -246,15 +323,27 @@ class FrequencyAnalyzer:
         if band_profile.size:
             dominant_band = int(np.argmax(band_profile))
             band_energy = float(band_profile[dominant_band])
+            centroid = float(np.average(np.arange(band_profile.size), weights=band_profile)) / max(
+                1, band_profile.size - 1
+            )
+            magnitude_profile = np.abs(band_profile)
+            flatness = float(
+                np.exp(np.mean(np.log(magnitude_profile + 1e-6)))
+                / (np.mean(magnitude_profile) + 1e-6)
+            )
         else:
             dominant_band = 0
             band_energy = 0.0
+            centroid = 0.0
+            flatness = 0.0
         return _stage_payload(
             "A1",
             encoded,
             {
                 "dominant_band": float(dominant_band),
                 "band_energy": band_energy,
+                "spectral_centroid": centroid,
+                "spectral_flatness": flatness,
             },
         )
 
@@ -281,15 +370,19 @@ class A2:
             temporal_profile = mel_matrix.mean(axis=1)
             temporal_variance = float(np.var(temporal_profile)) if temporal_profile.size else 0.0
             spectral_spread = float(np.var(mel_matrix, axis=0).mean()) if mel_matrix.size else 0.0
+            modulation_spectrum = np.abs(np.fft.rfft(temporal_profile)) if temporal_profile.size else np.zeros(0)
+            modulation_index = float(np.max(modulation_spectrum)) if modulation_spectrum.size else 0.0
         else:
             temporal_variance = float(np.var(arr)) if arr.size else 0.0
             spectral_spread = 0.0
+            modulation_index = 0.0
         return _stage_payload(
             "A2",
             encoded,
             {
                 "temporal_variance": temporal_variance,
                 "spectral_spread": spectral_spread,
+                "modulation_index": modulation_index,
             },
         )
 
@@ -333,15 +426,26 @@ class TouchProcessor:
             edge_values = np.concatenate((grid[0], grid[-1], grid[:, 0], grid[:, -1]))
             edge_pressure = float(edge_values.mean()) if edge_values.size else float(central)
             central_pressure = float(central)
+            grad_x = np.diff(grid, axis=1)
+            grad_y = np.diff(grid, axis=0)
+            grad_x = np.pad(grad_x, ((0, 0), (0, 1)), mode="constant")
+            grad_y = np.pad(grad_y, ((0, 1), (0, 0)), mode="constant")
+            gradient_energy = float(np.mean(np.sqrt(grad_x ** 2 + grad_y ** 2)))
+            variability = float(np.std(grid))
         else:
             central_pressure = float(arr.mean()) if arr.size else 0.0
             edge_pressure = central_pressure
+            gradient_energy = 0.0
+            variability = 0.0
         return _stage_payload(
             "S1",
             encoded,
             {
                 "central_pressure": central_pressure,
                 "edge_pressure": edge_pressure,
+                "mean_pressure": float(arr.mean()) if arr.size else 0.0,
+                "gradient_energy": gradient_energy,
+                "pressure_variability": variability,
             },
         )
 

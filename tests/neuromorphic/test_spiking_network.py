@@ -4,7 +4,44 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from modules.brain.neuromorphic import SpikingNeuralNetwork, AdExNeuronModel
-from modules.brain.neuromorphic.spiking_network import SpikingNetworkConfig
+from modules.brain.neuromorphic.spiking_network import (
+    SpikingNetworkConfig,
+    CallableHardwareBackend,
+    LoihiHardwareBackend,
+    NeuromorphicRunResult,
+)
+
+
+def _fake_hardware_run(
+    input_events,
+    *,
+    encoder=None,
+    encoder_kwargs=None,
+    neuromodulation=None,
+    **_: object,
+):
+    encoder_kwargs = dict(encoder_kwargs or {})
+    events = []
+    if encoder is not None:
+        for idx, analog in enumerate(input_events):
+            encoded = encoder(analog, t_start=idx, **encoder_kwargs)
+            events.extend((float(t), [int(v) for v in spikes]) for t, spikes in encoded)
+    else:
+        for idx, analog in enumerate(input_events):
+            if isinstance(analog, tuple) and len(analog) == 2:
+                t, spikes = analog
+                vector = [int(bool(v)) for v in spikes]
+                events.append((float(t), vector))
+            else:
+                vector = [int(float(v) > 0.5) for v in analog]
+                events.append((float(idx), vector))
+    if neuromodulation:
+        events.append((float(len(events)), [1 if sum(neuromodulation.values()) > 0 else 0]))
+    return {
+        "spike_events": events,
+        "energy_used": len(events),
+        "idle_skipped": 0,
+    }
 
 
 def test_spike_generation():
@@ -126,3 +163,56 @@ def test_backend_accepts_convergence_parameters():
     )
     assert early.energy_used < len(long_sequence)
     assert len(early.spike_events) == early.energy_used
+
+
+def test_callable_hardware_backend_executes_custom_runner():
+    config = SpikingNetworkConfig(n_neurons=4, backend="callable")
+    backend = config.create_backend(run_fn=_fake_hardware_run)
+    assert isinstance(backend, CallableHardwareBackend)
+    assert backend.hardware_available
+    result = backend.run_sequence(
+        [[0.0, 1.0, 0.0, 0.5], [0.9, 0.1, 0.0, 0.0]],
+        decoder="counts",
+    )
+    assert isinstance(result, NeuromorphicRunResult)
+    assert result.spike_events
+    assert result.metadata.get("backend") == backend.hardware_name
+
+
+def test_callable_hardware_backend_recovers_from_runtime_failure():
+    def failing_run(*_args, **_kwargs):
+        raise RuntimeError("hardware-failure")
+
+    config = SpikingNetworkConfig(n_neurons=1, backend="callable")
+    backend = config.create_backend(run_fn=failing_run)
+    assert backend.hardware_available
+    backend.network.synapses.adapt = lambda *args, **kwargs: None
+    result = backend.run_sequence([[1.0]], decoder="counts")
+    assert isinstance(result, NeuromorphicRunResult)
+    assert not backend.hardware_available
+    assert backend.hardware_error is not None
+
+
+def test_loihi_backend_falls_back_without_runner():
+    config = SpikingNetworkConfig(n_neurons=2, backend="loihi")
+    backend = config.create_backend()
+    assert isinstance(backend, LoihiHardwareBackend)
+    assert not backend.hardware_available
+    backend.network.synapses.adapt = lambda *args, **kwargs: None
+    result = backend.run_sequence([[1.0, 0.0], [0.0, 0.0]], decoder="counts")
+    assert isinstance(result, NeuromorphicRunResult)
+    assert result.spike_events
+    assert backend.hardware_error is not None
+
+
+def test_process_hardware_backend_invokes_command():
+    command = [
+        "python",
+        "-c",
+        "import json,sys; payload=json.load(sys.stdin); json.dump({'spike_events': [[0.0, [1, 0]], [1.0, [0, 1]]], 'energy_used': 2}, sys.stdout)",
+    ]
+    config = SpikingNetworkConfig(n_neurons=2, backend="process")
+    backend = config.create_backend(command=command, timeout=5.0)
+    result = backend.run_sequence([[0.1, 0.2], [0.2, 0.1]], decoder="counts")
+    assert isinstance(result, NeuromorphicRunResult)
+    assert len(result.spike_events) == 2
