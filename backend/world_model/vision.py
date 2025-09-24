@@ -1,47 +1,119 @@
-from __future__ import annotations
-
 """Utilities for storing visual observations in the world model.
 
-This module provides a very small in-memory store that keeps track of
-visual observations associated with agents.  Observations can be raw image
-"tensors" (``torch.Tensor`` or ``numpy.ndarray``) or any pre-computed feature
-vectors such as those produced by CLIP.  The store makes no assumptions about
- the underlying type and simply keeps the provided objects so that callers can
-retrieve them later.
+This module provides a small in-memory store that keeps track of visual
+observations associated with agents. Observations can be raw image "tensors"
+(``torch.Tensor`` or ``numpy.ndarray``) or any pre-computed feature vectors
+such as those produced by CLIP. The store keeps the provided objects so that
+callers can retrieve them later. If PyTorch is unavailable at runtime the
+module falls back to lightweight NumPy based fusion so the API remains usable
+in minimal environments.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence, TYPE_CHECKING
 
-import torch
-from torch import nn
+import numpy as np
+
+try:  # pragma: no cover - exercised indirectly when torch is installed
+    import torch
+    from torch import nn
+except Exception:  # pragma: no cover - runtime environments without torch
+    torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from torch import Tensor
+else:  # Fallback type alias when torch is not available
+    Tensor = Any
 
 
-class CrossModalAttention(nn.Module):
-    """Simple cross-modal attention module.
+def _to_numpy(value: Any) -> np.ndarray:
+    """Convert ``value`` into a NumPy array without importing torch eagerly."""
 
-    The module attends between visual and textual features and produces a
-    unified representation by averaging bidirectional attention outputs.
-    """
+    if torch is not None and isinstance(value, torch.Tensor):
+        arr = value.detach().cpu().numpy()
+    else:
+        arr = np.asarray(value)
+    if arr.ndim == 0:
+        arr = arr.reshape(1)
+    return arr
+
+
+def _ensure_2d(array: np.ndarray) -> np.ndarray:
+    """Ensure ``array`` has shape ``(batch, features)`` for aggregation."""
+
+    if array.ndim == 1:
+        return array.reshape(1, -1)
+    if array.ndim == 0:
+        return array.reshape(1, 1)
+    return array.reshape(array.shape[0], -1)
+
+
+def _vector_length(value: Any) -> int:
+    """Best-effort inference of the feature dimension for ``value``."""
+
+    if torch is not None and isinstance(value, torch.Tensor):
+        return int(value.shape[-1]) if value.dim() > 0 else 1
+    shape = getattr(value, "shape", None)
+    if isinstance(shape, Sequence) and shape:
+        return int(shape[-1])
+    array = _to_numpy(value)
+    return int(array.shape[-1]) if array.ndim > 0 else int(array.size or 1)
+
+
+_BaseModule = nn.Module if nn is not None else object
+
+
+class CrossModalAttention(_BaseModule):
+    """Cross-modal attention with graceful fallback when torch is unavailable."""
 
     def __init__(self, embed_dim: int, num_heads: int = 8) -> None:
-        if embed_dim % num_heads != 0:
-            num_heads = 1
+        if embed_dim <= 0:
+            embed_dim = 1
+        self.embed_dim = int(embed_dim)
+        if nn is not None:
+            actual_heads = num_heads if embed_dim % num_heads == 0 else 1
+        else:
+            actual_heads = 1
         super().__init__()
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self._torch_module: Optional[nn.MultiheadAttention]
+        if nn is not None:
+            self._torch_module = nn.MultiheadAttention(
+                self.embed_dim, actual_heads, batch_first=True
+            )
+        else:
+            self._torch_module = None
 
-    def forward(self, vision_feat: torch.Tensor, text_feat: torch.Tensor) -> torch.Tensor:
-        if vision_feat.dim() == 1:
-            vision_feat = vision_feat.unsqueeze(0).unsqueeze(0)
-        elif vision_feat.dim() == 2:
-            vision_feat = vision_feat.unsqueeze(0)
-        if text_feat.dim() == 1:
-            text_feat = text_feat.unsqueeze(0).unsqueeze(0)
-        elif text_feat.dim() == 2:
-            text_feat = text_feat.unsqueeze(0)
-        text_attended, _ = self.attn(text_feat, vision_feat, vision_feat)
-        vision_attended, _ = self.attn(vision_feat, text_feat, text_feat)
-        unified = (text_attended.mean(dim=1) + vision_attended.mean(dim=1)) / 2
-        return unified.squeeze(0)
+    def forward(self, vision_feat: Any, text_feat: Any) -> Any:
+        if self._torch_module is not None and torch is not None:
+            vision_tensor = torch.as_tensor(vision_feat)
+            text_tensor = torch.as_tensor(text_feat)
+            if vision_tensor.dim() == 1:
+                vision_tensor = vision_tensor.unsqueeze(0).unsqueeze(0)
+            elif vision_tensor.dim() == 2:
+                vision_tensor = vision_tensor.unsqueeze(0)
+            if text_tensor.dim() == 1:
+                text_tensor = text_tensor.unsqueeze(0).unsqueeze(0)
+            elif text_tensor.dim() == 2:
+                text_tensor = text_tensor.unsqueeze(0)
+            text_attended, _ = self._torch_module(text_tensor, vision_tensor, vision_tensor)
+            vision_attended, _ = self._torch_module(vision_tensor, text_tensor, text_tensor)
+            unified = (text_attended.mean(dim=1) + vision_attended.mean(dim=1)) / 2
+            return unified.squeeze(0)
+        return self._fallback_forward(vision_feat, text_feat)
+
+    __call__ = forward
+
+    def _fallback_forward(self, vision_feat: Any, text_feat: Any) -> np.ndarray:
+        vision_arr = _ensure_2d(_to_numpy(vision_feat))
+        text_arr = _ensure_2d(_to_numpy(text_feat))
+        if vision_arr.size == 0 or text_arr.size == 0:
+            return np.zeros(0, dtype=float)
+        embed_dim = min(vision_arr.shape[-1], text_arr.shape[-1])
+        if embed_dim <= 0:
+            return np.zeros(0, dtype=float)
+        vision_mean = vision_arr[:, :embed_dim].mean(axis=0)
+        text_mean = text_arr[:, :embed_dim].mean(axis=0)
+        return (vision_mean + text_mean) / 2.0
 
 
 class VisionStore:
@@ -62,25 +134,8 @@ class VisionStore:
         features: Optional[Any] = None,
         vit_features: Optional[Any] = None,
         text: Optional[Any] = None,
-    ) -> Optional[torch.Tensor]:
-        """Store an observation for ``agent_id`` and optionally compute fusion.
-
-        Parameters
-        ----------
-        agent_id:
-            Identifier of the agent that produced the observation.
-        image:
-            Raw image tensor or array.  The store does not modify the object and
-            merely keeps a reference to it.
-        features:
-            Feature representation of the observation (for example CLIP
-            embeddings).
-        vit_features:
-            Feature representation produced by a Vision Transformer (ViT)
-            model.
-        text:
-            Optional textual embedding aligned with the visual input.
-        """
+    ) -> Optional[Any]:
+        """Store an observation for ``agent_id`` and optionally compute fusion."""
 
         if image is not None:
             self._images[agent_id] = image
@@ -91,14 +146,13 @@ class VisionStore:
         if text is not None:
             self._text[agent_id] = text
 
-        unified: Optional[torch.Tensor] = None
+        unified: Optional[Any] = None
         vision_feat = features if features is not None else vit_features
         if text is not None and vision_feat is not None:
-            vision_tensor = torch.as_tensor(vision_feat)
-            text_tensor = torch.as_tensor(text)
-            if self._attn is None:
-                self._attn = CrossModalAttention(vision_tensor.shape[-1])
-            unified = self._attn(vision_tensor, text_tensor)
+            embed_dim = _vector_length(vision_feat)
+            if self._attn is None or getattr(self._attn, "embed_dim", None) != embed_dim:
+                self._attn = CrossModalAttention(embed_dim)
+            unified = self._attn(vision_feat, text)
             self._unified[agent_id] = unified
 
         return unified

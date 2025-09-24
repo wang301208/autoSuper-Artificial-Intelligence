@@ -130,13 +130,34 @@ class WorldModel:
     # ------------------------------------------------------------------
     # Prediction APIs
     # ------------------------------------------------------------------
-    def predict(self, agent_id: Optional[str] = None) -> Dict[str, float]:
+    def predict(
+        self,
+        agent_id: Optional[str] = None,
+        resources: Optional[Dict[str, Dict[str, float]]] = None,
+    ) -> Dict[str, float]:
         """Predict resource usage.
 
-        Args:
-            agent_id: If provided, return predictions specific to this agent.
-                Otherwise, return average predictions across all agents.
+        Parameters
+        ----------
+        agent_id:
+            When provided, return predictions specific to this agent.
+        resources:
+            Optional snapshot of current resource usage for multiple agents.
+            When supplied, the snapshot is incorporated before computing
+            predictions so callers without prior calls to :meth:`update_resources`
+            can still obtain meaningful averages.  For backwards compatibility a
+            mapping passed as the first argument is also accepted.
         """
+
+        if isinstance(agent_id, dict) and resources is None:
+            resources = agent_id
+            agent_id = None
+
+        if resources:
+            for res_agent, usage in resources.items():
+                if not isinstance(usage, dict):
+                    continue
+                self.update_resources(str(res_agent), usage)
 
         if agent_id is not None:
             return self._predictions.get(agent_id, {"cpu": 0.0, "memory": 0.0})
@@ -146,7 +167,7 @@ class WorldModel:
 
         total_cpu = sum(p.get("cpu", 0.0) for p in self._predictions.values())
         total_mem = sum(p.get("memory", 0.0) for p in self._predictions.values())
-        count = len(self._predictions)
+        count = len(self._predictions) or 1
         return {"avg_cpu": total_cpu / count, "avg_memory": total_mem / count}
 
 
