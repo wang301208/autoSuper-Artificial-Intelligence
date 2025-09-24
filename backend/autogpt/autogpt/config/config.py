@@ -45,16 +45,16 @@ GPT_3_MODEL = OpenAIModelName.GPT3
 def _brain_backend_from_env() -> BrainBackend:
     value = os.getenv("BRAIN_BACKEND")
     if not value:
-        return BrainBackend.LLM
+        return BrainBackend.WHOLE_BRAIN
     try:
         return BrainBackend(value.lower())
     except ValueError:
         logger.warning(
             "Invalid BRAIN_BACKEND value '%s'; falling back to '%s'.",
             value,
-            BrainBackend.LLM.value,
+            BrainBackend.WHOLE_BRAIN.value,
         )
-        return BrainBackend.LLM
+        return BrainBackend.WHOLE_BRAIN
 
 
 def _auto_authorize_from_env() -> float:
@@ -176,7 +176,7 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
         from_env=lambda: os.getenv("USE_TRANSFORMER_BRAIN", "False") == "True",
     )
     brain_backend: BrainBackend = UserConfigurable(
-        default=BrainBackend.LLM,
+        default=BrainBackend.WHOLE_BRAIN,
         from_env=_brain_backend_from_env,
     )
     whole_brain: WholeBrainConfig = Field(default_factory=WholeBrainConfig)

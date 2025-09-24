@@ -149,9 +149,12 @@ def _resolve_brain_backend(backend: BrainBackend | str | None) -> BrainBackend:
     if isinstance(backend, BrainBackend):
         return backend
     if backend is None:
-        return BrainBackend.LLM
+        return BrainBackend.WHOLE_BRAIN
+    backend_value = str(backend).strip().lower()
+    if not backend_value:
+        return BrainBackend.WHOLE_BRAIN
     try:
-        return BrainBackend(str(backend).lower())
+        return BrainBackend(backend_value)
     except ValueError:
         return BrainBackend.LLM
 
