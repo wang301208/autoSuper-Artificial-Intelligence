@@ -1,13 +1,14 @@
-"""High level integration of simplified brain modules.
+"""Production-grade integration of the cognitive architecture.
 
-This module wires together the sensory, cognitive, emotional, conscious and
-motor components defined in the surrounding package. The implementation is
-deliberately light-weight - the goal is simply to demonstrate how information
-might flow through the different subsystems in a single processing cycle.
+This module orchestrates the sensory, cognitive, emotional, conscious and
+motor components defined in the surrounding package.  The implementation now
+supports stateful streaming inputs, neuromorphic hardware backends, cognitive
+policy pluggability and telemetry suitable for deployment scenarios.
 
 The :class:`WholeBrainSimulation` class exposes a :meth:`process_cycle` method
-which accepts a dictionary of input data and returns a structured ``BrainCycleResult``
-containing perception, emotion, and action intent snapshots.
+which accepts structured input data and returns a detailed
+``BrainCycleResult`` containing perception, emotion, and action intent
+snapshots for downstream agents.
 """
 
 from __future__ import annotations
