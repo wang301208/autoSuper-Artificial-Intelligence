@@ -4,6 +4,7 @@ from .cerebellum import Cerebellum
 from .limbic import LimbicSystem
 from .oscillations import NeuralOscillations
 from .whole_brain import WholeBrainSimulation
+from .anatomy import BrainAtlas, BrainRegion, ConnectomeMatrix, BrainFunctionalTopology
 from .security import NeuralSecurityGuard
 from .self_healing import SelfHealingBrain
 from .self_learning import SelfLearningBrain
@@ -27,6 +28,10 @@ __all__ = [
     "LimbicSystem",
     "NeuralOscillations",
     "WholeBrainSimulation",
+    "BrainAtlas",
+    "BrainRegion",
+    "ConnectomeMatrix",
+    "BrainFunctionalTopology",
     "NeuralSecurityGuard",
     "SelfHealingBrain",
     "SelfLearningBrain",
