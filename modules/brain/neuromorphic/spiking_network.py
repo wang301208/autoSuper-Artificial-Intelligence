@@ -11,6 +11,8 @@ import json
 import logging
 import math
 import random
+from urllib import request as urllib_request
+from urllib.error import URLError
 from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
@@ -1192,6 +1194,63 @@ class CallableHardwareBackend(BaseHardwareBackend):
             **kwargs,
         )
 
+    @staticmethod
+    def _normalise_http_headers(headers: Mapping[str, Any] | None) -> Dict[str, str]:
+        normalized: Dict[str, str] = {}
+        if not headers:
+            return normalized
+        for key, value in headers.items():
+            try:
+                normalized[str(key)] = str(value)
+            except Exception:
+                continue
+        return normalized
+
+    def _build_http_runner(
+        self,
+        endpoint: str,
+        *,
+        timeout: float | None = None,
+        headers: Mapping[str, Any] | None = None,
+    ) -> Callable[..., Any]:
+        normalized_headers = self._normalise_http_headers(headers)
+        normalized_headers.setdefault("Content-Type", "application/json")
+
+        def _run(events, **kwargs):
+            payload = {
+                "events": events,
+                "options": kwargs,
+            }
+            data = json.dumps(payload).encode("utf-8")
+            request = urllib_request.Request(
+                endpoint,
+                data=data,
+                headers=normalized_headers,
+                method="POST",
+            )
+            try:
+                with urllib_request.urlopen(request, timeout=timeout) as response:
+                    raw = response.read()
+            except URLError as exc:
+                raise HardwareIntegrationError(
+                    f"Failed to reach neuromorphic hardware at {endpoint}: {exc}"
+                ) from exc
+            except Exception as exc:  # pragma: no cover - defensive network handling
+                raise HardwareIntegrationError(
+                    f"Unexpected error contacting neuromorphic hardware: {exc}"
+                ) from exc
+            if not raw:
+                return {}
+            try:
+                decoded = json.loads(raw.decode("utf-8"))
+            except Exception as exc:
+                raise HardwareIntegrationError(
+                    "Hardware response was not valid JSON"
+                ) from exc
+            return decoded
+
+        return _run
+
     def _initialise_hardware(
         self, config: SpikingNetworkConfig, **kwargs
     ) -> Mapping[str, Any] | None:
@@ -1200,6 +1259,15 @@ class CallableHardwareBackend(BaseHardwareBackend):
         reset_fn = kwargs.pop("reset_fn", None)
         describe_fn = kwargs.pop("describe_fn", None)
         decode_fn = kwargs.pop("decode_fn", None)
+        http_endpoint = kwargs.pop("hardware_endpoint", None) or kwargs.pop("http_endpoint", None)
+        http_headers = kwargs.pop("hardware_headers", None)
+        http_timeout = kwargs.pop("hardware_timeout", None)
+        if not callable(run_fn) and http_endpoint:
+            run_fn = self._build_http_runner(
+                str(http_endpoint),
+                timeout=float(http_timeout) if http_timeout is not None else None,
+                headers=http_headers,
+            )
         if not callable(run_fn):
             raise HardwareIntegrationError(
                 "Callable hardware backend requires a callable 'run_fn'."
@@ -1227,8 +1295,10 @@ class CallableHardwareBackend(BaseHardwareBackend):
                     context["description"] = description
             except Exception:
                 pass
-        if kwargs:
+        if kwargs or http_endpoint:
             context.setdefault("options", dict(kwargs))
+        if http_endpoint:
+            context.setdefault("hardware_endpoint", str(http_endpoint))
         return context
 
     def _hardware_reset(self) -> None:
@@ -1309,10 +1379,48 @@ class LoihiHardwareBackend(CallableHardwareBackend):
 
     hardware_name = "intel-loihi"
 
+    def _probe_endpoint(
+        self,
+        endpoint: str,
+        *,
+        timeout: float | None = None,
+    ) -> Dict[str, Any]:
+        base = endpoint.rstrip("/")
+        for suffix in ("", "/status", "/health"):
+            url = f"{base}{suffix}"
+            try:
+                with urllib_request.urlopen(url, timeout=timeout) as response:
+                    raw = response.read()
+            except Exception as exc:  # pragma: no cover - network diagnostics
+                logger.debug("Loihi hardware probe failed for %s: %s", url, exc)
+                continue
+            if not raw:
+                continue
+            try:
+                decoded = json.loads(raw.decode("utf-8"))
+            except Exception:
+                continue
+            if isinstance(decoded, dict):
+                decoded.setdefault("endpoint", url)
+                return decoded
+        return {}
+
     def _initialise_hardware(
         self, config: SpikingNetworkConfig, **kwargs
     ) -> Mapping[str, Any] | None:
         runner = kwargs.pop("runner", None)
+        endpoint = kwargs.get("hardware_endpoint") or kwargs.get("http_endpoint")
+        probe_context: Dict[str, Any] = {}
+        if endpoint and kwargs.pop("probe_endpoint", True):
+            timeout_value = kwargs.get("hardware_timeout")
+            try:
+                timeout = float(timeout_value) if timeout_value is not None else None
+            except (TypeError, ValueError):
+                timeout = None
+            probe_context = self._probe_endpoint(str(endpoint), timeout=timeout)
+            headers = probe_context.get("headers")
+            if headers and "hardware_headers" not in kwargs:
+                kwargs["hardware_headers"] = headers
         if runner is not None and "run_fn" not in kwargs:
             run_candidate = getattr(runner, "run", None) or getattr(runner, "execute", None)
             if callable(run_candidate):
@@ -1336,7 +1444,11 @@ class LoihiHardwareBackend(CallableHardwareBackend):
             raise HardwareIntegrationError(
                 "Loihi backend requires a runner exposing a 'run' method or a 'run_fn' argument."
             )
-        return super()._initialise_hardware(config, **kwargs)
+        context = super()._initialise_hardware(config, **kwargs) or {}
+        if probe_context:
+            context = dict(context)
+            context.setdefault("probe", probe_context)
+        return context
 
 
 class BrainScaleSHardwareBackend(CallableHardwareBackend):

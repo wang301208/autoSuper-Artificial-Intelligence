@@ -22,7 +22,7 @@ import hashlib
 import math
 import re
 from statistics import StatisticsError, mean, pstdev
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Mapping, Sequence, Tuple
 
 from schemas.emotion import EmotionalState, EmotionType
 
@@ -34,7 +34,13 @@ class EmotionModel:
 
     HASH_BUCKETS = 16
 
-    def __init__(self, weight_matrix: Sequence[Sequence[float]] | None = None) -> None:
+    def __init__(
+        self,
+        weight_matrix: Sequence[Sequence[float]] | None = None,
+        learning_rate: float = 0.03,
+        regularization: float = 1e-3,
+        momentum: float = 0.5,
+    ) -> None:
         self.weight_matrix: List[List[float]] = [
             list(row)
             for row in (
@@ -42,6 +48,13 @@ class EmotionModel:
                 if weight_matrix is not None
                 else self._default_weight_matrix()
             )
+        ]
+        self.learning_rate = max(1e-4, float(learning_rate))
+        self.regularization = max(0.0, float(regularization))
+        self.momentum = max(0.0, min(0.99, float(momentum)))
+        self.weight_clip = 5.0
+        self._velocity: List[List[float]] = [
+            [0.0 for _ in row] for row in self.weight_matrix
         ]
 
     @staticmethod
@@ -253,6 +266,50 @@ class EmotionModel:
         }
         return dimensions, logits, vector
 
+    def update(
+        self,
+        vector: Sequence[float],
+        targets: Mapping[str, float],
+        logits: Sequence[float],
+    ) -> None:
+        if not vector or len(logits) < 3:
+            return
+        if any(len(row) != len(vector) for row in self.weight_matrix):
+            return
+        outputs = [
+            math.tanh(logits[0]),
+            1.0 / (1.0 + math.exp(-logits[1])),
+            math.tanh(logits[2]),
+        ]
+        derivatives = [
+            1.0 - outputs[0] ** 2,
+            outputs[1] * (1.0 - outputs[1]),
+            1.0 - outputs[2] ** 2,
+        ]
+        for idx, key in enumerate(("valence", "arousal", "dominance")):
+            derivative = derivatives[idx]
+            if derivative == 0.0:
+                continue
+            target_value = float(targets.get(key, outputs[idx]))
+            error = target_value - outputs[idx]
+            gradient_scale = error * derivative
+            if abs(gradient_scale) < 1e-9:
+                continue
+            row = self.weight_matrix[idx]
+            velocity_row = self._velocity[idx]
+            for j, feature in enumerate(vector):
+                feature_value = float(feature)
+                gradient = gradient_scale * feature_value - self.regularization * row[j]
+                velocity_row[j] = (
+                    self.momentum * velocity_row[j]
+                    + self.learning_rate * gradient
+                )
+                row[j] += velocity_row[j]
+                if row[j] > self.weight_clip:
+                    row[j] = self.weight_clip
+                elif row[j] < -self.weight_clip:
+                    row[j] = -self.weight_clip
+
 
 class EmotionProcessor:
     """Data-driven emotion classifier using lightweight VAD regression."""
@@ -408,6 +465,46 @@ class EmotionProcessor:
                 continue
         return normalized
 
+    def _derive_targets(
+        self,
+        lexical_vad: Dict[str, float],
+        features: Dict[str, float],
+        context: Dict[str, float],
+    ) -> Dict[str, float]:
+        sentiment = float(features.get("sentiment", 0.0))
+        intensity = float(features.get("intensity", 0.0))
+        activation = float(features.get("activation", 0.0))
+        emphasis = float(features.get("emphasis", 0.0))
+        safety = float(context.get("safety", 0.0))
+        threat = float(context.get("threat", 0.0))
+        social = float(context.get("social", 0.0))
+        novelty = float(context.get("novelty", 0.0))
+        control = float(context.get("control", 0.0))
+        fatigue = float(context.get("fatigue", 0.0))
+        base_valence = float(lexical_vad.get("valence", 0.0))
+        base_arousal = float(lexical_vad.get("arousal", 0.5))
+        base_dominance = float(lexical_vad.get("dominance", 0.0))
+        target_valence = base_valence + sentiment * 0.4 + safety * 0.3 - threat * 0.45 + social * 0.2
+        target_arousal = (
+            base_arousal
+            + intensity * 0.35
+            + activation * 0.25
+            + novelty * 0.3
+            - fatigue * 0.4
+        )
+        target_dominance = (
+            base_dominance
+            + control * 0.5
+            + safety * 0.2
+            - threat * 0.25
+            + emphasis * 0.2
+        )
+        return {
+            "valence": max(-1.0, min(1.0, target_valence)),
+            "arousal": max(0.0, min(1.0, target_arousal)),
+            "dominance": max(-1.0, min(1.0, target_dominance)),
+        }
+
     def evaluate(
         self, stimulus: str, context: Dict[str, float] | None = None
     ) -> Tuple[EmotionType, Dict[str, float], Dict[str, float]]:
@@ -428,6 +525,8 @@ class EmotionProcessor:
             positive_ratio,
             negative_ratio,
         )
+        targets = self._derive_targets(lexical_vad, features, context_weights)
+        self.model.update(vector, targets, logits)
         self.last_inference = {
             "logits": logits,
             "features": vector,
