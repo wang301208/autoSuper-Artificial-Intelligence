@@ -152,9 +152,18 @@ class SimpleAbilityRegistry(AbilityRegistry, Configurable):
         if ability_configuration.workspace_required:
             ability_args["workspace"] = self._workspace
         if ability_configuration.language_model_required:
-            ability_args["language_model_provider"] = self._model_providers[
-                ability_configuration.language_model_required.provider_name
-            ]
+            provider_name = ability_configuration.language_model_required.provider_name
+            provider = self._model_providers.get(provider_name)
+            if provider is None and hasattr(provider_name, "value"):
+                provider = self._model_providers.get(provider_name.value)
+            if provider is None:
+                self._logger.debug(
+                    "Skipping ability '%s' due to missing provider '%s'",
+                    ability_name,
+                    provider_name,
+                )
+                return
+            ability_args["language_model_provider"] = provider
         ability = ability_class(**ability_args)
         self._abilities.append(ability)
 
