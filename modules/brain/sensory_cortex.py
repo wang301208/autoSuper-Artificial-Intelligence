@@ -120,11 +120,36 @@ class EdgeDetector:
         encoded = signal or self.encoder.encode(image)
         arr = _as_array(encoded.vector)
         density = float(np.mean(arr > 0.2)) if arr.size else 0.0
+        orientation_hist = encoded.metadata.get("orientation_histogram")
+        if not orientation_hist:
+            orientation_hist = getattr(self.encoder, "last_orientation_histogram", None) or []
+        angles = encoded.metadata.get("orientation_angles") or [0, 45, 90, 135]
+        orientation_map = dict(zip(angles, orientation_hist)) if orientation_hist else {}
+        orientation_values = np.asarray(list(orientation_map.values()), dtype=np.float32)
+        orientation_entropy = 0.0
+        dominant_orientation = 0.0
+        orientation_strength = 0.0
+        if orientation_values.size:
+            probs = orientation_values / (orientation_values.sum() or 1.0)
+            orientation_entropy = float(-(probs * np.log(probs + 1e-9)).sum())
+            dominant_index = int(np.argmax(probs))
+            dominant_orientation = float(angles[dominant_index])
+            orientation_strength = float(orientation_values.max())
+        multi_scale = encoded.metadata.get("multi_scale_contrast")
+        if not multi_scale:
+            multi_scale = getattr(self.encoder, "_last_contrast", None) or []
+        multi_scale_mean = float(np.mean(multi_scale)) if multi_scale else 0.0
+        edge_variability = float(arr.std()) if arr.size else 0.0
         return _stage_payload(
             "V1",
             encoded,
             {
                 "edge_density": density,
+                "edge_variability": edge_variability,
+                "orientation_entropy": orientation_entropy,
+                "dominant_orientation": dominant_orientation,
+                "orientation_strength": orientation_strength,
+                "multi_scale_mean": multi_scale_mean,
             },
         )
 
@@ -145,20 +170,37 @@ class V2:
         encoded = signal or self.encoder.encode(image)
         arr = _as_array(encoded.vector)
         if arr.size:
-            midpoint = arr.size // 2
-            left = float(arr[:midpoint].mean()) if midpoint else float(arr.mean())
-            right = float(arr[midpoint:].mean()) if midpoint else left
-            complexity = float(arr.std())
-            symmetry = float(abs(left - right))
+            side = int(np.sqrt(arr.size))
+            if side * side == arr.size:
+                grid = arr.reshape(side, side)
+            else:
+                grid = arr.reshape(1, -1)
+            left = float(grid[:, : grid.shape[1] // 2].mean()) if grid.size else 0.0
+            right = float(grid[:, grid.shape[1] // 2 :].mean()) if grid.size else left
+            top = float(grid[: grid.shape[0] // 2, :].mean()) if grid.size else 0.0
+            bottom = (
+                float(grid[grid.shape[0] // 2 :, :].mean()) if grid.size else top
+            )
+            complexity = float(grid.std())
+            symmetry = float(abs(left - right) + abs(top - bottom)) / 2.0
         else:
             complexity = 0.0
             symmetry = 0.0
+        orientation_balance = float(
+            abs(
+                encoded.features.get("orientation_0", 0.0)
+                - encoded.features.get("orientation_90", 0.0)
+            )
+        )
+        scale_mean = float(encoded.features.get("multi_scale_contrast", 0.0))
         return _stage_payload(
             "V2",
             encoded,
             {
                 "form_complexity": complexity,
                 "form_symmetry": symmetry,
+                "orientation_balance": orientation_balance,
+                "scale_contrast": scale_mean,
             },
         )
 
@@ -171,11 +213,18 @@ class V4:
         encoded = signal or self.encoder.encode(image)
         arr = _as_array(encoded.vector)
         color_salience = float(arr.max() - arr.min()) if arr.size else 0.0
+        orientation_strength = encoded.features.get("orientation_0", 0.0) + encoded.features.get(
+            "orientation_90", 0.0
+        )
+        multi_scale = encoded.features.get("multi_scale_contrast", 0.0)
+        global_salience = float(multi_scale * (1.0 + orientation_strength))
         return _stage_payload(
             "V4",
             encoded,
             {
                 "color_salience": color_salience,
+                "global_salience": global_salience,
+                "mean_intensity": float(encoded.features.get("mean_intensity", 0.0)),
             },
         )
 
@@ -183,18 +232,45 @@ class V4:
 class MT:
     def __init__(self, encoder: VisualEncoder | None = None) -> None:
         self.encoder = encoder or VisualEncoder()
+        self._previous_frame: np.ndarray | None = None
 
     def process(self, image: Any, signal: EncodedSignal | None = None) -> Dict[str, Any]:
         encoded = signal or self.encoder.encode(image)
-        arr = _as_array(encoded.vector)
-        motion_energy = float(np.mean(np.abs(np.diff(arr)))) if arr.size > 1 else 0.0
-        motion_bias = float(arr[-1] - arr[0]) if arr.size > 1 else 0.0
+        frame = getattr(self.encoder, "last_frame", None)
+        motion_energy = 0.0
+        motion_bias = 0.0
+        motion_velocity = 0.0
+        temporal_consistency = 0.0
+        if frame is not None and self._previous_frame is not None:
+            if frame.shape == self._previous_frame.shape:
+                delta = frame - self._previous_frame
+                motion_energy = float(np.mean(np.abs(delta)))
+                motion_bias = float(delta.mean())
+                motion_velocity = float(np.linalg.norm(delta) / (delta.size + 1e-6))
+                try:
+                    flattened_current = frame.flatten()
+                    flattened_previous = self._previous_frame.flatten()
+                    if flattened_current.size and flattened_previous.size:
+                        temporal_consistency = float(
+                            np.corrcoef(flattened_current, flattened_previous)[0, 1]
+                        )
+                except Exception:
+                    temporal_consistency = 0.0
+        else:
+            arr = _as_array(encoded.vector)
+            if arr.size > 1:
+                motion_energy = float(np.mean(np.abs(np.diff(arr))))
+                motion_bias = float(arr[-1] - arr[0])
+                motion_velocity = motion_energy
+        self._previous_frame = None if frame is None else np.array(frame, copy=True)
         return _stage_payload(
             "MT",
             encoded,
             {
                 "motion_energy": motion_energy,
                 "motion_bias": motion_bias,
+                "motion_velocity": motion_velocity,
+                "temporal_consistency": temporal_consistency,
             },
         )
 
@@ -249,13 +325,19 @@ class FrequencyAnalyzer:
         else:
             dominant_band = 0
             band_energy = 0.0
+        features = {
+            "dominant_band": float(dominant_band),
+            "band_energy": band_energy,
+            "spectral_flux": float(encoded.features.get("spectral_flux", 0.0)),
+            "spectral_rolloff": float(encoded.features.get("spectral_rolloff", 0.0)),
+            "temporal_modulation": float(encoded.features.get("temporal_modulation", 0.0)),
+        }
+        if band_profile.size > 1:
+            features["bandwidth"] = float(np.std(band_profile))
         return _stage_payload(
             "A1",
             encoded,
-            {
-                "dominant_band": float(dominant_band),
-                "band_energy": band_energy,
-            },
+            features,
         )
 
 
@@ -284,13 +366,16 @@ class A2:
         else:
             temporal_variance = float(np.var(arr)) if arr.size else 0.0
             spectral_spread = 0.0
+        features = {
+            "temporal_variance": temporal_variance,
+            "spectral_spread": spectral_spread,
+            "spectral_flux": float(encoded.features.get("spectral_flux", 0.0)),
+            "temporal_modulation": float(encoded.features.get("temporal_modulation", 0.0)),
+        }
         return _stage_payload(
             "A2",
             encoded,
-            {
-                "temporal_variance": temporal_variance,
-                "spectral_spread": spectral_spread,
-            },
+            features,
         )
 
 
@@ -342,6 +427,9 @@ class TouchProcessor:
             {
                 "central_pressure": central_pressure,
                 "edge_pressure": edge_pressure,
+                "gradient_energy": float(encoded.features.get("gradient_energy", 0.0)),
+                "shear_ratio": float(encoded.features.get("shear_ratio", 0.0)),
+                "pressure_stability": float(abs(central_pressure - edge_pressure)),
             },
         )
 

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import logging
 import math
-import numpy as np
+import random
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from numbers import Real
-from collections import OrderedDict, deque
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+
+import numpy as np
 
 from schemas.emotion import EmotionType
 
@@ -59,6 +61,10 @@ def default_plan_for_intention(
     """Generate a lightweight plan for a given intention."""
 
     context = context or {}
+    threat = float(context.get("threat", 0.0) or 0.0)
+    safety = float(context.get("safety", 0.0) or 0.0)
+    novelty = float(context.get("novelty", 0.0) or 0.0)
+    social = float(context.get("social", 0.0) or 0.0)
     plan: List[str] = []
     if intention == "explore":
         plan = [
@@ -66,20 +72,38 @@ def default_plan_for_intention(
             f"focus_{focus}" if focus else "sample_new_modalities",
             "log_novelty",
         ]
+        if novelty < 0.3:
+            plan.append("expand_search_radius")
+        else:
+            plan.append("synthesise_discovery_brief")
     elif intention == "approach":
         plan = [
             "identify_positive_stimulus",
             f"move_towards_{focus}" if focus else "establish_focus",
             "engage",
         ]
+        if social > 0.4:
+            plan.append("synchronise_with_allies")
+        if safety < 0.3:
+            plan.append("verify_safety_corridor")
     elif intention == "withdraw":
         plan = ["assess_risk", "increase_distance", "seek_support"]
+        if threat > 0.6:
+            plan.insert(0, "raise_alert")
+        if safety < 0.2:
+            plan.append("establish_emergency_contact")
     else:
         plan = ["monitor_sensory_streams", "maintain_attention"]
+        if threat > 0.4:
+            plan.append("prepare_contingency")
+        if novelty > 0.5:
+            plan.append("capture_observations")
 
     task = context.get("task")
     if task:
         plan.append(f"respect_task_{task}")
+    if safety > 0.7 and "log_positive_feedback" not in plan:
+        plan.append("log_positive_feedback")
     return [step for step in plan if step]
 
 
@@ -305,6 +329,254 @@ class StructuredPlanner:
         if "archive_cognitive_trace" not in seen:
             deduped.append("archive_cognitive_trace")
         return deduped
+
+
+class ReinforcementCognitivePolicy(CognitivePolicy):
+    """On-line reinforcement learning policy using tabular Q-learning."""
+
+    INTENTIONS: Tuple[str, ...] = ("observe", "approach", "withdraw", "explore")
+
+    def __init__(
+        self,
+        *,
+        learning_rate: float = 0.08,
+        discount: float = 0.85,
+        exploration: float = 0.12,
+        exploration_decay: float = 0.995,
+        min_exploration: float = 0.02,
+        planner: Optional[StructuredPlanner] = None,
+        fallback: Optional[CognitivePolicy] = None,
+    ) -> None:
+        self.learning_rate = max(1e-3, float(learning_rate))
+        self.discount = max(0.0, min(0.99, float(discount)))
+        self.exploration = max(0.0, min(1.0, float(exploration)))
+        self.exploration_decay = max(0.9, min(0.9999, float(exploration_decay)))
+        self.min_exploration = max(0.0, min(0.2, float(min_exploration)))
+        self.q_table: Dict[Tuple[Any, ...], Dict[str, float]] = {}
+        self.last_state: Optional[Tuple[Any, ...]] = None
+        self.last_action: Optional[str] = None
+        self.last_value: float = 0.0
+        self.planner = planner or StructuredPlanner(min_steps=4)
+        self.fallback = fallback or ProductionCognitivePolicy(planner=self.planner)
+        self._temperature = 1.0
+
+    def _bucket(
+        self,
+        value: float,
+        bins: int = 5,
+        *,
+        span: Tuple[float, float] = (-1.0, 1.0),
+    ) -> int:
+        low, high = span
+        value = max(low, min(high, float(value)))
+        step = (high - low) / max(1, bins)
+        if step <= 0:
+            return 0
+        return int(math.floor((value - low) / step))
+
+    def _encode_state(
+        self,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        personality: PersonalityProfile,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+        learning_prediction: Optional[Dict[str, float]],
+    ) -> Tuple[Any, ...]:
+        focus = max(summary, key=summary.get) if summary else "none"
+        valence = emotion.dimensions.get("valence", 0.0)
+        arousal = emotion.dimensions.get("arousal", 0.5)
+        dominance = emotion.dimensions.get("dominance", 0.0)
+        curiosity_drive = curiosity.drive
+        novelty = curiosity.last_novelty
+        threat = float(context.get("threat", 0.0) or 0.0)
+        safety = float(context.get("safety", 0.0) or 0.0)
+        social = float(context.get("social", 0.0) or 0.0)
+        cpu = float((learning_prediction or {}).get("cpu", 0.0))
+        memory = float((learning_prediction or {}).get("memory", 0.0))
+        personality_bins = tuple(
+            self._bucket(personality.traits.get(name, 0.0), 5)
+            for name in sorted(personality.traits)
+        )
+        state = (
+            focus,
+            self._bucket(valence, 7),
+            self._bucket(arousal, 7, span=(0.0, 1.0)),
+            self._bucket(dominance, 7),
+            self._bucket(curiosity_drive, 7, span=(0.0, 1.0)),
+            self._bucket(novelty, 7, span=(0.0, 1.0)),
+            self._bucket(threat, 7, span=(0.0, 1.0)),
+            self._bucket(safety, 7, span=(0.0, 1.0)),
+            self._bucket(social, 7, span=(0.0, 1.0)),
+            self._bucket(cpu, 7, span=(0.0, 1.0)),
+            self._bucket(memory, 7, span=(0.0, 1.0)),
+            personality_bins,
+        )
+        return state
+
+    def _ensure_state(self, state: Tuple[Any, ...]) -> Dict[str, float]:
+        if state not in self.q_table:
+            self.q_table[state] = {intent: 0.0 for intent in self.INTENTIONS}
+        return self.q_table[state]
+
+    def _policy_distribution(self, q_values: Dict[str, float]) -> Dict[str, float]:
+        if not q_values:
+            return {intent: 1.0 / len(self.INTENTIONS) for intent in self.INTENTIONS}
+        scaled = {
+            intent: value / max(1e-6, self._temperature)
+            for intent, value in q_values.items()
+        }
+        max_value = max(scaled.values())
+        exp_values = {intent: math.exp(value - max_value) for intent, value in scaled.items()}
+        total = sum(exp_values.values()) or 1.0
+        return {intent: exp_value / total for intent, exp_value in exp_values.items()}
+
+    def _derive_reward(
+        self,
+        emotion: EmotionSnapshot,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+    ) -> float:
+        reward = 0.0
+        reward += float(emotion.dimensions.get("valence", 0.0)) * 0.6
+        reward += float(emotion.dimensions.get("dominance", 0.0)) * 0.2
+        reward += float(curiosity.drive) * 0.1
+        reward += float(curiosity.last_novelty) * 0.1
+        reward -= float(context.get("threat", 0.0) or 0.0) * 0.4
+        reward += float(context.get("safety", 0.0) or 0.0) * 0.3
+        if "reward" in context:
+            try:
+                reward = float(context["reward"])
+            except (TypeError, ValueError):
+                pass
+        elif "feedback" in context:
+            try:
+                reward += float(context["feedback"])
+            except (TypeError, ValueError):
+                pass
+        return max(-1.0, min(1.0, reward))
+
+    def _update_q_value(
+        self,
+        state: Tuple[Any, ...],
+        action: str,
+        reward: float,
+        next_state: Tuple[Any, ...],
+    ) -> None:
+        table = self._ensure_state(state)
+        current = table.get(action, 0.0)
+        next_values = self._ensure_state(next_state)
+        best_next = max(next_values.values()) if next_values else 0.0
+        target = reward + self.discount * best_next
+        updated = current + self.learning_rate * (target - current)
+        table[action] = updated
+
+    def _apply_learning(
+        self,
+        reward: float,
+        next_state: Tuple[Any, ...],
+    ) -> None:
+        if self.last_state is None or self.last_action is None:
+            return
+        try:
+            self._update_q_value(self.last_state, self.last_action, reward, next_state)
+        finally:
+            self.last_value = reward
+
+    def select_intention(
+        self,
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        personality: PersonalityProfile,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+        learning_prediction: Optional[Dict[str, float]] = None,
+        history: Optional[Sequence[Dict[str, Any]]] = None,
+    ) -> CognitiveDecision:
+        context = dict(context or {})
+        current_state = self._encode_state(
+            summary, emotion, personality, curiosity, context, learning_prediction
+        )
+        reward = self._derive_reward(emotion, curiosity, context)
+        self._apply_learning(reward, current_state)
+        q_values = self._ensure_state(current_state)
+
+        self._temperature = max(
+            0.2,
+            min(
+                1.5,
+                1.0
+                - float(emotion.dimensions.get("valence", 0.0)) * 0.3
+                + float(curiosity.last_novelty) * 0.2
+                + float(context.get("threat", 0.0) or 0.0) * 0.3,
+            ),
+        )
+        exploration_rate = self.exploration
+        if history:
+            exploration_rate = max(
+                self.min_exploration,
+                self.exploration * (self.exploration_decay ** len(history)),
+            )
+        if random.random() < exploration_rate:
+            intention = random.choice(self.INTENTIONS)
+        else:
+            intention = max(q_values.items(), key=lambda item: item[1])[0]
+        distribution = self._policy_distribution(q_values)
+        confidence = distribution.get(intention, 0.25)
+        focus = max(summary, key=summary.get) if summary else None
+        plan = self.planner.generate(
+            intention,
+            focus,
+            context,
+            perception,
+            summary,
+            emotion,
+            curiosity,
+            history=history,
+            learning_prediction=learning_prediction,
+        )
+        tags = [intention, "reinforcement-policy"]
+        if focus:
+            tags.append(f"focus-{focus}")
+        if exploration_rate > self.min_exploration * 1.1:
+            tags.append("exploring")
+        thought_trace = [
+            f"reward={reward:.2f}",
+            f"exploration={exploration_rate:.2f}",
+            f"valence={emotion.dimensions.get('valence', 0.0):.2f}",
+            f"arousal={emotion.dimensions.get('arousal', 0.0):.2f}",
+            f"novelty={curiosity.last_novelty:.2f}",
+        ]
+        if learning_prediction:
+            thought_trace.append(
+                f"cpu={float(learning_prediction.get('cpu', 0.0)):.2f}"
+            )
+            thought_trace.append(
+                f"mem={float(learning_prediction.get('memory', 0.0)):.2f}"
+            )
+
+        summary_text = ", ".join(f"{k}:{v:.2f}" for k, v in summary.items()) or "no-salient-modalities"
+        decision = CognitiveDecision(
+            intention=intention,
+            confidence=confidence,
+            plan=plan,
+            weights=distribution,
+            tags=tags,
+            focus=focus,
+            summary=summary_text,
+            thought_trace=thought_trace,
+            perception_summary=dict(summary),
+            metadata={
+                "policy": "reinforcement",
+                "reward": reward,
+                "exploration_rate": exploration_rate,
+            },
+        )
+        self.last_state = current_state
+        self.last_action = intention
+        self.exploration = max(self.min_exploration, self.exploration * self.exploration_decay)
+        return decision
 
 
 class ProductionCognitivePolicy(CognitivePolicy):
@@ -723,7 +995,7 @@ class CognitiveModule:
     ) -> None:
         self.memory_window = memory_window
         self.episodic_memory: deque[dict[str, Any]] = deque(maxlen=memory_window)
-        self.policy: CognitivePolicy = policy or ProductionCognitivePolicy()
+        self.policy: CognitivePolicy = policy or ReinforcementCognitivePolicy()
         self._confidence_history: deque[float] = deque(maxlen=max(4, memory_window))
 
     def set_policy(self, policy: CognitivePolicy) -> None:

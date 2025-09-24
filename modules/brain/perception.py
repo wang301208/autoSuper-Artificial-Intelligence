@@ -60,18 +60,57 @@ def _resize_bilinear(image: np.ndarray, target_shape: Tuple[int, int]) -> np.nda
     return resized
 
 
-def _sobel_edges(image: np.ndarray) -> np.ndarray:
-    kernel_x = np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]], dtype=np.float32)
-    kernel_y = np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], dtype=np.float32)
-    padded = np.pad(image, 1, mode="edge")
-    gx = np.zeros_like(image)
-    gy = np.zeros_like(image)
+def _convolve2d(image: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    kernel = np.asarray(kernel, dtype=np.float32)
+    kh, kw = kernel.shape
+    pad_h, pad_w = kh // 2, kw // 2
+    padded = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode="reflect")
+    result = np.zeros_like(image, dtype=np.float32)
     for i in range(image.shape[0]):
         for j in range(image.shape[1]):
-            region = padded[i : i + 3, j : j + 3]
-            gx[i, j] = np.sum(region * kernel_x)
-            gy[i, j] = np.sum(region * kernel_y)
-    return np.sqrt(gx ** 2 + gy ** 2)
+            region = padded[i : i + kh, j : j + kw]
+            result[i, j] = float(np.sum(region * kernel))
+    return result
+
+
+_ORIENTATION_KERNELS: Dict[int, np.ndarray] = {
+    0: np.array([[1, 0, -1], [2, 0, -2], [1, 0, -1]], dtype=np.float32),
+    45: np.array([[2, 1, 0], [1, 0, -1], [0, -1, -2]], dtype=np.float32),
+    90: np.array([[1, 2, 1], [0, 0, 0], [-1, -2, -1]], dtype=np.float32),
+    135: np.array([[0, 1, 2], [-1, 0, 1], [-2, -1, 0]], dtype=np.float32),
+}
+
+
+def _sobel_edges(image: np.ndarray) -> np.ndarray:
+    kernel_x = _ORIENTATION_KERNELS[0]
+    kernel_y = _ORIENTATION_KERNELS[90]
+    gx = _convolve2d(image, kernel_x)
+    gy = _convolve2d(image, kernel_y)
+    return np.sqrt(gx**2 + gy**2)
+
+
+def _orientation_statistics(image: np.ndarray) -> Tuple[Dict[int, float], list[float], float]:
+    responses: Dict[int, float] = {}
+    for angle, kernel in _ORIENTATION_KERNELS.items():
+        response = np.abs(_convolve2d(image, kernel))
+        responses[angle] = float(response.mean())
+    if not responses:
+        return {}, [], 0.0
+    histogram = np.array([responses[angle] for angle in sorted(responses)], dtype=np.float32)
+    total = float(histogram.sum()) or 1.0
+    histogram = (histogram / total).tolist()
+    variance = float(np.var(list(responses.values()))) if len(responses) > 1 else 0.0
+    return responses, histogram, variance
+
+
+def _multi_scale_contrast(image: np.ndarray, scales: Tuple[int, ...]) -> list[float]:
+    values: list[float] = []
+    for scale in scales:
+        if scale <= 0:
+            continue
+        pooled = _resize_bilinear(image, (scale, scale))
+        values.append(float(pooled.std()))
+    return values
 
 
 def _split_sequences(data: Iterable[float], bucket: int) -> list[float]:
@@ -124,10 +163,63 @@ def _mel_filterbank(num_fft_bins: int, num_filters: int, sample_rate: int) -> np
     return fbanks
 
 
+def _spectral_rolloff(spectrogram: np.ndarray, rolloff: float = 0.85) -> float:
+    if spectrogram.size == 0:
+        return 0.0
+    power = np.maximum(spectrogram, 0.0)
+    cumulative = np.cumsum(power, axis=1)
+    totals = cumulative[:, -1][:, None]
+    if np.all(totals == 0):
+        return 0.0
+    thresholds = rolloff * totals
+    indices = np.argmax(cumulative >= thresholds, axis=1)
+    return float(indices.mean() / max(1, spectrogram.shape[1] - 1))
+
+
+def _spectral_flux(spectrogram: np.ndarray) -> float:
+    if spectrogram.shape[0] < 2:
+        return 0.0
+    diff = np.diff(spectrogram, axis=0)
+    diff = np.maximum(diff, 0.0)
+    norm = np.linalg.norm(diff, axis=1)
+    return float(norm.mean())
+
+
+def _temporal_modulation(spectrogram: np.ndarray) -> float:
+    if spectrogram.size == 0:
+        return 0.0
+    energy = spectrogram.mean(axis=1)
+    if energy.size < 2:
+        return 0.0
+    autocorr = np.correlate(energy - energy.mean(), energy - energy.mean(), mode="full")
+    mid = autocorr.size // 2
+    if mid == 0:
+        return 0.0
+    tail = autocorr[mid + 1 : mid + 4]
+    if tail.size == 0:
+        return 0.0
+    return float(np.max(tail) / (autocorr[mid] + 1e-6))
+
+
 class VisualEncoder:
     def __init__(self, target_size: Tuple[int, int] = (32, 32), pooling: Tuple[int, int] = (16, 16)) -> None:
         self.target_size = target_size
         self.pool_size = pooling
+        self._last_frame: np.ndarray | None = None
+        self._last_orientation: list[float] | None = None
+        self._last_contrast: list[float] | None = None
+
+    @property
+    def last_frame(self) -> np.ndarray | None:
+        if self._last_frame is None:
+            return None
+        return np.array(self._last_frame, copy=True)
+
+    @property
+    def last_orientation_histogram(self) -> list[float] | None:
+        if self._last_orientation is None:
+            return None
+        return list(self._last_orientation)
 
     def encode(self, image: Any) -> EncodedSignal:
         try:
@@ -144,13 +236,29 @@ class VisualEncoder:
         arr = _resize_bilinear(arr, self.target_size)
         edges = _sobel_edges(arr)
         pooled = _resize_bilinear(edges, self.pool_size)
+        orientation_stats, orientation_hist, orientation_var = _orientation_statistics(arr)
+        multi_scale = _multi_scale_contrast(arr, (self.pool_size[0] // 2, self.pool_size[0]))
         vector = pooled.flatten().tolist()
         features = {
             "mean_intensity": float(arr.mean()),
             "edge_energy": float(edges.mean()),
             "contrast": float(arr.std()),
+            "orientation_variance": float(orientation_var),
         }
-        metadata = {"resolution": list(arr.shape)}
+        for angle, value in orientation_stats.items():
+            features[f"orientation_{angle}"] = float(value)
+        for idx, value in enumerate(multi_scale):
+            features[f"multi_scale_contrast_{idx}"] = float(value)
+        features["multi_scale_contrast"] = float(np.mean(multi_scale)) if multi_scale else 0.0
+        metadata = {
+            "resolution": list(arr.shape),
+            "orientation_histogram": orientation_hist,
+            "multi_scale_contrast": multi_scale,
+            "orientation_angles": sorted(_ORIENTATION_KERNELS),
+        }
+        self._last_frame = np.array(arr, copy=True)
+        self._last_orientation = list(orientation_hist)
+        self._last_contrast = list(multi_scale)
         return EncodedSignal(vector=vector, features=features, metadata=metadata).ensure_numeric()
 
 
@@ -168,6 +276,14 @@ class AuditoryEncoder:
         self.frame_step = frame_step
         self.n_mels = n_mels
         self.max_frames = max_frames
+        self._last_mel: np.ndarray | None = None
+        self._last_power: np.ndarray | None = None
+
+    @property
+    def last_mel_spectrogram(self) -> np.ndarray | None:
+        if self._last_mel is None:
+            return None
+        return np.array(self._last_mel, copy=True)
 
     def encode(self, sound: Any) -> EncodedSignal:
         try:
@@ -199,23 +315,41 @@ class AuditoryEncoder:
         mel_spec = power @ fbanks.T
         mel_db = _power_to_db(mel_spec)
         mel_db = mel_db[: self.max_frames]
+        mel_spec = mel_spec[: self.max_frames]
         vector = mel_db.flatten().tolist()
         if not vector:
             vector = _split_sequences(mel_db.flatten(), self.n_mels * self.max_frames)
         mel_freqs = np.linspace(0, self.sample_rate / 2, self.n_mels)
-        centroid = float(np.sum(mel_spec.mean(axis=0) * mel_freqs) / (np.sum(mel_spec.mean(axis=0)) + 1e-8))
+        centroid = float(
+            np.sum(mel_spec.mean(axis=0) * mel_freqs) / (np.sum(mel_spec.mean(axis=0)) + 1e-8)
+        )
+        rolloff = _spectral_rolloff(mel_spec)
+        flux = _spectral_flux(mel_spec)
+        modulation = _temporal_modulation(mel_spec)
         features = {
             "mean_db": float(mel_db.mean()),
             "spectral_centroid": centroid,
             "energy": float(mel_spec.mean()),
+            "spectral_rolloff": float(rolloff),
+            "spectral_flux": float(flux),
+            "temporal_modulation": float(modulation),
         }
         metadata = {"frames": int(mel_db.shape[0]), "mels": self.n_mels}
+        self._last_mel = np.array(mel_db, copy=True)
+        self._last_power = np.array(mel_spec, copy=True)
         return EncodedSignal(vector=vector, features=features, metadata=metadata).ensure_numeric()
 
 
 class TactileEncoder:
     def __init__(self, grid_size: Tuple[int, int] = (8, 8)) -> None:
         self.grid_size = grid_size
+        self._last_grid: np.ndarray | None = None
+
+    @property
+    def last_grid(self) -> np.ndarray | None:
+        if self._last_grid is None:
+            return None
+        return np.array(self._last_grid, copy=True)
 
     def encode(self, stimulus: Any) -> EncodedSignal:
         try:
@@ -231,14 +365,21 @@ class TactileEncoder:
         if max_val > 0:
             arr = arr / max_val
         grid = _resize_bilinear(arr, self.grid_size)
+        gradient_x = _convolve2d(grid, np.array([[1, 0, -1]], dtype=np.float32))
+        gradient_y = _convolve2d(grid, np.array([[1], [0], [-1]], dtype=np.float32))
+        gradient_energy = float(np.mean(np.sqrt(gradient_x**2 + gradient_y**2)))
+        shear = float(np.mean(np.abs(gradient_x)))
         vector = grid.flatten().tolist()
         contact_area = float(np.mean(grid > 0.1))
         features = {
             "mean_pressure": float(grid.mean()),
             "max_pressure": float(grid.max()),
             "active_area": contact_area,
+            "gradient_energy": gradient_energy,
+            "shear_ratio": shear,
         }
         metadata = {"grid": list(grid.shape)}
+        self._last_grid = np.array(grid, copy=True)
         return EncodedSignal(vector=vector, features=features, metadata=metadata).ensure_numeric()
 
 
