@@ -29,6 +29,9 @@ class _DummyActionLogger:
 
 sys.modules.setdefault("monitoring", types.SimpleNamespace(ActionLogger=_DummyActionLogger))
 
+pytest.importorskip("pydantic")
+pytest.importorskip("inflection")
+
 from autogpt.core.agent.simple import AgentSettings, SimpleAgent
 from autogpt.core.ability import SimpleAbilityRegistry
 from autogpt.core.memory import SimpleMemory
@@ -71,6 +74,8 @@ async def test_from_workspace_supports_multiple_providers(tmp_path, monkeypatch)
             return obj
         if system_name in ("planning", "creative_planning", "ability_registry"):
             captured[system_name] = kwargs.get("model_providers")
+            return Dummy()
+        if system_name == "cognition":
             return Dummy()
         if system_name == "workspace":
             ws = Dummy()

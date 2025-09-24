@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from autogpt.core.ability import (
     AbilityRegistrySettings,
@@ -33,6 +33,7 @@ from autogpt.core.resource.model_providers import (
 )
 from autogpt.core.resource.model_providers.schema import ChatModelResponse, ModelProviderName
 from autogpt.core.workspace.simple import SimpleWorkspace, WorkspaceSettings
+from autogpt.core.agent.cognition import SimpleBrainAdapter, SimpleBrainAdapterSettings
 from autogpt.config import Config
 from autogpt.core.knowledge_extractor import extract
 from autogpt.core.knowledge_conflict import resolve_conflicts
@@ -43,6 +44,7 @@ from autogpt.core.global_workspace import GlobalWorkspace
 class AgentSystems(SystemConfiguration):
     ability_registry: PluginLocation
     memory: PluginLocation
+    cognition: PluginLocation
     openai_provider: PluginLocation
     planning: PluginLocation
     creative_planning: PluginLocation
@@ -68,7 +70,10 @@ class AgentSettings(BaseModel):
     agent: AgentSystemSettings
     ability_registry: AbilityRegistrySettings
     memory: MemorySettings
-    openai_providers: dict[str, OpenAISettings]
+    cognition: SimpleBrainAdapterSettings = Field(
+        default_factory=lambda: SimpleBrainAdapter.default_settings.copy(deep=True)
+    )
+    openai_providers: dict[str, OpenAISettings] = Field(default_factory=dict)
     planning: PlannerSettings
     creative_planning: PlannerSettings
     workspace: WorkspaceSettings
@@ -128,6 +133,10 @@ class SimpleAgent(LayeredAgent, Configurable):
                     storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
                     storage_route="autogpt.core.memory.SimpleMemory",
                 ),
+                cognition=PluginLocation(
+                    storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
+                    storage_route="autogpt.core.agent.cognition.SimpleBrainAdapter",
+                ),
                 openai_provider=PluginLocation(
                     storage_format=PluginStorageFormat.INSTALLED_PACKAGE,
                     storage_route=(
@@ -158,8 +167,9 @@ class SimpleAgent(LayeredAgent, Configurable):
         ability_registry: SimpleAbilityRegistry,
         memory: SimpleMemory,
         model_providers: dict[str | ModelProviderName, ChatModelProvider],
-        planning: SimplePlanner,
+        planning: SimplePlanner | None,
         workspace: SimpleWorkspace,
+        cognition: SimpleBrainAdapter | None = None,
         creative_planning: SimplePlanner | None = None,
         next_layer: Optional[LayeredAgent] = None,
         optimize_abilities: bool = False,
@@ -174,6 +184,8 @@ class SimpleAgent(LayeredAgent, Configurable):
         self._default_planning = planning
         self._creative_planning = creative_planning
         self._workspace = workspace
+        self._cognition = cognition
+        self._cognition_metadata: dict[str, Any] | None = None
         self._task_queue: list[tuple[int, Task]] = []
         self._completed_tasks = []
         self._current_task = None
@@ -188,6 +200,9 @@ class SimpleAgent(LayeredAgent, Configurable):
         )
         self._global_workspace = GlobalWorkspace()
         self._memory_pointer = 0
+
+    def _use_neuromorphic_backend(self) -> bool:
+        return self._cognition is not None and not self._model_providers
 
     @classmethod
     def _init_workspace(
@@ -274,6 +289,9 @@ class SimpleAgent(LayeredAgent, Configurable):
             planner.
         """
 
+        if not model_providers:
+            return None, None
+
         planning = cls._get_system_instance(
             "planning",
             agent_settings,
@@ -356,6 +374,17 @@ class SimpleAgent(LayeredAgent, Configurable):
         )
 
     @classmethod
+    def _init_cognition(
+        cls, agent_settings: AgentSettings, logger: logging.Logger
+    ) -> SimpleBrainAdapter | None:
+        try:
+            return cls._get_system_instance(
+                "cognition", agent_settings, logger
+            )
+        except KeyError:
+            return None
+
+    @classmethod
     def from_workspace(
         cls,
         workspace_path: Path,
@@ -391,6 +420,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         ability_registry = cls._init_ability_registry(
             agent_settings, logger, workspace, memory, model_providers
         )
+        cognition = cls._init_cognition(agent_settings, logger)
 
         return cls(
             settings=agent_settings.agent,
@@ -400,6 +430,7 @@ class SimpleAgent(LayeredAgent, Configurable):
             model_providers=model_providers,
             planning=planning,
             workspace=workspace,
+            cognition=cognition,
             creative_planning=creative_planning,
             optimize_abilities=optimize_abilities,
         )
@@ -430,13 +461,25 @@ class SimpleAgent(LayeredAgent, Configurable):
         return self._performance_evaluator.score(result, cost=0.0, duration=0.0)
 
     async def build_initial_plan(self) -> dict:
-        plan = await self._planning.make_initial_plan(
-            agent_name=self._configuration.name,
-            agent_role=self._configuration.role,
-            agent_goals=self._configuration.goals,
-            abilities=self._ability_registry.list_abilities(),
-        )
-        plan_dict = plan.parsed_result
+        if self._use_neuromorphic_backend() and self._cognition is not None:
+            plan_dict, metadata = await self._cognition.build_initial_plan(
+                agent_name=self._configuration.name,
+                agent_role=self._configuration.role,
+                agent_goals=self._configuration.goals,
+                ability_specs=self._ability_registry.list_abilities(),
+            )
+            self._cognition_metadata = metadata
+        else:
+            if self._planning is None:
+                raise RuntimeError("Planner is not configured for GPT-based planning.")
+            plan = await self._planning.make_initial_plan(
+                agent_name=self._configuration.name,
+                agent_role=self._configuration.role,
+                agent_goals=self._configuration.goals,
+                abilities=self._ability_registry.list_abilities(),
+            )
+            plan_dict = plan.parsed_result
+            self._cognition_metadata = None
         if "plan_options" in plan_dict:
             plan_dict = plan_dict["plan_options"][0]
         tasks = [Task.parse_obj(task) for task in plan_dict["task_list"]]
@@ -473,27 +516,44 @@ class SimpleAgent(LayeredAgent, Configurable):
             goal=self._configuration.goals[0] if self._configuration.goals else "",
             memory_pointer=self._memory_pointer,
         )
-        next_ability = await self._choose_next_ability(
+        ability_selection = await self._choose_next_ability(
             task, ability_specs, self._global_workspace.get_context()
         )
         self._current_task = task
-        self._next_ability = next_ability.parsed_result
+        if hasattr(ability_selection, "parsed_result"):
+            parsed_selection = ability_selection.parsed_result
+        else:
+            parsed_selection = ability_selection
+        if isinstance(parsed_selection, dict):
+            parsed_selection = dict(parsed_selection)
+        else:
+            raise TypeError("Ability selection did not provide a mapping response.")
+        backend = None
+        if isinstance(parsed_selection, dict):
+            backend = parsed_selection.get("backend")
+        if not backend:
+            backend = "whole_brain" if self._use_neuromorphic_backend() else "language_model"
+        if isinstance(parsed_selection, dict) and "backend" not in parsed_selection:
+            parsed_selection["backend"] = backend
+        self._next_ability = parsed_selection
         self._global_workspace.update_state(
             action=self._next_ability["next_ability"]
         )
         task_desc = getattr(task, "description", task.objective)
         task_id = str(getattr(task, "id", id(task)))
-        self._action_logger.log(
-            {
-                "event": "action_selected",
-                "agent": self._configuration.name,
-                "task_id": task_id,
-                "task_description": task_desc,
-                "cycle_count": task.context.cycle_count,
-                "ability_options": [spec.name for spec in ability_specs],
-                "chosen_action": self._next_ability["next_ability"],
-            }
-        )
+        log_payload = {
+            "event": "action_selected",
+            "agent": self._configuration.name,
+            "task_id": task_id,
+            "task_description": task_desc,
+            "cycle_count": task.context.cycle_count,
+            "ability_options": [spec.name for spec in ability_specs],
+            "chosen_action": self._next_ability["next_ability"],
+            "backend": backend,
+        }
+        if self._cognition_metadata:
+            log_payload["cognition"] = self._cognition_metadata
+        self._action_logger.log(log_payload)
         return self._current_task, self._next_ability
 
     async def execute_next_ability(self, user_input: str, *args, **kwargs):
@@ -731,6 +791,7 @@ class SimpleAgent(LayeredAgent, Configurable):
         degraded_modules = self._get_degraded_modules()
         if degraded_modules:
             module_path = degraded_modules[0]
+            self._cognition_metadata = None
             return ChatModelResponse(
                 response=AssistantChatMessage(
                     content="evaluate_metrics due to performance regression"
@@ -741,6 +802,21 @@ class SimpleAgent(LayeredAgent, Configurable):
                 },
             )
 
+        if self._use_neuromorphic_backend() and self._cognition is not None:
+            selection, metadata = await self._cognition.determine_next_ability(
+                agent_name=self._configuration.name,
+                agent_role=self._configuration.role,
+                agent_goals=self._configuration.goals,
+                task=task,
+                ability_specs=ability_specs,
+                cycle_index=self._configuration.cycle_count,
+                backlog_size=len(self._task_queue),
+                completed=len(self._completed_tasks),
+                state_context=state_context or {},
+            )
+            self._cognition_metadata = metadata
+            return selection
+
         if task.context.cycle_count > self._configuration.max_task_cycle_count:
             # Don't hit the LLM, just set the next action as "breakdown_task"
             #  with an appropriate reason
@@ -750,6 +826,8 @@ class SimpleAgent(LayeredAgent, Configurable):
             #  with an appropriate reason
             raise NotImplementedError
         else:
+            if self._planning is None:
+                raise RuntimeError("Planner is not configured for GPT-based ability selection.")
             task_desc = getattr(task, "description", task.objective)
             ability_specs.sort(
                 key=lambda spec: self._average_score(task_desc, spec.name),
@@ -758,6 +836,7 @@ class SimpleAgent(LayeredAgent, Configurable):
             next_ability = await self._planning.determine_next_ability(
                 task, ability_specs, state_context=state_context
             )
+            self._cognition_metadata = None
             return next_ability
 
     def _average_score(self, task_desc: str, ability_name: str) -> float:
@@ -896,12 +975,13 @@ class SimpleAgent(LayeredAgent, Configurable):
             system_class = SimplePluginService.get_plugin(system_location)
             if system_name == "openai_provider":
                 providers_cfg = user_configuration.get(system_name, {})
-                if not providers_cfg:
-                    providers_cfg = {"openai": {}}
-                configuration_dict["openai_providers"] = {
-                    name: system_class.build_agent_configuration(cfg).dict()
-                    for name, cfg in providers_cfg.items()
-                }
+                if providers_cfg:
+                    configuration_dict["openai_providers"] = {
+                        name: system_class.build_agent_configuration(cfg).dict()
+                        for name, cfg in providers_cfg.items()
+                    }
+                else:
+                    configuration_dict["openai_providers"] = {}
             else:
                 configuration_dict[system_name] = system_class.build_agent_configuration(
                     user_configuration.get(system_name, {})
@@ -931,6 +1011,14 @@ class SimpleAgent(LayeredAgent, Configurable):
                 system_settings=provider_settings,
             )
         logger.debug("Loading agent planner.")
+        if not providers:
+            logger.debug("No GPT providers configured; using default agent identity.")
+            configuration = agent_settings.agent.configuration
+            return {
+                "agent_name": configuration.name,
+                "agent_role": configuration.role,
+                "agent_goals": configuration.goals,
+            }
         agent_planner: SimplePlanner = cls._get_system_instance(
             "planning",
             agent_settings,
