@@ -49,7 +49,6 @@ ONBUILD COPY autogpt/ ./autogpt
 ONBUILD COPY scripts/ ./scripts
 ONBUILD COPY plugins/ ./plugins
 ONBUILD COPY config/ ./config
-ONBUILD COPY README.md ./README.md
 ONBUILD RUN mkdir ./data
 
 FROM autogpt-${BUILD_TYPE} AS autogpt

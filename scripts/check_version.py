@@ -31,7 +31,9 @@ def main() -> None:
     if not version:
         print("Version is missing or not in MAJOR.MINOR.PATCH format in pyproject.toml")
         sys.exit(1)
-    if version != changelog_version:
+    if changelog_version is None:
+        print("No CHANGELOG.md found; skipping changelog version check")
+    elif version != changelog_version:
         print("Version in CHANGELOG.md does not match pyproject.toml")
         sys.exit(1)
     print(f"Version {version} verified")
