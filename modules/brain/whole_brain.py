@@ -18,7 +18,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from numbers import Real
 from collections import OrderedDict, deque
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from schemas.emotion import EmotionType
 
@@ -44,18 +44,182 @@ from .self_learning import SelfLearningBrain
 from .neuromorphic.temporal_encoding import latency_encode, rate_encode, decode_spike_counts
 from .perception import SensoryPipeline, EncodedSignal
 from .motor.precision import PrecisionMotorSystem
-from .motor.actions import MotorExecutionResult
+from .motor.actions import MotorExecutionResult, MotorPlan
 
 
 logger = logging.getLogger(__name__)
 
 
-class CognitiveModule:
-    """Lightweight cognitive reasoning with episodic memory and weighting."""
+def default_plan_for_intention(
+    intention: str,
+    focus: Optional[str],
+    context: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """Generate a lightweight plan for a given intention."""
 
-    def __init__(self, memory_window: int = 8) -> None:
+    context = context or {}
+    plan: List[str] = []
+    if intention == "explore":
+        plan = [
+            "scan_environment",
+            f"focus_{focus}" if focus else "sample_new_modalities",
+            "log_novelty",
+        ]
+    elif intention == "approach":
+        plan = [
+            "identify_positive_stimulus",
+            f"move_towards_{focus}" if focus else "establish_focus",
+            "engage",
+        ]
+    elif intention == "withdraw":
+        plan = ["assess_risk", "increase_distance", "seek_support"]
+    else:
+        plan = ["monitor_sensory_streams", "maintain_attention"]
+
+    task = context.get("task")
+    if task:
+        plan.append(f"respect_task_{task}")
+    return [step for step in plan if step]
+
+
+@dataclass
+class CognitiveDecision:
+    """Container for policy-driven cognitive decisions."""
+
+    intention: str
+    confidence: float
+    plan: List[str] = field(default_factory=list)
+    weights: Dict[str, float] = field(default_factory=dict)
+    tags: List[str] = field(default_factory=list)
+    focus: Optional[str] = None
+    summary: str = ""
+    thought_trace: List[str] = field(default_factory=list)
+    perception_summary: Dict[str, float] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class CognitivePolicy:
+    """Interface for pluggable cognitive intention selection policies."""
+
+    def select_intention(
+        self,
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        personality: PersonalityProfile,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+        learning_prediction: Optional[Dict[str, float]] = None,
+    ) -> CognitiveDecision:
+        raise NotImplementedError
+
+
+class HeuristicCognitivePolicy(CognitivePolicy):
+    """Default heuristic policy mirroring the legacy weighting logic."""
+
+    def _build_tags(
+        self,
+        intention: str,
+        confidence: float,
+        curiosity: CuriosityState,
+        focus: Optional[str],
+    ) -> List[str]:
+        tags = [intention]
+        if confidence >= 0.65:
+            tags.append("high-confidence")
+        if curiosity.last_novelty > 0.6:
+            tags.append("novelty-driven")
+        if focus:
+            tags.append(f"focus-{focus}")
+        return tags
+
+    def select_intention(
+        self,
+        perception: PerceptionSnapshot,
+        summary: Dict[str, float],
+        emotion: EmotionSnapshot,
+        personality: PersonalityProfile,
+        curiosity: CuriosityState,
+        context: Dict[str, Any],
+        learning_prediction: Optional[Dict[str, float]] = None,
+    ) -> CognitiveDecision:
+        focus = max(summary, key=summary.get) if summary else None
+        options = {
+            "observe": 0.2 + (1 - abs(emotion.dimensions.get("valence", 0.0))) * 0.3,
+            "approach": 0.2 + emotion.intent_bias.get("approach", 0.0),
+            "withdraw": 0.2 + emotion.intent_bias.get("withdraw", 0.0),
+            "explore": 0.2
+            + emotion.intent_bias.get("explore", 0.0)
+            + curiosity.drive * 0.5,
+        }
+        if learning_prediction:
+            predicted_load = float(learning_prediction.get("cpu", 0.0))
+            resource_pressure = float(learning_prediction.get("memory", 0.0))
+            options["observe"] += max(0.0, predicted_load - 0.5) * 0.3
+            options["withdraw"] += max(0.0, resource_pressure - 0.5) * 0.2
+            options["approach"] += max(0.0, 0.5 - predicted_load) * 0.2
+        if context.get("threat", 0.0) > 0.4:
+            options["withdraw"] += 0.3
+        if context.get("safety", 0.0) > 0.5:
+            options["approach"] += 0.2
+        options["explore"] *= 0.5 + personality.modulation_weight("explore")
+        options["approach"] *= 0.5 + personality.modulation_weight("social")
+        options["withdraw"] *= 0.5 + personality.modulation_weight("caution")
+        options["observe"] *= 0.5 + personality.modulation_weight("persist")
+        total = sum(options.values()) or 1.0
+        weights = {key: value / total for key, value in options.items()}
+        intention = max(weights.items(), key=lambda item: item[1])[0]
+        confidence = weights[intention]
+        plan = default_plan_for_intention(intention, focus, context)
+        tags = self._build_tags(intention, confidence, curiosity, focus)
+        thought_trace = [
+            f"focus={focus or 'none'}",
+            f"intention={intention}",
+            f"emotion={emotion.primary.value}:{emotion.intensity:.2f}",
+            f"curiosity={curiosity.drive:.2f}",
+        ]
+        if learning_prediction:
+            thought_trace.append(
+                f"predicted_cpu={float(learning_prediction.get('cpu', 0.0)):.2f}"
+            )
+            thought_trace.append(
+                f"predicted_mem={float(learning_prediction.get('memory', 0.0)):.2f}"
+            )
+        summary_text = (
+            ", ".join(f"{k}:{v:.2f}" for k, v in summary.items())
+            or "no-salient-modalities"
+        )
+        return CognitiveDecision(
+            intention=intention,
+            confidence=confidence,
+            plan=plan,
+            weights=weights,
+            tags=tags,
+            focus=focus,
+            summary=summary_text,
+            thought_trace=thought_trace,
+            perception_summary=dict(summary),
+            metadata={"policy": "heuristic"},
+        )
+
+
+class CognitiveModule:
+    """Lightweight cognitive reasoning delegating intention selection to policies."""
+
+    def __init__(
+        self,
+        memory_window: int = 8,
+        policy: Optional[CognitivePolicy] = None,
+    ) -> None:
         self.memory_window = memory_window
         self.episodic_memory: deque[dict[str, Any]] = deque(maxlen=memory_window)
+        self.policy: CognitivePolicy = policy or HeuristicCognitivePolicy()
+        self._confidence_history: deque[float] = deque(maxlen=max(4, memory_window))
+
+    def set_policy(self, policy: CognitivePolicy) -> None:
+        """Replace the active policy at runtime."""
+
+        self.policy = policy
 
     def _summarise_perception(self, perception: PerceptionSnapshot) -> Dict[str, float]:
         summary: Dict[str, float] = {}
@@ -69,21 +233,27 @@ class CognitiveModule:
             return {name: 0.0 for name in perception.modalities}
         return {name: value / total_sum for name, value in summary.items()}
 
-    def _build_plan(self, intention: str, summary: Dict[str, float], context: Dict[str, Any]) -> List[str]:
-        focus = max(summary, key=summary.get) if summary else None
-        plan: List[str] = []
-        if intention == "explore":
-            plan = ["scan_environment", f"focus_{focus}" if focus else "sample_new_modalities", "log_novelty"]
-        elif intention == "approach":
-            plan = ["identify_positive_stimulus", f"move_towards_{focus}" if focus else "establish_focus", "engage"]
-        elif intention == "withdraw":
-            plan = ["assess_risk", "increase_distance", "seek_support"]
+    def _calibrate_confidence(self, raw_confidence: float) -> float:
+        raw = max(0.0, min(1.0, float(raw_confidence)))
+        if not self._confidence_history:
+            return raw
+        mean = sum(self._confidence_history) / len(self._confidence_history)
+        if mean <= 0:
+            calibrated = raw
+        elif raw >= mean:
+            calibrated = 0.5 + 0.5 * (raw - mean) / (1 - mean + 1e-6)
         else:
-            plan = ["monitor_sensory_streams", "maintain_attention"]
-        task = context.get("task")
-        if task:
-            plan.append(f"respect_task_{task}")
-        return [step for step in plan if step]
+            calibrated = 0.5 * raw / (mean + 1e-6)
+        return max(0.0, min(1.0, calibrated))
+
+    def _build_plan(
+        self,
+        intention: str,
+        summary: Dict[str, float],
+        context: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        focus = max(summary, key=summary.get) if summary else None
+        return default_plan_for_intention(intention, focus, context)
 
     def _remember(self, summary: Dict[str, float], emotion: EmotionSnapshot, intention: str, confidence: float) -> None:
         self.episodic_memory.append(
@@ -114,64 +284,75 @@ class CognitiveModule:
     ) -> Dict[str, Any]:
         context = context or {}
         summary = self._summarise_perception(perception)
-        focus = max(summary, key=summary.get) if summary else None
-        options = {
-            "observe": 0.2 + (1 - abs(emotion.dimensions.get("valence", 0.0))) * 0.3,
-            "approach": 0.2 + emotion.intent_bias.get("approach", 0.0),
-            "withdraw": 0.2 + emotion.intent_bias.get("withdraw", 0.0),
-            "explore": 0.2 + emotion.intent_bias.get("explore", 0.0) + curiosity.drive * 0.5,
-        }
-        if learning_prediction:
-            predicted_load = float(learning_prediction.get("cpu", 0.0))
-            resource_pressure = float(learning_prediction.get("memory", 0.0))
-            options["observe"] += max(0.0, predicted_load - 0.5) * 0.3
-            options["withdraw"] += max(0.0, resource_pressure - 0.5) * 0.2
-            options["approach"] += max(0.0, 0.5 - predicted_load) * 0.2
-        if context.get("threat", 0.0) > 0.4:
-            options["withdraw"] += 0.3
-        if context.get("safety", 0.0) > 0.5:
-            options["approach"] += 0.2
-        options["explore"] *= 0.5 + personality.modulation_weight("explore")
-        options["approach"] *= 0.5 + personality.modulation_weight("social")
-        options["withdraw"] *= 0.5 + personality.modulation_weight("caution")
-        options["observe"] *= 0.5 + personality.modulation_weight("persist")
-        total = sum(options.values()) or 1.0
-        weights = {k: v / total for k, v in options.items()}
-        intention = max(weights.items(), key=lambda item: item[1])[0]
-        confidence = weights[intention]
-        plan = self._build_plan(intention, summary, context)
-        tags = [intention]
-        if confidence >= 0.65:
-            tags.append("high-confidence")
-        if curiosity.last_novelty > 0.6:
-            tags.append("novelty-driven")
-        if focus:
-            tags.append(f"focus-{focus}")
-        self._remember(summary, emotion, intention, confidence)
-        thought_trace = [
-            f"focus={focus or 'none'}",
-            f"intention={intention}",
-            f"emotion={emotion.primary.value}:{emotion.intensity:.2f}",
-            f"curiosity={curiosity.drive:.2f}",
-        ]
-        if learning_prediction:
-            thought_trace.append(
-                f"predicted_cpu={float(learning_prediction.get('cpu', 0.0)):.2f}"
+        try:
+            policy_decision = self.policy.select_intention(
+                perception,
+                summary,
+                emotion,
+                personality,
+                curiosity,
+                context,
+                learning_prediction,
             )
-            thought_trace.append(
-                f"predicted_mem={float(learning_prediction.get('memory', 0.0)):.2f}"
+        except Exception as exc:  # pragma: no cover - defensive policy fallback
+            logger.warning("Cognitive policy failed; using fallback plan. Error: %s", exc)
+            intention = context.get("fallback_intention", "observe")
+            policy_decision = CognitiveDecision(
+                intention=intention,
+                confidence=0.25,
+                plan=self._build_plan(intention, summary, context),
+                weights={intention: 1.0},
+                tags=[intention, "policy-fallback"],
+                focus=max(summary, key=summary.get) if summary else None,
+                summary=", ".join(f"{k}:{v:.2f}" for k, v in summary.items())
+                or "no-salient-modalities",
+                thought_trace=["policy=fallback"],
+                perception_summary=dict(summary),
+                metadata={"policy": "fallback", "error": str(exc)},
             )
-        summary_text = ', '.join(f"{k}:{v:.2f}" for k, v in summary.items()) or 'no-salient-modalities'
+
+        if not policy_decision.plan:
+            policy_decision.plan = self._build_plan(
+                policy_decision.intention, summary, context
+            )
+        if not policy_decision.perception_summary:
+            policy_decision.perception_summary = dict(summary)
+        if not policy_decision.summary:
+            policy_decision.summary = (
+                ", ".join(f"{k}:{v:.2f}" for k, v in summary.items())
+                or "no-salient-modalities"
+            )
+
+        calibrated_confidence = self._calibrate_confidence(policy_decision.confidence)
+        policy_decision.confidence = calibrated_confidence
+        if policy_decision.focus is None and policy_decision.plan:
+            policy_decision.focus = policy_decision.plan[0]
+
+        tags = list(dict.fromkeys(policy_decision.tags)) if policy_decision.tags else []
+        if policy_decision.focus and f"focus-{policy_decision.focus}" not in tags:
+            tags.append(f"focus-{policy_decision.focus}")
+        policy_decision.tags = tags
+
+        self._remember(
+            policy_decision.perception_summary,
+            emotion,
+            policy_decision.intention,
+            policy_decision.confidence,
+        )
+        self._confidence_history.append(policy_decision.confidence)
+        policy_decision.metadata.setdefault("confidence_calibrated", True)
+
         decision = {
-            "intention": intention,
-            "plan": plan,
-            "confidence": confidence,
-            "weights": weights,
-            "tags": tags,
-            "focus": focus or intention,
-            "summary": summary_text,
-            "thought_trace": thought_trace,
-            "perception_summary": summary,
+            "intention": policy_decision.intention,
+            "plan": list(policy_decision.plan),
+            "confidence": policy_decision.confidence,
+            "weights": dict(policy_decision.weights),
+            "tags": list(policy_decision.tags),
+            "focus": policy_decision.focus or policy_decision.intention,
+            "summary": policy_decision.summary,
+            "thought_trace": list(policy_decision.thought_trace),
+            "perception_summary": dict(policy_decision.perception_summary),
+            "policy_metadata": dict(policy_decision.metadata),
         }
         return decision
 
@@ -211,6 +392,16 @@ class WholeBrainSimulation:
     last_motor_result: Optional[NeuromorphicRunResult] = field(init=False, default=None)
     _spiking_cache: OrderedDict[tuple[int, str], NeuromorphicBackend] = field(init=False, default_factory=OrderedDict)
     _motor_backend: Optional[NeuromorphicBackend] = field(init=False, default=None)
+    perception_history: deque[PerceptionSnapshot] = field(
+        init=False, default_factory=lambda: deque(maxlen=32)
+    )
+    decision_history: deque[Dict[str, Any]] = field(
+        init=False, default_factory=lambda: deque(maxlen=32)
+    )
+    telemetry_log: deque[Dict[str, Any]] = field(
+        init=False, default_factory=lambda: deque(maxlen=64)
+    )
+    _stream_state: Dict[str, Any] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         self.personality.clamp()
@@ -229,6 +420,11 @@ class WholeBrainSimulation:
         self.last_learning_prediction = {}
         self.last_decision = {}
         self.cycle_index = 0
+        history_size = max(4, self.max_cache_size)
+        self.perception_history = deque(maxlen=history_size)
+        self.decision_history = deque(maxlen=history_size)
+        self.telemetry_log = deque(maxlen=max(8, history_size * 2))
+        self._stream_state = {}
 
     @staticmethod
     def _perception_signature(snapshot: PerceptionSnapshot) -> str:
@@ -246,7 +442,8 @@ class WholeBrainSimulation:
         for name, payload in snapshot.modalities.items():
             spikes = payload.get("spike_counts") or []
             denominator += len(spikes) or 1
-            previous = self.last_perception.modalities.get(name, {})
+            previous_snapshot = self.perception_history[-1] if self.perception_history else self.last_perception
+            previous = previous_snapshot.modalities.get(name, {}) if previous_snapshot else {}
             previous_spikes = previous.get("spike_counts") or []
             length = max(len(spikes), len(previous_spikes))
             if length == 0:
@@ -446,14 +643,27 @@ class WholeBrainSimulation:
         """Run a single perception-cognition-action cycle."""
 
         self.cycle_index += 1
+        input_data = dict(input_data or {})
         use_neuromorphic = self.config.use_neuromorphic
         if use_neuromorphic != self.neuromorphic:
             use_neuromorphic = self.neuromorphic
             self.config.use_neuromorphic = self.neuromorphic
 
+        if input_data.get("reset_streams"):
+            self._stream_state.clear()
+        drop_streams = input_data.get("drop_streams")
+        if isinstance(drop_streams, Iterable) and not isinstance(drop_streams, (str, bytes)):
+            for key in list(drop_streams):
+                self._stream_state.pop(key, None)
+
         perception: Dict[str, Dict[str, Any]] = {}
         energy_used = 0.0
         idle_skipped = 0
+        cycle_errors: List[str] = []
+        cycle_telemetry: Dict[str, Any] = {
+            "cycle_index": self.cycle_index,
+            "use_neuromorphic": bool(use_neuromorphic),
+        }
 
         def _resolve_signal(*keys: str) -> Any:
             for key in keys:
@@ -474,16 +684,81 @@ class WholeBrainSimulation:
             logger.debug("Unsupported sensory signal type: %s", type(value).__name__)
             return []
 
+        def _consume_stream(modality: str, source: Any) -> Any:
+            if source is None:
+                return None
+            try:
+                if callable(source):
+                    return source()
+                if hasattr(source, "__next__"):
+                    return next(source)
+                if isinstance(source, (list, tuple, deque)):
+                    return source[-1] if source else None
+                if isinstance(source, dict):
+                    for key in ("latest", "value", "data"):
+                        if key in source:
+                            return source[key]
+                if isinstance(source, Iterable) and not isinstance(source, (str, bytes)):
+                    iterator = iter(source)
+                    return next(iterator)
+            except StopIteration:
+                return None
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.debug("Stream consumption failed for %s: %s", modality, exc)
+                cycle_errors.append(f"stream:{modality}:{exc}")
+                return None
+            return source
+
         sensory_inputs: Dict[str, Any] = {}
+
+        def _register_input(modality: str, value: Any, source: str) -> None:
+            if value is None:
+                return
+            sensory_inputs[modality] = value
+            modality_sources = cycle_telemetry.setdefault("modalities", {})
+            modality_sources[modality] = source
+            if input_data.get("persist_streams", True):
+                self._stream_state[modality] = value
+
+        streams = input_data.get("streams")
+        if isinstance(streams, dict):
+            for modality, source in streams.items():
+                value = _consume_stream(modality, source)
+                if value is not None:
+                    _register_input(modality, value, "stream")
+
+        stream_events = input_data.get("stream_events")
+        if isinstance(stream_events, Iterable) and not isinstance(stream_events, (str, bytes)):
+            for event in stream_events:
+                try:
+                    if not isinstance(event, dict):
+                        continue
+                    modality = event.get("modality") or event.get("name")
+                    if not modality:
+                        continue
+                    value = event.get("value", event.get("data"))
+                    if value is None:
+                        continue
+                    _register_input(modality, value, "event")
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    logger.debug("Failed to process stream event %s: %s", event, exc)
+                    cycle_errors.append(f"stream-event:{exc}")
+
         vision_signal = _resolve_signal("vision", "image")
         if vision_signal is not None:
-            sensory_inputs["vision"] = vision_signal
+            _register_input("vision", vision_signal, "direct")
         auditory_signal = _resolve_signal("auditory", "sound", "audio")
         if auditory_signal is not None:
-            sensory_inputs["auditory"] = auditory_signal
+            _register_input("auditory", auditory_signal, "direct")
         somatosensory_signal = _resolve_signal("somatosensory", "touch")
         if somatosensory_signal is not None:
-            sensory_inputs["somatosensory"] = somatosensory_signal
+            _register_input("somatosensory", somatosensory_signal, "direct")
+
+        if input_data.get("use_cached_streams", True):
+            for modality, cached_value in self._stream_state.items():
+                sensory_inputs.setdefault(modality, cached_value)
+                modality_sources = cycle_telemetry.setdefault("modalities", {})
+                modality_sources.setdefault(modality, "cached")
 
         if use_neuromorphic:
 
@@ -519,6 +794,7 @@ class WholeBrainSimulation:
                     encoded = self.perception_pipeline.encode(modality, signal)
                 except Exception as exc:
                     logger.debug("Perception encoding failed for %s: %s", modality, exc)
+                    cycle_errors.append(f"encode:{modality}:{exc}")
                     encoded = EncodedSignal()
                 source_vector = encoded.vector or _flatten_signal(signal)
                 vector = _compress(source_vector)
@@ -556,15 +832,20 @@ class WholeBrainSimulation:
                     encoder_kwargs["steps"] = steps
                     decoder_kwargs["window"] = float(steps)
 
-                result = backend.run_sequence(
-                    [vector],
-                    encoding=encoding_mode if encoding_mode in {"rate", "latency"} else None,
-                    encoder_kwargs=encoder_kwargs,
-                    decoder="all",
-                    decoder_kwargs=decoder_kwargs,
-                    metadata={"modality": modality},
-                    reset=False,
-                )
+                try:
+                    result = backend.run_sequence(
+                        [vector],
+                        encoding=encoding_mode if encoding_mode in {"rate", "latency"} else None,
+                        encoder_kwargs=encoder_kwargs,
+                        decoder="all",
+                        decoder_kwargs=decoder_kwargs,
+                        metadata={"modality": modality},
+                        reset=False,
+                    )
+                except Exception as exc:  # pragma: no cover - backend failure handling
+                    logger.debug("Neuromorphic backend failed for %s: %s", modality, exc)
+                    cycle_errors.append(f"spiking:{modality}:{exc}")
+                    return
 
                 raw_counts = list(result.spike_counts)
                 entry: Dict[str, Any] = {
@@ -612,6 +893,7 @@ class WholeBrainSimulation:
                     encoded = self.perception_pipeline.encode(modality, signal)
                 except Exception as exc:
                     logger.debug("Perception encoding failed for %s: %s", modality, exc)
+                    cycle_errors.append(f"encode:{modality}:{exc}")
                     encoded = EncodedSignal()
                 vector = encoded.vector or _flatten_signal(signal)
                 entry: Dict[str, Any] = {
@@ -773,10 +1055,29 @@ class WholeBrainSimulation:
             if motor_result.average_rate:
                 plan_parameters["motor_rate"] = list(motor_result.average_rate)
 
-        plan = self.motor.plan_movement(intention, parameters=plan_parameters)
+        try:
+            plan = self.motor.plan_movement(intention, parameters=plan_parameters)
+        except Exception as exc:  # pragma: no cover - defensive planning fallback
+            logger.debug("Motor planning failed: %s", exc)
+            cycle_errors.append(f"motor-plan:{exc}")
+            plan = MotorPlan(
+                intention=intention,
+                stages=[f"fallback_{intention}"],
+                parameters=dict(plan_parameters),
+                metadata={
+                    "plan_summary": f"fallback_{intention}",
+                    "fallback": True,
+                    "error": str(exc),
+                },
+            )
         if motor_result:
             plan.metadata["neuromorphic"] = motor_result.to_dict()
-        action = self.motor.execute_action(plan)
+        try:
+            action = self.motor.execute_action(plan)
+        except Exception as exc:  # pragma: no cover - defensive execution fallback
+            logger.debug("Motor execution failed: %s", exc)
+            cycle_errors.append(f"motor-execute:{exc}")
+            action = MotorExecutionResult(False, str(exc), telemetry={}, error=str(exc))
 
         external_feedback = None
         for key in ("motor_feedback", "execution_feedback", "actuator_feedback", "sensor_feedback"):
@@ -877,6 +1178,13 @@ class WholeBrainSimulation:
                 metrics.update(
                     {f"learning_{k}": float(v) for k, v in learning_prediction.items()}
                 )
+            if cycle_errors:
+                metrics["cycle_error_count"] = float(len(cycle_errors))
+
+        policy_metadata = dict(decision.get("policy_metadata", {}))
+        unique_errors = list(dict.fromkeys(cycle_errors)) if cycle_errors else []
+        if unique_errors:
+            decision["errors"] = list(unique_errors)
 
         energy_used_int = int(round(energy_used))
         result = BrainCycleResult(
@@ -909,12 +1217,31 @@ class WholeBrainSimulation:
                 else None,
                 "motor_energy": str(motor_result.energy_used) if motor_result else None,
                 "feedback_metrics": dict(feedback_metrics) if feedback_metrics else None,
+                "policy": policy_metadata.get("policy"),
+                "policy_metadata": policy_metadata or None,
+                "cycle_errors": unique_errors or None,
             },
         )
         self.last_perception = perception_snapshot
         self.last_context = cognitive_context
         self.last_learning_prediction = learning_prediction
         self.last_decision = decision
+        self.perception_history.append(perception_snapshot)
+        self.decision_history.append(dict(decision))
+        cycle_telemetry.update(
+            {
+                "intention": intention,
+                "confidence": decision.get("confidence"),
+                "policy": policy_metadata.get("policy"),
+            }
+        )
+        if unique_errors:
+            cycle_telemetry["errors"] = unique_errors
+        if plan:
+            cycle_telemetry["plan_length"] = len(plan.stages)
+        if decision.get("plan"):
+            cycle_telemetry["cognitive_plan"] = list(decision.get("plan", []))
+        self.telemetry_log.append(dict(cycle_telemetry))
         return result
 
     def update_config(self, config: BrainRuntimeConfig) -> None:

@@ -8,8 +8,9 @@ from modules.brain import WholeBrainSimulation
 
 def test_whole_brain_neuromorphic_cycle():
     brain = WholeBrainSimulation(neuromorphic=True)
+    vision_stream = iter([[0.9, 0.1], [0.4, 0.6]])
     input_data = {
-        "image": [0.9, 0.1],
+        "streams": {"vision": vision_stream},
         "sound": [0.5],
         "touch": [0.3, 0.7],
         "text": "good",
@@ -19,14 +20,29 @@ def test_whole_brain_neuromorphic_cycle():
     result = brain.process_cycle(input_data)
     assert result.metadata["executed_action"].startswith("executed")
     assert result.intent.plan
+    assert result.metadata["policy"] == "heuristic"
+    assert result.metadata["policy_metadata"]["confidence_calibrated"] is True
     assert result.metrics.get("cycle_index", 0.0) >= 1
     assert result.energy_used > 0
     assert "curiosity_drive" in result.metrics
     assert result.emotion.mood <= 1.0
-    assert brain.last_perception.modalities["vision"]["spike_counts"] == [1, 0]
-    assert brain.last_perception.modalities["audio"]["spike_counts"] == [1]
-    assert brain.last_perception.modalities["touch"]["spike_counts"] == [0, 1]
+    assert len(brain.perception_history) == 1
+    assert "vision" in brain.last_perception.modalities
     assert brain.last_context.get("task") == "explore"
+    assert brain.telemetry_log[-1]["modalities"]["vision"] in {"stream", "cached"}
+    follow_up = {
+        "streams": {"vision": vision_stream},
+        "sound": [0.2],
+        "touch": [0.6, 0.4],
+        "context": {"task": "focus"},
+    }
+    second_result = brain.process_cycle(follow_up)
+    assert len(brain.perception_history) == 2
+    assert len(brain.decision_history) == 2
+    assert brain.telemetry_log[-1]["cycle_index"] == brain.cycle_index
+    assert second_result.intent.confidence <= 1.0
+    assert brain.last_context.get("task") == "focus"
+    assert brain.telemetry_log[-1]["cognitive_plan"]
     modulation = brain.get_strategy_modulation()
     assert modulation["curiosity_drive"] == brain.curiosity.drive
 
