@@ -1,4 +1,4 @@
-"""Simplified cerebellum components for motor control and learning."""
+"""Motor control and learning components inspired by the cerebellum."""
 
 from __future__ import annotations
 

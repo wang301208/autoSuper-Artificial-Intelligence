@@ -1,9 +1,10 @@
-"""Simplified limbic system components for emotion processing.
+"""Data-driven limbic system components for emotion processing.
 
-This module contains lightweight stand-ins for brain regions typically
-associated with emotional processing.  The goal of these classes is not to
-model neuroscience accurately but to provide a small, easily testable API
-that other parts of the project can interact with.
+This module provides deployable substitutes for brain regions typically
+associated with emotional processing.  The goal is to keep the API
+practical for large-scale agents while implementing multi-dimensional
+valence–arousal–dominance modelling and homeostatic regulation hooks that
+are exercised throughout the cognitive stack.
 
 The :class:`LimbicSystem` orchestrates three sub-modules:
 
