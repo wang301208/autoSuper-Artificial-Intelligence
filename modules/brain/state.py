@@ -32,6 +32,18 @@ class PersonalityProfile:
         }
         return max(0.0, min(1.0, lookup.get(channel, 0.5)))
 
+    @property
+    def traits(self) -> Dict[str, float]:
+        """Expose a mapping-style view of trait values for reinforcement policies."""
+
+        return {
+            "openness": self.openness,
+            "conscientiousness": self.conscientiousness,
+            "extraversion": self.extraversion,
+            "agreeableness": self.agreeableness,
+            "neuroticism": self.neuroticism,
+        }
+
 
 @dataclass
 class BrainRuntimeConfig:
