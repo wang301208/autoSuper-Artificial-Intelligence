@@ -4,7 +4,6 @@ version = "0.0.10"
 description = "Benchmarking the performance of agents far and wide, regardless of how they are set up and how they work"
 authors = ["Silen Naihin <silen.naihin@gmail.com>"]
 license = "MIT"
-readme = "README.md"
 packages = [{ include = "agbenchmark" }]
 
 [tool.poetry.dependencies]

@@ -4,7 +4,6 @@ version = "0.5.0"
 authors = [
   "Significant Gravitas <support@agpt.co>",
 ]
-readme = "README.md"
 description = "An open-source attempt to make GPT-4 autonomous"
 homepage = "https://github.com/Significant-Gravitas/AutoGPT/tree/master/autogpts/autogpt"
 classifiers = [

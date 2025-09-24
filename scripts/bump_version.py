@@ -29,11 +29,14 @@ def bump(part: str) -> str:
     PYPROJECT.write_text(new_content, encoding="utf-8")
     if CHANGELOG.exists():
         changelog = CHANGELOG.read_text(encoding="utf-8")
-    else:
-        changelog = "# Changelog\n"
-    if f"## {new_version}" not in changelog:
-        changelog = re.sub(r"# Changelog\n", f"# Changelog\n\n## {new_version}\n- Describe changes here.\n", changelog, count=1)
-        CHANGELOG.write_text(changelog, encoding="utf-8")
+        if f"## {new_version}" not in changelog:
+            changelog = re.sub(
+                r"# Changelog\n",
+                f"# Changelog\n\n## {new_version}\n- Describe changes here.\n",
+                changelog,
+                count=1,
+            )
+            CHANGELOG.write_text(changelog, encoding="utf-8")
     subprocess.run(["git", "tag", f"v{new_version}"], check=True)
     return new_version
 
