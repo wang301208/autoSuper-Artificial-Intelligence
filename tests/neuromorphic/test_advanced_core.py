@@ -1,4 +1,9 @@
+import os
+import sys
+
 import pytest
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from modules.brain.neuromorphic.advanced_core import (
     AdvancedNeuromorphicCore,
@@ -47,3 +52,21 @@ def test_backend_selection():
     assert backend.target_chip == "loihi"
     with pytest.raises(ValueError):
         core.select_backend("unknown")
+
+
+def test_biophysical_network_runs():
+    core = AdvancedNeuromorphicCore()
+    network = core.build_biophysical_network(
+        [
+            {"type": "hodgkin_huxley"},
+            {"type": "izhikevich"},
+        ],
+        {
+            (0, 1): {"type": "ampa", "params": {"conductance": 0.8}},
+            (1, 0): {"type": "gaba_a", "params": {"conductance": 0.6}},
+        },
+        dt=0.05,
+    )
+    telemetry = network.run([[0.3, 0.1] for _ in range(5)], rewards=[0.0] * 5)
+    assert "spikes" in telemetry.traces
+    assert telemetry.traces["spikes"]

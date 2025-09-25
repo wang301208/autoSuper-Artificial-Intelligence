@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import concurrent.futures
 import heapq
-import importlib
 import inspect
 import json
 import logging
@@ -891,6 +890,85 @@ class HardwareIntegrationError(RuntimeError):
     """Raised when a hardware backend cannot be initialised or executed."""
 
 
+@dataclass(frozen=True)
+class EmulatedHardwareSpec:
+    """Describe nominal capabilities for an emulated neuromorphic target."""
+
+    name: str
+    topology: str
+    max_neurons: int
+    time_resolution: float
+    power_budget: float
+    io_format: str
+
+
+EMULATED_HARDWARE_SPECS: Dict[str, EmulatedHardwareSpec] = {
+    "loihi": EmulatedHardwareSpec("intel-loihi", "mesh", 131072, 1e-3, 1.2, "spike"),
+    "brainscales": EmulatedHardwareSpec("brainscales", "wafer", 65536, 5e-4, 2.5, "current"),
+    "spinnaker": EmulatedHardwareSpec("spinnaker", "torus", 262144, 1e-2, 4.5, "spike"),
+}
+
+
+class _EmulatedHardwareDriver:
+    """Use the software backend while exposing hardware-like metadata."""
+
+    def __init__(
+        self,
+        config: SpikingNetworkConfig,
+        spec: EmulatedHardwareSpec,
+        *,
+        auto_reset: bool = True,
+    ) -> None:
+        self.spec = spec
+        self.backend = NeuromorphicBackend(config=config, auto_reset=auto_reset)
+        self.compiled = False
+
+    # CallableHardwareBackend expects callables with specific signatures --------
+    def compile(self, *_args, **_kwargs) -> Dict[str, Any]:
+        self.compiled = True
+        return {
+            "hardware": self.spec.name,
+            "neurons": getattr(self.backend.network.neurons, "size", 0),
+            "time_resolution": self.spec.time_resolution,
+            "io_format": self.spec.io_format,
+        }
+
+    def describe(self) -> Dict[str, Any]:
+        return {
+            "hardware": self.spec.name,
+            "topology": self.spec.topology,
+            "max_neurons": self.spec.max_neurons,
+            "time_resolution": self.spec.time_resolution,
+            "power_budget": self.spec.power_budget,
+            "io_format": self.spec.io_format,
+        }
+
+    def reset(self) -> None:
+        self.backend.reset_state()
+
+    def run(self, events, **kwargs):
+        if not self.compiled:
+            self.compile()
+        metadata = dict(kwargs.get("metadata") or {})
+        metadata.setdefault("hardware", self.spec.name)
+        metadata.setdefault("mode", "emulated")
+        metadata.setdefault("topology", self.spec.topology)
+        return self.backend.run_events(
+            events,
+            encoder=kwargs.get("encoder"),
+            encoder_kwargs=kwargs.get("encoder_kwargs"),
+            decoder=kwargs.get("decoder"),
+            decoder_kwargs=kwargs.get("decoder_kwargs"),
+            metadata=metadata,
+            neuromodulation=kwargs.get("neuromodulation"),
+            reset=kwargs.get("reset"),
+            max_duration=kwargs.get("max_duration"),
+            convergence_threshold=kwargs.get("convergence_threshold"),
+            convergence_window=kwargs.get("convergence_window"),
+            convergence_patience=kwargs.get("convergence_patience"),
+        )
+
+
 class BaseHardwareBackend(NeuromorphicBackend):
     """Common scaffolding for hardware-oriented backends."""
 
@@ -1379,6 +1457,22 @@ class LoihiHardwareBackend(CallableHardwareBackend):
 
     hardware_name = "intel-loihi"
 
+    def __init__(
+        self,
+        config: SpikingNetworkConfig,
+        *,
+        auto_reset: bool = True,
+        fallback_to_simulation: bool = True,
+        **kwargs,
+    ) -> None:
+        self._emulator: _EmulatedHardwareDriver | None = None
+        super().__init__(
+            config,
+            auto_reset=auto_reset,
+            fallback_to_simulation=fallback_to_simulation,
+            **kwargs,
+        )
+
     def _probe_endpoint(
         self,
         endpoint: str,
@@ -1408,6 +1502,7 @@ class LoihiHardwareBackend(CallableHardwareBackend):
     def _initialise_hardware(
         self, config: SpikingNetworkConfig, **kwargs
     ) -> Mapping[str, Any] | None:
+        self._emulator = None
         runner = kwargs.pop("runner", None)
         endpoint = kwargs.get("hardware_endpoint") or kwargs.get("http_endpoint")
         probe_context: Dict[str, Any] = {}
@@ -1435,16 +1530,18 @@ class LoihiHardwareBackend(CallableHardwareBackend):
             if callable(describe_candidate):
                 kwargs.setdefault("describe_fn", describe_candidate)
         if "run_fn" not in kwargs or not callable(kwargs["run_fn"]):
-            try:  # pragma: no cover - depends on optional SDK
-                importlib.import_module("lava")
-            except ImportError as exc:
-                raise HardwareIntegrationError(
-                    "Intel Lava SDK not available; provide a 'runner' or explicit 'run_fn'."
-                ) from exc
-            raise HardwareIntegrationError(
-                "Loihi backend requires a runner exposing a 'run' method or a 'run_fn' argument."
+            spec = EMULATED_HARDWARE_SPECS["loihi"]
+            self._emulator = _EmulatedHardwareDriver(
+                config, spec, auto_reset=self.auto_reset
             )
+            kwargs["run_fn"] = self._emulator.run
+            kwargs.setdefault("compile_fn", self._emulator.compile)
+            kwargs.setdefault("reset_fn", self._emulator.reset)
+            kwargs.setdefault("describe_fn", self._emulator.describe)
         context = super()._initialise_hardware(config, **kwargs) or {}
+        if self._emulator is not None:
+            context.setdefault("mode", "emulated")
+            context.setdefault("description", self._emulator.describe())
         if probe_context:
             context = dict(context)
             context.setdefault("probe", probe_context)
@@ -1456,9 +1553,26 @@ class BrainScaleSHardwareBackend(CallableHardwareBackend):
 
     hardware_name = "brainscales"
 
+    def __init__(
+        self,
+        config: SpikingNetworkConfig,
+        *,
+        auto_reset: bool = True,
+        fallback_to_simulation: bool = True,
+        **kwargs,
+    ) -> None:
+        self._emulator: _EmulatedHardwareDriver | None = None
+        super().__init__(
+            config,
+            auto_reset=auto_reset,
+            fallback_to_simulation=fallback_to_simulation,
+            **kwargs,
+        )
+
     def _initialise_hardware(
         self, config: SpikingNetworkConfig, **kwargs
     ) -> Mapping[str, Any] | None:
+        self._emulator = None
         runner = kwargs.pop("runner", None)
         if runner is not None and "run_fn" not in kwargs:
             run_candidate = getattr(runner, "run", None) or getattr(runner, "execute", None)
@@ -1474,10 +1588,71 @@ class BrainScaleSHardwareBackend(CallableHardwareBackend):
             if callable(describe_candidate):
                 kwargs.setdefault("describe_fn", describe_candidate)
         if "run_fn" not in kwargs or not callable(kwargs["run_fn"]):
-            raise HardwareIntegrationError(
-                "BrainScaleS backend requires a runner exposing a 'run' method or a 'run_fn'."
+            spec = EMULATED_HARDWARE_SPECS["brainscales"]
+            self._emulator = _EmulatedHardwareDriver(
+                config, spec, auto_reset=self.auto_reset
             )
-        return super()._initialise_hardware(config, **kwargs)
+            kwargs["run_fn"] = self._emulator.run
+            kwargs.setdefault("compile_fn", self._emulator.compile)
+            kwargs.setdefault("reset_fn", self._emulator.reset)
+            kwargs.setdefault("describe_fn", self._emulator.describe)
+        context = super()._initialise_hardware(config, **kwargs) or {}
+        if self._emulator is not None:
+            context.setdefault("mode", "emulated")
+            context.setdefault("description", self._emulator.describe())
+        return context
+
+
+class SpiNNakerHardwareBackend(CallableHardwareBackend):
+    """Adapter for SpiNNaker hardware with automatic emulation fallback."""
+
+    hardware_name = "spinnaker"
+
+    def __init__(
+        self,
+        config: SpikingNetworkConfig,
+        *,
+        auto_reset: bool = True,
+        fallback_to_simulation: bool = True,
+        **kwargs,
+    ) -> None:
+        self._emulator: _EmulatedHardwareDriver | None = None
+        super().__init__(
+            config,
+            auto_reset=auto_reset,
+            fallback_to_simulation=fallback_to_simulation,
+            **kwargs,
+        )
+
+    def _initialise_hardware(
+        self, config: SpikingNetworkConfig, **kwargs
+    ) -> Mapping[str, Any] | None:
+        self._emulator = None
+        runner = kwargs.pop("runner", None)
+        if runner is not None and "run_fn" not in kwargs:
+            run_candidate = getattr(runner, "run", None) or getattr(runner, "execute", None)
+            if callable(run_candidate):
+                kwargs["run_fn"] = run_candidate
+            reset_candidate = getattr(runner, "reset", None)
+            if callable(reset_candidate):
+                kwargs.setdefault("reset_fn", reset_candidate)
+            describe_candidate = getattr(runner, "describe", None)
+            if callable(describe_candidate):
+                kwargs.setdefault("describe_fn", describe_candidate)
+        if "run_fn" not in kwargs or not callable(kwargs["run_fn"]):
+            spec = EMULATED_HARDWARE_SPECS["spinnaker"]
+            self._emulator = _EmulatedHardwareDriver(
+                config, spec, auto_reset=self.auto_reset
+            )
+            kwargs["run_fn"] = self._emulator.run
+            kwargs.setdefault("compile_fn", self._emulator.compile)
+            kwargs.setdefault("reset_fn", self._emulator.reset)
+            kwargs.setdefault("describe_fn", self._emulator.describe)
+        context = super()._initialise_hardware(config, **kwargs) or {}
+        if self._emulator is not None:
+            context.setdefault("mode", "emulated")
+            context.setdefault("description", self._emulator.describe())
+        return context
 
 
 class HardwareBackendRegistry:
@@ -1507,4 +1682,5 @@ HardwareBackendRegistry.register("loihi", LoihiHardwareBackend)
 HardwareBackendRegistry.register("intel-loihi", LoihiHardwareBackend)
 HardwareBackendRegistry.register("brainscales", BrainScaleSHardwareBackend)
 HardwareBackendRegistry.register("brainscales2", BrainScaleSHardwareBackend)
+HardwareBackendRegistry.register("spinnaker", SpiNNakerHardwareBackend)
 

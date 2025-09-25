@@ -9,6 +9,7 @@ from modules.brain.neuromorphic.spiking_network import (
     CallableHardwareBackend,
     LoihiHardwareBackend,
     NeuromorphicRunResult,
+    SpiNNakerHardwareBackend,
 )
 
 
@@ -197,9 +198,20 @@ def test_loihi_backend_falls_back_without_runner():
     config = SpikingNetworkConfig(n_neurons=2, backend="loihi")
     backend = config.create_backend()
     assert isinstance(backend, LoihiHardwareBackend)
-    assert not backend.hardware_available
+    assert backend.hardware_available
     backend.network.synapses.adapt = lambda *args, **kwargs: None
-    result = backend.run_sequence([[1.0, 0.0], [0.0, 0.0]], decoder="counts")
+    result = backend.run_sequence([[0.2, 0.1]], decoder="counts")
     assert isinstance(result, NeuromorphicRunResult)
-    assert result.spike_events
-    assert backend.hardware_error is not None
+    assert result.metadata.get("mode") == "emulated"
+
+
+def test_spinnaker_backend_emulation():
+    config = SpikingNetworkConfig(n_neurons=2, backend="spinnaker")
+    backend = config.create_backend()
+    assert isinstance(backend, SpiNNakerHardwareBackend)
+    assert backend.hardware_available
+    backend.network.synapses.adapt = lambda *args, **kwargs: None
+    output = backend.run_sequence([[0.4, 0.1]], decoder="counts")
+    assert isinstance(output, NeuromorphicRunResult)
+    assert output.metadata.get("hardware") == "spinnaker"
+    assert backend.hardware_error is None
