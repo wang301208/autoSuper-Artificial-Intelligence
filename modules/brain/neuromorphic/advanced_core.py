@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Deque, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import math
 import random
@@ -494,6 +494,322 @@ class NeurovascularCoupling:
 
 
 # ---------------------------------------------------------------------------
+# Biophysical network containers and builders
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BiophysicalSynapseConnection:
+    """Lightweight wrapper tracking synaptic wiring for the builder output."""
+
+    name: str
+    pre: str
+    post: str
+    synapse: SynapseModel
+    neuromodulator: Optional[str] = None
+    reward_key: Optional[str] = None
+
+
+@dataclass
+class BiophysicalNeuromorphicNetwork:
+    """Container holding neurons, synapses and physiological feedback loops."""
+
+    neurons: Dict[str, NeuronModel]
+    synapses: List[BiophysicalSynapseConnection]
+    glia: Dict[str, object]
+    neuromodulators: Dict[str, Neuromodulator]
+    neurovascular: NeurovascularCoupling
+    modulator_targets: Dict[str, List[str]] = field(default_factory=dict)
+    microglia_input_key: Optional[str] = None
+    default_dt: float = 0.001
+    _time: float = field(default=0.0, init=False)
+    _last_spikes: Dict[str, int] = field(default_factory=dict, init=False)
+
+    def reset(self) -> None:
+        """Reset membrane state and physiological feedback buffers."""
+
+        self._time = 0.0
+        self._last_spikes.clear()
+        for neuron in self.neurons.values():
+            reset_hook = getattr(neuron, "reset", None) or getattr(neuron, "reset_state", None)
+            if callable(reset_hook):
+                try:
+                    reset_hook()  # type: ignore[misc]
+                except Exception:
+                    # Fallback to clearing commonly used attributes
+                    if hasattr(neuron, "v"):
+                        setattr(neuron, "v", getattr(neuron, "v", 0.0))
+
+    def step(
+        self,
+        inputs: Mapping[str, float] | None = None,
+        *,
+        dt: float | None = None,
+        reward: Mapping[str, float] | None = None,
+    ) -> Dict[str, Any]:
+        """Advance the coupled network and return a physiology-aware snapshot."""
+
+        timestep = float(dt if dt is not None else self.default_dt)
+        external = {str(key): float(value) for key, value in (inputs or {}).items()}
+        currents: Dict[str, float] = {name: external.get(name, 0.0) for name in self.neurons}
+        synaptic_activity = 0.0
+
+        for connection in self.synapses:
+            pre_spike = self._last_spikes.get(connection.pre, 0)
+            post_spike = self._last_spikes.get(connection.post, 0)
+            mod_level: Optional[float] = None
+            if connection.neuromodulator:
+                modulator = self.neuromodulators.get(connection.neuromodulator)
+                if modulator is not None:
+                    mod_level = float(modulator.concentration or modulator.baseline)
+            reward_value: Optional[float] = None
+            if reward and connection.reward_key:
+                try:
+                    reward_value = float(reward.get(connection.reward_key, 0.0))
+                except (TypeError, ValueError):
+                    reward_value = None
+            current = connection.synapse.transmit(
+                pre_spike,
+                post_spike,
+                dt=timestep,
+                reward=reward_value,
+                neuromodulator=mod_level,
+            )
+            synaptic_activity += abs(current)
+            currents[connection.post] = currents.get(connection.post, 0.0) + float(current)
+
+        spikes: Dict[str, int] = {}
+        total_activity = 0.0
+        for name, neuron in self.neurons.items():
+            current = currents.get(name, 0.0)
+            spike = neuron.step(current, timestep, self._time)
+            spike_int = int(spike)
+            spikes[name] = spike_int
+            total_activity += spike_int
+        self._time += timestep
+        self._last_spikes = dict(spikes)
+
+        modulator_state: Dict[str, float] = {}
+        for name, modulator in self.neuromodulators.items():
+            targets = self.modulator_targets.get(name)
+            spike_sum = 0
+            if targets:
+                spike_sum = sum(spikes.get(target, 0) for target in targets)
+            else:
+                spike_sum = sum(spikes.values())
+            reward_term = 0.0
+            if reward and name in reward:
+                try:
+                    reward_term = float(reward.get(name, 0.0))
+                except (TypeError, ValueError):
+                    reward_term = 0.0
+            modulator_state[name] = float(modulator.release(spike_sum, reward=reward_term, dt=timestep))
+
+        astro_state: Dict[str, float] = {}
+        astro_signal = 0.0
+        astrocyte = self.glia.get("astrocyte")
+        if isinstance(astrocyte, Astrocyte):
+            calcium, gliotransmitter = astrocyte.respond(synaptic_activity, dt=timestep)
+            astro_state = {"calcium": float(calcium), "gliotransmitter": float(gliotransmitter)}
+            astro_signal = float(gliotransmitter)
+
+        micro_state: Dict[str, float] = {}
+        microglia = self.glia.get("microglia")
+        damage_signal = 0.0
+        if self.microglia_input_key and self.microglia_input_key in external:
+            damage_signal = float(external.get(self.microglia_input_key, 0.0))
+        elif "damage" in external:
+            damage_signal = float(external.get("damage", 0.0))
+        if isinstance(microglia, Microglia):
+            activation = microglia.update(damage_signal, dt=max(timestep, 0.1))
+            micro_state = {"activation": float(activation)}
+
+        flow, oxygenation = self.neurovascular.update(total_activity, astro_signal, dt=max(timestep, 0.1))
+
+        return {
+            "spikes": dict(spikes),
+            "currents": currents,
+            "synaptic_activity": float(synaptic_activity),
+            "neuromodulators": modulator_state,
+            "glia": {"astrocyte": astro_state, "microglia": micro_state},
+            "neurovascular": {"blood_flow": float(flow), "oxygenation": float(oxygenation)},
+        }
+
+
+class BiophysicalNetworkBuilder:
+    """Assemble biophysical neuromorphic networks from declarative specs."""
+
+    def __init__(self, core: Optional["AdvancedNeuromorphicCore"] = None) -> None:
+        self.core = core or AdvancedNeuromorphicCore()
+
+    @staticmethod
+    def _resolve_identifier(index: int, prefix: str = "neuron") -> str:
+        return f"{prefix}_{index}"
+
+    @staticmethod
+    def _coerce_sequence(value: Any) -> List[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, Sequence):
+            return [str(item) for item in value]
+        return []
+
+    def _build_neurons(self, specification: Mapping[str, Any]) -> Dict[str, NeuronModel]:
+        neurons: Dict[str, NeuronModel] = {}
+        neuron_specs = specification.get("neurons", [])
+        for index, entry in enumerate(neuron_specs):
+            if isinstance(entry, str):
+                name = self._resolve_identifier(index)
+                neuron_type = entry
+                params: Dict[str, Any] = {}
+            elif isinstance(entry, Mapping):
+                name = str(entry.get("name") or entry.get("id") or self._resolve_identifier(index))
+                neuron_type = entry.get("type") or entry.get("model")
+                if not neuron_type:
+                    raise ValueError(f"Neuron specification at index {index} missing 'type'")
+                params = dict(entry.get("params") or entry.get("config") or {})
+            else:
+                raise TypeError("Neuron specification entries must be mappings or strings")
+            neurons[name] = self.core.create_neuron(str(neuron_type), **params)
+        if not neurons:
+            neurons[self._resolve_identifier(0)] = self.core.create_neuron("adaptive_exponential")
+        return neurons
+
+    def _build_synapses(
+        self,
+        specification: Mapping[str, Any],
+        neurons: Mapping[str, NeuronModel],
+    ) -> List[BiophysicalSynapseConnection]:
+        synapses: List[BiophysicalSynapseConnection] = []
+        neuron_names = list(neurons.keys())
+        synapse_specs = specification.get("synapses", [])
+        for index, entry in enumerate(synapse_specs):
+            if not isinstance(entry, Mapping):
+                raise TypeError("Synapse specification entries must be mappings")
+            pre = entry.get("pre") or entry.get("source")
+            post = entry.get("post") or entry.get("target")
+            if isinstance(pre, int) and 0 <= pre < len(neuron_names):
+                pre = neuron_names[pre]
+            if isinstance(post, int) and 0 <= post < len(neuron_names):
+                post = neuron_names[post]
+            if pre not in neurons or post not in neurons:
+                raise ValueError(f"Synapse specification references unknown neurons '{pre}' -> '{post}'")
+            synapse_type = entry.get("type") or entry.get("model") or "ampa"
+            params = dict(entry.get("params") or entry.get("config") or {})
+            synapse = self.core.create_synapse(str(synapse_type), **params)
+            connection = BiophysicalSynapseConnection(
+                name=str(entry.get("name") or f"synapse_{index}"),
+                pre=str(pre),
+                post=str(post),
+                synapse=synapse,
+                neuromodulator=(entry.get("neuromodulator") or entry.get("modulator")),
+                reward_key=(entry.get("reward") or entry.get("reward_key")),
+            )
+            synapses.append(connection)
+        return synapses
+
+    def _build_glia(self, specification: Mapping[str, Any]) -> Tuple[Dict[str, object], Optional[str]]:
+        glia = self.core.create_glial()
+        microglia_input: Optional[str] = None
+        glia_spec = specification.get("glia", {})
+        if isinstance(glia_spec, Mapping):
+            astro_spec = glia_spec.get("astrocyte")
+            if isinstance(astro_spec, Mapping):
+                astro = glia.get("astrocyte")
+                if isinstance(astro, Astrocyte):
+                    for key, value in astro_spec.items():
+                        if hasattr(astro, key):
+                            try:
+                                setattr(astro, key, float(value))
+                            except (TypeError, ValueError):
+                                continue
+            micro_spec = glia_spec.get("microglia")
+            if isinstance(micro_spec, Mapping):
+                micro = glia.get("microglia")
+                if isinstance(micro, Microglia):
+                    for key, value in micro_spec.items():
+                        if key == "input":
+                            microglia_input = str(value)
+                            continue
+                        if hasattr(micro, key):
+                            try:
+                                setattr(micro, key, float(value))
+                            except (TypeError, ValueError):
+                                continue
+        return glia, microglia_input
+
+    def _build_neuromodulators(
+        self,
+        specification: Mapping[str, Any],
+        neurons: Mapping[str, NeuronModel],
+    ) -> Tuple[Dict[str, Neuromodulator], Dict[str, List[str]]]:
+        modulators = self.core.create_neuromodulators()
+        targets: Dict[str, List[str]] = {}
+        neuron_names = set(neurons.keys())
+        mod_spec = specification.get("neuromodulators", {})
+        if isinstance(mod_spec, Mapping):
+            for name, entry in mod_spec.items():
+                normalized = str(name)
+                modulator = modulators.get(normalized, Neuromodulator(normalized))
+                if isinstance(entry, Mapping):
+                    if "baseline" in entry:
+                        try:
+                            modulator.baseline = float(entry["baseline"])
+                        except (TypeError, ValueError):
+                            pass
+                    if "concentration" in entry:
+                        try:
+                            modulator.concentration = float(entry["concentration"])
+                        except (TypeError, ValueError):
+                            pass
+                    if "targets" in entry:
+                        resolved = []
+                        for target in self._coerce_sequence(entry["targets"]):
+                            if target in neuron_names:
+                                resolved.append(target)
+                        if resolved:
+                            targets[normalized] = resolved
+                elif isinstance(entry, (int, float)):
+                    modulator.baseline = float(entry)
+                modulators[normalized] = modulator
+        return modulators, targets
+
+    def _build_neurovascular(self, specification: Mapping[str, Any]) -> NeurovascularCoupling:
+        unit = self.core.create_neurovascular_unit()
+        vascular_spec = specification.get("neurovascular") or specification.get("vascular")
+        if isinstance(vascular_spec, Mapping):
+            for key, value in vascular_spec.items():
+                if hasattr(unit, key):
+                    try:
+                        setattr(unit, key, float(value))
+                    except (TypeError, ValueError):
+                        continue
+        return unit
+
+    def build(self, specification: Mapping[str, Any]) -> BiophysicalNeuromorphicNetwork:
+        if not isinstance(specification, Mapping):
+            raise TypeError("Specification must be a mapping")
+        neurons = self._build_neurons(specification)
+        synapses = self._build_synapses(specification, neurons)
+        glia, microglia_input = self._build_glia(specification)
+        neuromodulators, targets = self._build_neuromodulators(specification, neurons)
+        neurovascular = self._build_neurovascular(specification)
+        network = BiophysicalNeuromorphicNetwork(
+            neurons=neurons,
+            synapses=synapses,
+            glia=glia,
+            neuromodulators=neuromodulators,
+            neurovascular=neurovascular,
+            modulator_targets=targets,
+            microglia_input_key=microglia_input,
+        )
+        default_dt = specification.get("dt") or specification.get("time_step")
+        if isinstance(default_dt, (int, float)):
+            network.default_dt = float(default_dt)
+        return network
+
+
+# ---------------------------------------------------------------------------
 # Network topology generation
 # ---------------------------------------------------------------------------
 
@@ -811,8 +1127,17 @@ class AdvancedNeuromorphicCore:
     def plan_deployment(self, neuron_count: int) -> List[Tuple[str, int]]:
         return self.planner.plan(neuron_count)
 
+    def build_biophysical_network(self, specification: Mapping[str, Any]) -> BiophysicalNeuromorphicNetwork:
+        """Create a coupled neuron-glia-vascular network from a declarative spec."""
+
+        builder = BiophysicalNetworkBuilder(self)
+        return builder.build(specification)
+
 
 __all__ = [
+    "BiophysicalNeuromorphicNetwork",
+    "BiophysicalNetworkBuilder",
+    "BiophysicalSynapseConnection",
     "NeuronModel",
     "HodgkinHuxleyNeuron",
     "IzhikevichNeuron",

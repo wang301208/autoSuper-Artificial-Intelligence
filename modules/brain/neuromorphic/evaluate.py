@@ -115,9 +115,21 @@ def evaluate(
     backend = cfg.create_backend()
     run_result = backend.run_events(prepared_signal)
     outputs = run_result.spike_events
-    predicted = [spikes for _, spikes in outputs]
-    if len(predicted) != len(target):
-        raise ValueError("Prediction and target length mismatch")
+    num_neurons = 0
+    if outputs:
+        num_neurons = len(outputs[0][1])
+    elif target:
+        num_neurons = len(target[0])
+    grouped: Dict[int, List[int]] = {}
+    for time, spikes in outputs:
+        index = int(time)
+        if index < 0:
+            continue
+        grouped[index] = [int(s) for s in spikes]
+    length = len(target)
+    if length and num_neurons == 0:
+        num_neurons = len(target[0])
+    predicted = [grouped.get(step, [0] * num_neurons) for step in range(length)]
 
     mse_sum = 0.0
     total_spikes = 0
@@ -180,9 +192,12 @@ def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - CLI u
     parser.add_argument("--target", help="Path to target spike JSON")
     parser.add_argument("--dataset", help="Path to dataset directory (config/signal/target)")
     parser.add_argument("--output", help="Write evaluation metrics JSON to this path")
-    parser.add_argument("--metrics", default="all", help="Comma separated list of metrics (mse,total_spikes,avg_rate_diff,first_spike_latency,energy_used,all)")
+    parser.add_argument(
+        "--metrics",
+        default="all",
+        help="Comma separated list of metrics (mse,total_spikes,avg_rate_diff,first_spike_latency,energy_used,all)",
+    )
     parser.add_argument("--metrics-plugin", help="Load additional metric callable via module:function")
-    parser.add_argument("--metrics", default="mse,total_spikes", help="Comma separated list of metrics (mse,total_spikes,all)")
     args = parser.parse_args(argv)
 
     loader = DatasetLoader(Path(args.dataset)) if args.dataset else None

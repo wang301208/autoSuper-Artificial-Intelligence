@@ -20,7 +20,7 @@ import random
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from numbers import Real
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, ClassVar, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -1147,6 +1147,21 @@ class CognitiveModule:
 class WholeBrainSimulation:
     """Container object coordinating all brain subsystems."""
 
+    _CHANNEL_TO_MODULE: ClassVar[Dict[str, str]] = {
+        "observe": "visual",
+        "approach": "motor",
+        "withdraw": "emotion",
+        "explore": "precision_motor",
+    }
+    _MODULATOR_TO_MODULE: ClassVar[Dict[str, str]] = {
+        "dopamine": "curiosity",
+        "serotonin": "emotion",
+        "norepinephrine": "consciousness",
+        "acetylcholine": "cognition",
+        "oxytocin": "emotion",
+        "histamine": "consciousness",
+    }
+
     visual: VisualCortex = field(default_factory=VisualCortex)
     auditory: AuditoryCortex = field(default_factory=AuditoryCortex)
     somatosensory: SomatosensoryCortex = field(default_factory=SomatosensoryCortex)
@@ -1336,6 +1351,72 @@ class WholeBrainSimulation:
         self.motor.spiking_backend = backend
         return backend
 
+    def _channel_to_module(self, channel: str) -> Optional[str]:
+        key = channel.lower()
+        if key in self._CHANNEL_TO_MODULE:
+            return self._CHANNEL_TO_MODULE[key]
+        if key in self.topology.module_to_regions:
+            return key
+        return None
+
+    def _modulator_to_module(self, modulator: str) -> Optional[str]:
+        key = modulator.lower()
+        if key in self._MODULATOR_TO_MODULE:
+            return self._MODULATOR_TO_MODULE[key]
+        if key in self.topology.module_to_regions:
+            return key
+        return None
+
+    def _map_motor_plan_to_regions(
+        self,
+        weights: Mapping[str, float],
+        *,
+        modulators: Mapping[str, float] | None = None,
+        oscillation_state: Mapping[str, float] | None = None,
+    ) -> Dict[str, Dict[str, float]]:
+        def _normalise(value: Any) -> float:
+            try:
+                return max(0.0, min(1.0, float(value)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        module_activity: Dict[str, float] = {}
+        for channel, value in weights.items():
+            module = self._channel_to_module(channel)
+            if not module:
+                continue
+            module_activity[module] = max(module_activity.get(module, 0.0), _normalise(value))
+
+        if modulators:
+            for name, value in modulators.items():
+                module = self._modulator_to_module(name)
+                if not module:
+                    continue
+                module_activity[module] = max(module_activity.get(module, 0.0), _normalise(value))
+
+        if oscillation_state:
+            numeric = [
+                float(val)
+                for val in oscillation_state.values()
+                if isinstance(val, (int, float))
+            ]
+            if numeric:
+                avg = sum(numeric) / len(numeric)
+                module_activity["consciousness"] = max(
+                    module_activity.get("consciousness", 0.0), _normalise(avg)
+                )
+
+        if not module_activity:
+            return {}
+
+        regions = self.topology.project_activity(module_activity)
+        connectome_projection = self.connectome.propagate(regions)
+        return {
+            "modules": module_activity,
+            "regions": regions,
+            "connectome": connectome_projection,
+        }
+
     def _run_motor_neuromorphic(
         self,
         weights: Dict[str, float],
@@ -1372,6 +1453,11 @@ class WholeBrainSimulation:
             encoder_kwargs['steps'] = steps
             decoder_kwargs['window'] = float(steps)
             mode = 'rate'
+        region_map = self._map_motor_plan_to_regions(
+            weights,
+            modulators=modulators,
+            oscillation_state=oscillation_state,
+        )
         metadata = {
             'intention': intention,
             'channels': ordering,
@@ -1380,6 +1466,10 @@ class WholeBrainSimulation:
         }
         if oscillation_state:
             metadata['oscillation'] = dict(oscillation_state)
+        if region_map:
+            metadata['module_activity'] = dict(region_map['modules'])
+            metadata['regional_activity'] = dict(region_map['regions'])
+            metadata['connectome_projection'] = dict(region_map['connectome'])
         result = backend.run_sequence(
             [vector],
             encoding=mode,
@@ -1390,6 +1480,10 @@ class WholeBrainSimulation:
             neuromodulation=oscillation_state,
             reset=True,
         )
+        if region_map:
+            result.metadata.setdefault('module_activity', dict(region_map['modules']))
+            result.metadata.setdefault('regional_activity', dict(region_map['regions']))
+            result.metadata.setdefault('connectome_projection', dict(region_map['connectome']))
         self.last_motor_result = result
         return result
 
