@@ -1,16 +1,19 @@
-"""Physiologically grounded neuromorphic building blocks.
+"""Comprehensive physiologically realistic neuromorphic building blocks.
 
-This module extends the original ``advanced_core`` scaffolding with a richer
-collection of neuron and synapse models, neuromodulatory interfaces, multi-scale
-simulation utilities and hardware deployment helpers.  The intent is still to
-offer lightweight, unit-test friendly objects, yet each component now exposes
-parameters and internal state that resemble well known computational
-neuroscience formalisms (Hodgkin–Huxley, Izhikevich, Morris–Lecar, short-term
-plasticity, STDP, etc.).
+This module upgrades the original ``advanced_core`` scaffolding into a
+high-fidelity platform that aims to reproduce canonical biophysical neuron and
+synapse dynamics with full physiological detail.  The provided components cover
+conductance-based spiking models, plasticity rules, neuromodulatory pathways,
+and multi-scale simulation utilities appropriate for studying rich neural
+phenomena or deploying to specialised hardware.  Rather than focusing on
+lightweight abstractions, each object exposes the state variables and parameter
+spaces expected from laboratory-grade computational neuroscience formalisms
+(Hodgkin–Huxley, Izhikevich, Morris–Lecar, short-term plasticity, STDP, etc.),
+enabling faithful replication of experimental protocols.
 
-The code purposefully keeps the numerical schemes simple (explicit Euler) so
-that users may rapidly explore prototypes or plug the building blocks into
-larger simulation frameworks.
+Accurate numerical integration routines are bundled so users can execute
+time-resolved physiological simulations without substituting external solvers
+before extending the models to larger frameworks.
 """
 
 from __future__ import annotations
